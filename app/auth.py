@@ -1,0 +1,123 @@
+"""Username/password login (bcrypt hashes in dim_user) issuing short-lived JWTs."""
+import os
+import threading
+import time
+from datetime import datetime, timedelta, timezone
+
+import bcrypt
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from . import db
+
+_bearer = HTTPBearer(auto_error=False)
+ALGORITHM = "HS256"
+DISABLED_HASH = "!"  # password_hash value meaning "login disabled"
+
+# ---- brute-force protection (in-memory: per process; fine for a single small instance)
+MAX_FAILURES, LOCK_SECONDS = 5, 15 * 60
+_fails: dict = {}
+_fails_lock = threading.Lock()
+
+
+def _keys(username, ip):
+    return [("u", username.strip().lower()), ("ip", ip or "?")]
+
+
+def check_not_locked(username, ip):
+    now = time.time()
+    with _fails_lock:
+        for k in _keys(username, ip):
+            count, first = _fails.get(k, (0, now))
+            if count >= MAX_FAILURES and now - first < LOCK_SECONDS:
+                raise HTTPException(429, "Too many failed attempts. Try again in a few minutes.")
+            if now - first >= LOCK_SECONDS:
+                _fails.pop(k, None)
+
+
+def record_failure(username, ip):
+    now = time.time()
+    with _fails_lock:
+        for k in _keys(username, ip):
+            count, first = _fails.get(k, (0, now))
+            _fails[k] = (count + 1, first if count else now)
+
+
+def clear_failures(username, ip):
+    with _fails_lock:
+        for k in _keys(username, ip):
+            _fails.pop(k, None)
+
+
+# ---- tokens
+def _secret() -> str:
+    secret = os.environ.get("JWT_SECRET", "")
+    if len(secret) < 32:
+        raise RuntimeError("JWT_SECRET must be set to a random string of at least 32 characters")
+    return secret
+
+
+def check_config():
+    _secret()
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), stored.encode())
+    except ValueError:  # '!' (disabled) or malformed hash
+        return False
+
+
+def authenticate(username: str, password: str):
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT user_key, username, password_hash, role, display_name, must_change_password "
+            "FROM dim_user WHERE lower(username) = lower(%s)", (username.strip(),))
+        user = cur.fetchone()
+    # Always run a bcrypt check so response time doesn't reveal whether the user exists.
+    stored = user["password_hash"] if user else "$2b$12$" + "." * 53
+    ok = verify_password(password, stored)
+    return user if (user and ok) else None
+
+
+def make_token(user) -> str:
+    hours = int(os.environ.get("TOKEN_HOURS", "12"))
+    payload = {"sub": str(user["user_key"]), "exp": datetime.now(timezone.utc) + timedelta(hours=hours)}
+    return jwt.encode(payload, _secret(), algorithm=ALGORITHM)
+
+
+# ---- request dependencies
+def current_user(creds: HTTPAuthorizationCredentials = Depends(_bearer)):
+    """Valid token + user still exists and is not disabled. Role etc. are re-read on every request."""
+    if not creds:
+        raise HTTPException(401, "Missing bearer token")
+    try:
+        payload = jwt.decode(creds.credentials, _secret(), algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid or expired token")
+    with db.cursor() as cur:
+        cur.execute("SELECT user_key, username, role, display_name, must_change_password, password_hash "
+                    "FROM dim_user WHERE user_key = %s", (int(payload["sub"]),))
+        user = cur.fetchone()
+    if not user or user["password_hash"] == DISABLED_HASH:
+        raise HTTPException(401, "Unknown or disabled user")
+    user.pop("password_hash")
+    return user
+
+
+def require_roles(*roles):
+    """Dependency: user must have finished the forced password change and hold one of `roles`."""
+    allowed = set(roles)
+
+    def dep(user=Depends(current_user)):
+        if user["must_change_password"]:
+            raise HTTPException(403, "Password change required. POST /auth/change-password first.")
+        if user["role"] not in allowed:
+            raise HTTPException(403, "Your role is not allowed to do this")
+        return user
+    return dep
