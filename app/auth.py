@@ -1,5 +1,6 @@
 """Username/password login (bcrypt hashes in dim_user) issuing short-lived JWTs."""
 import os
+import secrets
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -108,6 +109,43 @@ def current_user(creds: HTTPAuthorizationCredentials = Depends(_bearer)):
         raise HTTPException(401, "Unknown or disabled user")
     user.pop("password_hash")
     return user
+
+
+# ---- single sign-on tickets (portal -> Apps Script hand-off, no token in browser history)
+# A ticket only gets minted for someone who already holds a valid JWT, is good for one
+# exchange, and expires fast — it is not a second, longer-lived credential.
+SSO_TICKET_SECONDS = 90
+_tickets: dict = {}
+_tickets_lock = threading.Lock()
+
+
+def _prune_tickets(now):
+    for t, (_, expires) in list(_tickets.items()):
+        if now >= expires:
+            _tickets.pop(t, None)
+
+
+def create_sso_ticket(user_key: int) -> str:
+    ticket = secrets.token_urlsafe(32)
+    now = time.time()
+    with _tickets_lock:
+        _prune_tickets(now)
+        _tickets[ticket] = (user_key, now + SSO_TICKET_SECONDS)
+    return ticket
+
+
+def redeem_sso_ticket(ticket: str):
+    """Single use: valid once, then gone, regardless of outcome."""
+    now = time.time()
+    with _tickets_lock:
+        _prune_tickets(now)
+        entry = _tickets.pop(ticket, None)
+    if not entry:
+        return None
+    user_key, expires = entry
+    if now >= expires:
+        return None
+    return user_key
 
 
 def require_roles(*roles):

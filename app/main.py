@@ -96,6 +96,34 @@ def me(user=Depends(auth.current_user)):
     return user
 
 
+class SsoExchangeIn(BaseModel):
+    ticket: str = Field(max_length=100)
+
+
+@app.post("/auth/sso-ticket")
+def sso_ticket(user=Depends(auth.current_user)):
+    """Mints a 90-second, one-time ticket so the portal can hand this session off to an
+    Apps Script app without putting the real (12-hour) bearer token in a URL."""
+    return {"ticket": auth.create_sso_ticket(user["user_key"])}
+
+
+@app.post("/auth/sso-exchange")
+def sso_exchange(body: SsoExchangeIn):
+    user_key = auth.redeem_sso_ticket(body.ticket)
+    if not user_key:
+        raise HTTPException(401, "This link has expired or was already used. Please sign in again.")
+    with db.cursor() as cur:
+        cur.execute("SELECT user_key, username, role, display_name, must_change_password, password_hash "
+                    "FROM dim_user WHERE user_key = %s", (user_key,))
+        user = cur.fetchone()
+    if not user or user["password_hash"] == auth.DISABLED_HASH:
+        raise HTTPException(401, "Unknown or disabled user")
+    return {"access_token": auth.make_token(user), "token_type": "bearer",
+            "must_change_password": user["must_change_password"],
+            "user": {"username": user["username"], "role": user["role"],
+                     "display_name": user["display_name"]}}
+
+
 @app.post("/auth/change-password")
 def change_password(body: ChangePasswordIn, user=Depends(auth.current_user)):
     if body.new_password == body.current_password:

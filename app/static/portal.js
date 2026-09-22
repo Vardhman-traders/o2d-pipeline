@@ -264,10 +264,26 @@ async function route() {
   showPortal();
 }
 
+// Opens an app link already signed in: mints a 90-second one-time ticket and appends it
+// to the URL, instead of sending the real (12-hour) bearer token anywhere. The tab is
+// opened synchronously (on the click) so browsers don't treat it as a blocked popup;
+// its location is filled in once the ticket comes back.
+async function openAppLink(url) {
+  const win = window.open('', '_blank', 'noopener,noreferrer');
+  try {
+    const { ticket } = await api('/auth/sso-ticket', { method: 'POST' });
+    const joined = url + (url.includes('?') ? '&' : '?') + 'ssoTicket=' + encodeURIComponent(ticket);
+    if (win) win.location = joined; else window.open(joined, '_blank', 'noopener,noreferrer');
+  } catch (ex) {
+    if (win) win.close();
+    alert('Could not open this app: ' + ex.message);
+  }
+}
+
 function topbar(links) {
   return h('header', { class: 'topbar' },
     h('div', { class: 'brand' }, h('span', { class: 'badge', text: 'VT' }), 'Vardhman Traders'),
-    ...links.map((l) => safeHttps(l.url) && h('a', { class: 'btn', href: l.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open ' + l.name + ' ↗' })),
+    ...links.map((l) => safeHttps(l.url) && h('button', { class: 'btn', text: 'Open ' + l.name + ' ↗', onclick: () => openAppLink(l.url) })),
     h('span', { class: 'who' }, S.user.display_name, h('span', { class: 'role-chip', text: S.user.role.replace('_', ' ') })),
     h('button', { class: 'btn', text: 'Change password', onclick: () => showChangePassword(false) }),
     h('button', { class: 'btn', text: 'Sign out', onclick: () => signOut() }));
@@ -303,7 +319,7 @@ async function showPortal() {
 function renderHome(body, links) {
   const tiles = links.map((l) => {
     const url = safeHttps(l.url);
-    return url && h('a', { class: 'app-tile', href: url, target: '_blank', rel: 'noopener noreferrer' },
+    return url && h('button', { class: 'app-tile', onclick: () => openAppLink(url) },
       h('strong', { text: l.name }), h('span', { text: 'Open ↗' }));
   });
   body.append(h('h1', { text: 'Welcome, ' + S.user.display_name, style: 'font-size:20px' }),

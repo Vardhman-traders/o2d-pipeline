@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  :root {
+    --navy: #10263d; --navy-2: #163a5e; --blue: #1c4f82; --blue-2: #2f6fed; --blue-light: #4d8fe0;
+    --bg: #f2f6fa; --panel: #ffffff; --panel-2: #f5f8fb; --border: #dde6ef;
+    --text: #17222f; --muted: #647186; --red: #d8433f; --amber: #c98a12; --green: #22b378;
+    --brand-gradient: linear-gradient(135deg, var(--navy) 0%, var(--blue) 55%, var(--blue-2) 100%);
+    --shop-color: #2f6fed;
+    --godown-color: #d68a1a;
+    --dispatch-color: #1fae7a;
+    --receiving-color: #9333ea;
+  }
+  .field-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 10.5px;
+    font-weight: 800; margin-right: 6px; flex-shrink: 0;
+  }
+  label.with-badge { display: flex; align-items: center; }
+  .required-star { color: var(--red); margin-left: 3px; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: var(--brand-gradient); box-shadow: 0 2px 10px rgba(22,50,74,0.18); position: sticky; top: 0; z-index: 10; }
+  .topbar h1 { font-size: 18px; margin: 0; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .badge { background: #fff; color: var(--navy); font-weight: 800; font-size: 12px; padding: 4px 9px; border-radius: 7px; }
+  .btn-home { font-size: 13px; padding: 7px 14px; border-radius: 8px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.35); text-decoration: none; color: #fff; cursor: pointer; }
+  .btn-home:hover { background: rgba(255,255,255,0.28); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 22px; box-shadow: 0 1px 4px rgba(22,50,74,0.05); }
+  .card.accent-shop     { border-left: 4px solid var(--shop-color); }
+  .card.accent-godown   { border-left: 4px solid var(--godown-color); }
+  .card.accent-dispatch { border-left: 4px solid var(--dispatch-color); }
+  .card.accent-receiving{ border-left: 4px solid var(--receiving-color); }
+  .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+  .card h2 .count { background: var(--blue-2); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 999px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+  input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 14px; font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(47,111,237,0.14); }
+  textarea { resize: vertical; min-height: 44px; }
+  .field { margin-bottom: 4px; }
+  .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+  button.primary { background: var(--brand-gradient); color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 10px 16px; border-radius: 8px; cursor: pointer; }
+  button.small { padding: 5px 12px; font-size: 12.5px; border-radius: 6px; background: var(--blue-2); color: #fff; border: none; cursor: pointer; }
+  .status-msg { font-size: 13px; color: var(--green); font-weight: 600; }
+  .status-msg.error { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+  th { white-space: nowrap; }
+  td { white-space: normal; max-width: 260px; word-break: break-word; overflow-wrap: break-word; }
+  .dp-input { cursor: pointer; background: #fff; }
+  .dp-popup { display:none; position:absolute; background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.2); padding:12px; z-index:1000; width:250px; font-size:13px; }
+  .dp-popup .dp-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .dp-popup .dp-header button { border:none; background:var(--panel-2); border-radius:6px; width:26px; height:26px; cursor:pointer; font-size:14px; color:var(--navy); }
+  .dp-popup .dp-label { font-weight:700; color:var(--navy); font-size:13px; }
+  .dp-popup .dp-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; text-align:center; }
+  .dp-popup .dp-dow { font-size:10px; color:var(--muted); font-weight:700; padding:4px 0; }
+  .dp-popup .dp-day { padding:6px 0; border-radius:6px; cursor:pointer; font-size:12px; }
+  .dp-popup .dp-day:hover { background:var(--blue-2); color:#fff; }
+  .dp-popup .dp-day.dp-today { border:1px solid var(--blue-2); }
+  .dp-popup .dp-day.dp-empty { cursor:default; }
+  .dp-popup .dp-day.dp-empty:hover { background:none; }
+  .dp-popup .dp-clear { margin-top:8px; text-align:center; }
+  .dp-popup .dp-clear a { font-size:11px; color:var(--muted); cursor:pointer; }
+  .wrap-cell { display: inline-block; white-space: normal; max-width: 220px; word-break: break-word; overflow-wrap: break-word; vertical-align: top; }
+  th { color: var(--navy); font-weight: 700; font-size: 11.5px; text-transform: uppercase; background: var(--panel-2); }
+  .table-scroll { overflow-x: auto; overflow-y: auto; max-height: 420px; border: 1px solid var(--border); border-radius: 8px; }
+  .table-scroll table { margin: 0; }
+  .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .pill.hold      { background: rgba(216,67,63,0.12); color: var(--red); }
+  .pill.cancelled { background: rgba(107,118,128,0.16); color: var(--muted); text-decoration: line-through; }
+  .pill.sent      { background: rgba(34,179,120,0.13); color: var(--blue-2); }
+  .pill.blank     { background: rgba(107,118,128,0.12); color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+  .error-banner { background: rgba(216,67,63,0.1); border: 1px solid var(--red); color: var(--red); padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+
+<!-- Date Picker Popup -->
+<div id="dpPopup" class="dp-popup">
+  <div class="dp-header">
+    <button type="button" onclick="dpChangeMonth(-1)">&#8249;</button>
+    <span class="dp-label" id="dpLabel"></span>
+    <button type="button" onclick="dpChangeMonth(1)">&#8250;</button>
+  </div>
+  <div class="dp-grid" id="dpGrid"></div>
+  <div class="dp-clear"><a onclick="dpClearValue()">Clear</a></div>
+</div>
+
+<script>
+  var DP_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DP_FIELD = null;
+  var DP_YEAR, DP_MONTH;
+
+  function pad2_(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function isoToDisplay_(iso) {
+    if (!iso) return '';
+    var p = iso.split('-');
+    if (p.length !== 3) return iso;
+    return p[2] + '-' + p[1] + '-' + p[0];
+  }
+
+  function openDatePicker(fieldId) {
+    DP_FIELD = fieldId;
+    var isoInput = document.getElementById(fieldId + '_iso');
+    var iso = isoInput ? isoInput.value : '';
+    var base = iso ? new Date(iso + 'T00:00:00') : new Date();
+    DP_YEAR = base.getFullYear();
+    DP_MONTH = base.getMonth();
+    dpRender_();
+    var popup = document.getElementById('dpPopup');
+    var inputEl = document.getElementById(fieldId);
+    var rect = inputEl.getBoundingClientRect();
+    var popupHeightEstimate = 330;
+    var popupWidth = 250;
+    var spaceBelow = window.innerHeight - rect.bottom;
+    var top = (spaceBelow < popupHeightEstimate && rect.top > popupHeightEstimate)
+      ? rect.top + window.scrollY - popupHeightEstimate - 4
+      : rect.bottom + window.scrollY + 4;
+    var left = rect.left + window.scrollX;
+    if (left + popupWidth > window.innerWidth) left = window.innerWidth - popupWidth - 10;
+    popup.style.top = top + 'px';
+    popup.style.left = left + 'px';
+    popup.style.display = 'block';
+  }
+
+  function dpChangeMonth(delta) {
+    DP_MONTH += delta;
+    if (DP_MONTH < 0) { DP_MONTH = 11; DP_YEAR--; }
+    if (DP_MONTH > 11) { DP_MONTH = 0; DP_YEAR++; }
+    dpRender_();
+  }
+
+  function dpRender_() {
+    document.getElementById('dpLabel').textContent = DP_MONTHS[DP_MONTH] + ' ' + DP_YEAR;
+    var grid = document.getElementById('dpGrid');
+    grid.innerHTML = '';
+    ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(function(d) {
+      var el = document.createElement('div');
+      el.className = 'dp-dow';
+      el.textContent = d;
+      grid.appendChild(el);
+    });
+    var firstDay = new Date(DP_YEAR, DP_MONTH, 1).getDay();
+    var daysInMonth = new Date(DP_YEAR, DP_MONTH + 1, 0).getDate();
+    var todayIso = isoToday_();
+    for (var i = 0; i < firstDay; i++) {
+      var empty = document.createElement('div');
+      empty.className = 'dp-day dp-empty';
+      grid.appendChild(empty);
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      var cell = document.createElement('div');
+      var iso = DP_YEAR + '-' + pad2_(DP_MONTH + 1) + '-' + pad2_(d);
+      cell.className = 'dp-day' + (iso === todayIso ? ' dp-today' : '');
+      cell.textContent = d;
+      cell.onclick = (function(isoVal) { return function() { dpPick_(isoVal); }; })(iso);
+      grid.appendChild(cell);
+    }
+  }
+
+  function isoToday_() {
+    var now = new Date();
+    return now.getFullYear() + '-' + pad2_(now.getMonth() + 1) + '-' + pad2_(now.getDate());
+  }
+
+  function isoNowDateTime_() {
+    var now = new Date();
+    return isoToday_() + 'T' + pad2_(now.getHours()) + ':' + pad2_(now.getMinutes());
+  }
+
+  function dpPick_(iso) { setDatePickerValue(DP_FIELD, iso); closeDatePicker(); }
+  function dpClearValue() { setDatePickerValue(DP_FIELD, ''); closeDatePicker(); }
+
+  function setDatePickerValue(fieldId, iso) {
+    var isoInput = document.getElementById(fieldId + '_iso');
+    var visibleInput = document.getElementById(fieldId);
+    if (isoInput) isoInput.value = iso || '';
+    if (visibleInput) { visibleInput.value = isoToDisplay_(iso); visibleInput.dispatchEvent(new Event('change')); }
+  }
+
+  function getDateTimeValue(baseId) {
+    var datePart = document.getElementById(baseId + '_iso').value;
+    var timeEl = document.getElementById(baseId + '_time');
+    var timePart = timeEl ? timeEl.value : '';
+    if (!datePart) return '';
+    return datePart + 'T' + (timePart || '00:00');
+  }
+
+  function setDateTimeValue(baseId, isoDateTime) {
+    var timeEl = document.getElementById(baseId + '_time');
+    if (!isoDateTime) {
+      setDatePickerValue(baseId, '');
+      if (timeEl) timeEl.value = '';
+      return;
+    }
+    var parts = isoDateTime.split('T');
+    setDatePickerValue(baseId, parts[0]);
+    if (timeEl) timeEl.value = parts[1] || '';
+  }
+
+  function closeDatePicker() { document.getElementById('dpPopup').style.display = 'none'; DP_FIELD = null; }
+
+  document.addEventListener('click', function(e) {
+    var popup = document.getElementById('dpPopup');
+    if (popup && popup.style.display === 'block' && !popup.contains(e.target) && !e.target.classList.contains('dp-input')) {
+      closeDatePicker();
+    }
+  });
+</script>
+
+<!-- ==================== LOGIN SCREEN ==================== -->
+<div id="loginScreen">
+  <div class="topbar"><h1><span class="badge">VT</span> Vardhman Traders - Sales Portal</h1></div>
+  <div class="wrap" style="max-width:400px;">
+    <div class="card" style="margin-top:50px;">
+      <div style="width:60px;height:60px;margin:0 auto 16px;border-radius:50%;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;font-size:26px;">🔒</div>
+      <h2 style="justify-content:center;text-align:center;">Sign in to your dashboard</h2>
+      <form id="loginForm">
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="loginUsername" autocomplete="username" autofocus required>
+        </div>
+        <div class="field" style="margin-top:14px;position:relative;">
+          <label>Password</label>
+          <input type="password" id="loginPassword" autocomplete="current-password" required style="padding-right:42px;">
+          <button type="button" id="togglePasswordBtn" onclick="togglePasswordVisibility()" style="position:absolute;right:6px;top:31px;background:none;border:none;cursor:pointer;font-size:17px;padding:6px;">👁</button>
+        </div>
+        <div class="actions" style="margin-top:20px;justify-content:center;">
+          <button type="submit" class="primary" style="width:100%;">Login</button>
+        </div>
+        <div id="loginError" class="status-msg error" style="text-align:center;margin-top:10px;"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FORCED CHANGE-PASSWORD SCREEN ==================== -->
+<div id="changePasswordScreen" style="display:none;">
+  <div class="topbar"><h1><span class="badge">VT</span> Vardhman Traders - Sales Portal</h1></div>
+  <div class="wrap" style="max-width:400px;">
+    <div class="card" style="margin-top:50px;">
+      <div style="width:60px;height:60px;margin:0 auto 16px;border-radius:50%;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;font-size:26px;">🔑</div>
+      <h2 style="justify-content:center;text-align:center;">Set a new password</h2>
+      <p style="font-size:12.5px;color:var(--muted);text-align:center;">First-time login: please choose a new password (at least 10 characters) before continuing.</p>
+      <form id="changePasswordForm">
+        <div class="field">
+          <label>New Password</label>
+          <input type="password" id="newPassword" autocomplete="new-password" required minlength="10">
+        </div>
+        <div class="field" style="margin-top:14px;">
+          <label>Confirm New Password</label>
+          <input type="password" id="confirmPassword" autocomplete="new-password" required minlength="10">
+        </div>
+        <div class="actions" style="margin-top:20px;justify-content:center;">
+          <button type="submit" class="primary" style="width:100%;">Save &amp; Continue</button>
+        </div>
+        <div id="changePasswordError" class="status-msg error" style="text-align:center;margin-top:10px;"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== APP SCREEN ==================== -->
+<div id="appScreen" style="display:none;">
+  <div class="topbar" style="position:relative;">
+    <h1><span class="badge">VT</span> <span id="roleTitle"></span></h1>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <!-- Search bar -->
+      <div id="topbar_search" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 8px;">
+        <input type="text" class="dp-input" id="topbar_searchDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('topbar_searchDate')" style="width:118px;height:24px;border:none;border-radius:5px;font-size:11px;padding:0 4px;">
+        <input type="hidden" id="topbar_searchDate_iso">
+        <input type="text" id="topbar_searchDcNo" placeholder="DC/Inv No." style="width:80px;height:24px;border:none;border-radius:5px;font-size:11px;padding:0 6px;">
+        <button type="button" onclick="topbarSearch()" style="height:24px;padding:0 10px;border:none;border-radius:5px;background:#fff;color:var(--navy);font-size:11px;font-weight:600;cursor:pointer;">Search</button>
+      </div>
+      <span style="color:#fff;font-size:13px;opacity:0.9;" id="userDisplayName"></span>
+      <button class="btn-home" onclick="refreshCurrent()">🔄 Refresh</button>
+      <button class="btn-home" onclick="logout()">Logout</button>
+    </div>
+
+    <!-- Search Results Panel -->
+    <div id="topbar_searchResults" style="display:none;position:absolute;top:56px;right:20px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.2);padding:12px;width:640px;max-height:340px;overflow:auto;z-index:50;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:13px;color:var(--navy);">Search Results <span id="topbar_searchCount" style="color:var(--muted);font-weight:400;"></span></strong>
+        <a href="#" onclick="closeTopbarSearch();return false;" style="color:var(--muted);font-size:12px;">✕ Close</a>
+      </div>
+      <div class="table-scroll" style="max-height:260px;">
+        <table>
+          <thead><tr><th>Date</th><th>Address</th><th>DC No</th><th>Submission Type</th><th>Ready By</th><th>Status</th><th></th></tr></thead>
+          <tbody id="topbar_searchBody"></tbody>
+        </table>
+      </div>
+      <div id="topbar_searchEmpty" style="display:none;font-size:12px;color:var(--muted);padding:10px 0;">No matching orders.</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <!-- ================= SHOP SECTION ================= -->
+    <div id="shopSection" style="display:none;">
+      <div id="shop_errorBanner" class="error-banner" style="display:none;"></div>
+      <div id="shop_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+
+      <div class="card accent-shop">
+        <h2>🔍 Missing Numbers</h2>
+        <div id="shop_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
+        <div id="shop_missingWrapper">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div id="shop_missingContainer"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div id="shop_missingInvoiceContainer"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card accent-shop" id="shop_editCard" style="display:none;">
+        <h2>✏️ Edit My Order <span id="shop_editingInfo"></span></h2>
+        <form id="shopEditForm">
+          <div class="grid">
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">1</span>Order Received Date<span class="required-star">*</span></label>
+              <input type="text" class="dp-input" id="shopedit_orderRcvdDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('shopedit_orderRcvdDate')" required>
+              <input type="hidden" id="shopedit_orderRcvdDate_iso">
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">2</span>Order Received Thru<span class="required-star">*</span></label>
+              <select id="shopedit_orderVia" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field" style="grid-column:span 2;">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">3</span>Type of Submission<span class="required-star">*</span></label>
+              <select id="shopedit_typeOfSubmission" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">4</span>DC / Invoice No.<span class="required-star">*</span></label>
+              <input type="text" id="shopedit_dcNo" placeholder="Challan / Invoice number" required>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">5</span>Address</label>
+              <input type="text" id="shopedit_shippingLocation" placeholder="e.g. Rohini, Pitampura">
+            </div>
+            <div class="field" style="grid-column:span 2;">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">6</span>Detailed Remarks</label>
+              <textarea id="shopedit_detailedRemarks" placeholder="Full shipping address, contact number, rate notes, etc."></textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="shopedit_saveBtn">Save Changes</button>
+            <button type="button" class="ghost" onclick="shopCloseEdit()">Cancel</button>
+            <span id="shopedit_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-shop">
+        <h2>🧾 New Order</h2>
+        <form id="shopOrderForm">
+          <div class="grid">
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">1</span>Order Received Date<span class="required-star">*</span></label>
+              <input type="text" class="dp-input" id="shop_orderRcvdDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('shop_orderRcvdDate')" required>
+              <input type="hidden" id="shop_orderRcvdDate_iso">
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">2</span>Order Received Thru<span class="required-star">*</span></label>
+              <select id="shop_orderVia" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field" style="grid-column:span 2;">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">3</span>Type of Submission<span class="required-star">*</span></label>
+              <select id="shop_typeOfSubmission" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">4</span>DC / Invoice No.<span class="required-star">*</span></label>
+              <input type="text" id="shop_dcNo" placeholder="Challan / Invoice number" required>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">5</span>Address</label>
+              <input type="text" id="shop_shippingLocation" placeholder="e.g. Rohini, Pitampura">
+            </div>
+            <div class="field" style="grid-column:span 2;">
+              <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">6</span>Detailed Remarks</label>
+              <textarea id="shop_detailedRemarks" placeholder="Full shipping address, contact number, rate notes, etc."></textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="shop_saveBtn">Save Order</button>
+            <button type="button" class="ghost" onclick="shopResetForm()">Clear</button>
+            <span id="shop_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-shop">
+        <h2>📋 Recent Orders <span class="count" id="shop_recentCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>DC No</th><th>Submission Type</th><th>Address</th><th>Godown Status</th><th>Delivered By</th><th></th></tr></thead>
+            <tbody id="shop_ordersBody"></tbody>
+          </table>
+          <div class="empty" id="shop_emptyMsg" style="display:none;">No orders yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= GODOWN SECTION ================= -->
+    <div id="godownSection" style="display:none;">
+      <div id="godown_errorBanner" class="error-banner" style="display:none;"></div>
+      <div id="godown_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+
+      <div class="card accent-godown">
+        <h2>🔍 Missing Numbers</h2>
+        <div id="godown_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
+        <div id="godown_missingWrapper">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div id="godown_missingContainer"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div id="godown_missingInvoiceContainer"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card accent-godown" id="godown_editCard" style="display:none;">
+        <h2>📦 Update Order <span id="godown_editingSlNo"></span></h2>
+        <form id="godownEditForm">
+          <div class="grid">
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--godown-color);">1</span>Ready By Whom<span class="required-star">*</span></label>
+              <select id="godown_readyByWhom" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--godown-color);">2</span>Colour Making By Whom</label>
+              <select id="godown_colourMakingBy"><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--godown-color);">3</span>Delivery Status<span class="required-star">*</span></label>
+              <select id="godown_deliveryStatus" required><option value="">-- select --</option></select>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="godown_saveBtn">Save</button>
+            <button type="button" class="ghost" onclick="godownCloseEdit()">Cancel</button>
+            <span id="godown_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-godown">
+        <h2>⏳ Pending Orders <span class="count" id="godown_pendingCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>Address</th><th>DC No</th><th>Submission Type</th><th>Remarks</th><th></th></tr></thead>
+            <tbody id="godown_pendingBody"></tbody>
+          </table>
+          <div class="empty" id="godown_pendingEmpty" style="display:none;">Nothing pending. All caught up.</div>
+        </div>
+      </div>
+
+      <div class="card accent-godown">
+        <h2>✅ Recently Completed <span class="count" id="godown_completedCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Remarks</th><th></th></tr></thead>
+            <tbody id="godown_completedBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= DISPATCH SECTION ================= -->
+    <div id="dispatchSection" style="display:none;">
+      <div id="dispatch_errorBanner" class="error-banner" style="display:none;"></div>
+      <div id="dispatch_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+
+      <div class="card accent-dispatch">
+        <h2>🔍 Missing Numbers</h2>
+        <div id="dispatch_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
+        <div id="dispatch_missingWrapper">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div id="dispatch_missingContainer"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div id="dispatch_missingInvoiceContainer"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card accent-dispatch" id="dispatch_editCard" style="display:none;">
+        <h2>🚚 Update Delivery <span id="dispatch_editingSlNo"></span></h2>
+        <form id="dispatchEditForm">
+          <div class="grid">
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">1</span>Material Delivery Date &amp; Time<span class="required-star">*</span></label>
+              <div style="display:flex;gap:6px;">
+                <input type="text" class="dp-input" id="dispatch_materialDeliveryDateTime" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('dispatch_materialDeliveryDateTime')" style="flex:1;" required>
+                <input type="time" id="dispatch_materialDeliveryDateTime_time" style="width:110px;">
+              </div>
+              <input type="hidden" id="dispatch_materialDeliveryDateTime_iso">
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">2</span>Delivery Status</label>
+              <select id="dispatch_deliveryStatus"><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">3</span>Delivered By Whom<span class="required-star">*</span></label>
+              <select id="dispatch_deliveredByWhom" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">4</span>Cartage (In Rupees)</label>
+              <input type="number" id="dispatch_cartage" min="0" step="1">
+            </div>
+            <!-- Shop Dispatch only fields -->
+            <div class="field" id="dispatch_dateOfReceivingField" style="display:none;">
+              <label>Date of Receiving</label>
+              <input type="text" class="dp-input" id="dispatch_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('dispatch_dateOfReceiving')">
+              <input type="hidden" id="dispatch_dateOfReceiving_iso">
+            </div>
+            <div class="field" id="dispatch_paymentStatusField" style="display:none;">
+              <label>Mat. Payment Status</label>
+              <select id="dispatch_paymentStatus"><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="dispatch_amountReceivedField" style="display:none;">
+              <label>Amount Received (Rs)</label>
+              <input type="number" id="dispatch_amountReceived" min="0" step="1" placeholder="0">
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="dispatch_saveBtn">Save</button>
+            <button type="button" class="ghost" onclick="dispatchCloseEdit()">Cancel</button>
+            <span id="dispatch_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-dispatch">
+        <h2>🚛 Ready for Dispatch <span class="count" id="dispatch_pendingCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Ready By</th><th>Delivery Status</th><th>Submission Type</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
+            <tbody id="dispatch_pendingBody"></tbody>
+          </table>
+          <div class="empty" id="dispatch_pendingEmpty" style="display:none;">Nothing waiting on dispatch right now.</div>
+        </div>
+      </div>
+
+      <div class="card accent-dispatch">
+        <h2>✅ Recently Delivered <span class="count" id="dispatch_completedCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th>Cartage</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
+            <tbody id="dispatch_completedBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= RECEIVING SECTION ================= -->
+    <div id="receivingSection" style="display:none;">
+      <div id="receiving_errorBanner" class="error-banner" style="display:none;"></div>
+      <div id="receiving_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+
+      <div class="card accent-receiving" id="receiving_editCard" style="display:none;">
+        <h2>💵 Update Receiving <span id="receiving_editingSlNo"></span></h2>
+        <form id="receivingEditForm">
+          <div class="grid">
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--receiving-color);">1</span>Date of Receiving<span class="required-star">*</span></label>
+              <input type="text" class="dp-input" id="receiving_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('receiving_dateOfReceiving')" required>
+              <input type="hidden" id="receiving_dateOfReceiving_iso">
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--receiving-color);">2</span>Mat. Payment Status<span class="required-star">*</span></label>
+              <select id="receiving_paymentStatus" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field">
+              <label class="with-badge"><span class="field-badge" style="background:var(--receiving-color);">3</span>Amount Rcvd</label>
+              <input type="number" id="receiving_amountReceived" min="0" step="1">
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="receiving_saveBtn">Save</button>
+            <button type="button" class="ghost" onclick="receivingCloseEdit()">Cancel</button>
+            <span id="receiving_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-receiving">
+        <h2>⏳ Awaiting Receiving <span class="count" id="receiving_pendingCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>Address</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th></th></tr></thead>
+            <tbody id="receiving_pendingBody"></tbody>
+          </table>
+          <div class="empty" id="receiving_pendingEmpty" style="display:none;">Nothing waiting on receiving right now.</div>
+        </div>
+      </div>
+
+      <div class="card accent-receiving">
+        <h2>✅ Received <span class="count" id="receiving_completedCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Address</th><th>Date Received</th><th>Payment</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="receiving_completedBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:10px;">
+      <a href="#" onclick="loadDebugInfo();return false;" style="font-size:12px;color:var(--muted);">🔧 Debug info</a>
+      <pre id="debugOutput" style="display:none;text-align:left;background:#111;color:#9fdc9f;font-size:11px;padding:14px;border-radius:8px;margin-top:10px;overflow:auto;max-height:300px;"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  var CURRENT_TOKEN = null;
+  var CURRENT_ROLE = null;
+  var CURRENT_USER_NAME = null;
+  var PENDING_LOGIN_PASSWORD = null; // held only in memory during the forced-change flow
+  var AUTO_REFRESH_TIMER = null;
+  var SSO_TICKET = <?!= JSON.stringify(ssoTicket || '') ?>; // set by the Render portal's "Open" button
+
+  function titleForRole(role) {
+    if (role === 'shop')             return 'Shop Dashboard';
+    if (role === 'godown')           return 'Godown Dashboard';
+    if (role === 'shop_dispatch')    return 'Shop Dispatch Dashboard';
+    if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
+    if (role === 'receiving')        return 'Receiving Dashboard';
+    return 'Dashboard';
+  }
+
+  function sectionIdForRole(role) {
+    if (role === 'shop_dispatch' || role === 'godown_dispatch') return 'dispatchSection';
+    return role + 'Section';
+  }
+
+  function formatDateDisplay(iso) {
+    if (!iso) return '';
+    var parts = String(iso).split('-');
+    if (parts.length !== 3) return iso;
+    var dd = parseInt(parts[2], 10), mm = parseInt(parts[1], 10);
+    return (dd < 10 ? '0'+dd : dd) + '-' + (mm < 10 ? '0'+mm : mm) + '-' + parts[0];
+  }
+
+  function formatDateTimeDisplay(iso) {
+    if (!iso) return '';
+    var parts = String(iso).split('T');
+    if (parts.length !== 2) return iso;
+    var dp = parts[0].split('-');
+    if (dp.length !== 3) return iso;
+    return parseInt(dp[2],10) + '-' + parseInt(dp[1],10) + '-' + dp[0] + ' ' + parts[1];
+  }
+
+  function formatAmount_(val) {
+    if (val === '' || val === null || val === undefined) return '';
+    var n = Number(val);
+    return isNaN(n) ? val : n.toFixed(2);
+  }
+
+  function statusPill(text) {
+    if (!text) return '<span class="pill blank">Pending</span>';
+    var cls = text.toLowerCase();
+    if (cls.indexOf('sent') === 0) cls = 'sent';
+    else if (cls.indexOf('cancel') === 0) cls = 'cancelled';
+    else if (cls.indexOf('hold') === 0) cls = 'hold';
+    else cls = 'blank';
+    return '<span class="pill ' + cls + '">' + text + '</span>';
+  }
+
+  function stuckBadgeHtml_(reason) {
+    if (!reason) return '';
+    return ' <span style="background:rgba(201,138,18,0.12);border:1px solid rgba(201,138,18,0.4);color:#c98a12;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:4px;white-space:nowrap;">' + reason + '</span>';
+  }
+
+  function showDateWindowNote(elId, dateWindow) {
+    var el = document.getElementById(elId);
+    if (!el || !dateWindow) return;
+    el.textContent = '📅 Showing orders received on: ' + dateWindow.join(' and ') + ' (Monday is skipped as a holiday). Use Search for older records.';
+  }
+
+  function fillSelect_(selectId, names, keepFirst) {
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var current = sel.value;
+    sel.innerHTML = '<option value="">-- select --</option>';
+    (names || []).forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  }
+
+  /* ---- Missing Numbers ---- */
+  function hasMissing_(g) { return !!(g && g.missing && g.missing.length > 0); }
+
+  function buildMissingGroupHtml_(g) {
+    return '<div style="font-size:12px;color:var(--muted);margin:6px 0 10px;">' +
+      'Range: ' + g.min + '–' + g.max + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+      g.missing.map(function(n) {
+        return '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + n + '</span>';
+      }).join('') + '</div>';
+  }
+
+  function buildMissingChallanDayBlockHtml_(dateStr, challan) {
+    return '<div style="margin-bottom:14px;">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px;">📅 ' + formatDateDisplay(dateStr) + '</div>' +
+      '<div style="background:rgba(216,67,63,0.06);border:1px solid rgba(216,67,63,0.3);border-radius:10px;padding:14px;">' +
+      buildMissingGroupHtml_(challan) + '</div></div>';
+  }
+
+  function initMissingNumbers(prefix) {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data || !data.ok) return;
+        var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
+        var challanContainer = document.getElementById(prefix + '_missingContainer');
+        if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
+          return buildMissingChallanDayBlockHtml_(r.date, r.challan);
+        }).join('');
+
+        var invoiceBlocks = [];
+        if (data.invoiceByDate) {
+          invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
+        }
+        var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
+        if (invoiceContainer) {
+          invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
+            return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
+          }).join('');
+        }
+
+        var invoiceHasMissing = invoiceBlocks.length > 0;
+        var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
+        var wrapper = document.getElementById(prefix + '_missingWrapper');
+        var allClear = document.getElementById(prefix + '_missingAllClear');
+        if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
+        if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
+      })
+      .getMissingNumbersForWindow(CURRENT_TOKEN);
+  }
+
+  /* ---- Login ---- */
+  function togglePasswordVisibility() {
+    var pwd = document.getElementById('loginPassword');
+    var btn = document.getElementById('togglePasswordBtn');
+    if (pwd.type === 'password') { pwd.type = 'text'; btn.textContent = '🙈'; }
+    else { pwd.type = 'password'; btn.textContent = '👁'; }
+  }
+
+  document.getElementById('loginUsername').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('loginPassword').focus(); }
+  });
+
+  document.getElementById('loginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var u = document.getElementById('loginUsername').value.trim();
+    var p = document.getElementById('loginPassword').value;
+    var errEl = document.getElementById('loginError');
+    errEl.textContent = '';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (!res) { errEl.textContent = 'Server se koi jawab nahi mila.'; return; }
+        if (!res.ok) { errEl.textContent = 'Server error: ' + res.error; return; }
+        if (!res.success) { errEl.textContent = res.message || 'Login failed.'; return; }
+        CURRENT_TOKEN = res.token;
+        CURRENT_ROLE = res.role;
+        CURRENT_USER_NAME = res.displayName;
+        if (res.mustChangePassword) {
+          PENDING_LOGIN_PASSWORD = p;
+          showChangePasswordScreen();
+        } else {
+          enterDashboard();
+        }
+      })
+      .withFailureHandler(function(err) { errEl.textContent = 'Error: ' + err.message; })
+      .login(u, p);
+  });
+
+  function showChangePasswordScreen() {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('changePasswordScreen').style.display = 'block';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('confirmPassword').value = '';
+    document.getElementById('changePasswordError').textContent = '';
+  }
+
+  document.getElementById('changePasswordForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var newPwd = document.getElementById('newPassword').value;
+    var confirmPwd = document.getElementById('confirmPassword').value;
+    var errEl = document.getElementById('changePasswordError');
+    errEl.textContent = '';
+    if (newPwd !== confirmPwd) { errEl.textContent = 'Passwords do not match.'; return; }
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (!res) { errEl.textContent = 'Server se koi jawab nahi mila.'; return; }
+        if (!res.ok) { errEl.textContent = 'Server error: ' + res.error; return; }
+        if (!res.success) { errEl.textContent = res.message || 'Could not change password.'; return; }
+        PENDING_LOGIN_PASSWORD = null;
+        document.getElementById('changePasswordScreen').style.display = 'none';
+        enterDashboard();
+      })
+      .withFailureHandler(function(err) { errEl.textContent = 'Error: ' + err.message; })
+      .changePassword(CURRENT_TOKEN, PENDING_LOGIN_PASSWORD, newPwd);
+  });
+
+  function enterDashboard() {
+    document.getElementById('dpPopup').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('changePasswordScreen').style.display = 'none';
+    document.getElementById('appScreen').style.display = 'block';
+    document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
+    document.getElementById('userDisplayName').textContent = CURRENT_USER_NAME;
+    var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
+    if (section) section.style.display = 'block';
+    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
+    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    refreshCurrent();
+    if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
+    AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
+  }
+
+  function refreshCurrent() {
+    if (CURRENT_ROLE === 'shop')                                        initShop();
+    else if (CURRENT_ROLE === 'godown')                                  initGodown();
+    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
+    else if (CURRENT_ROLE === 'receiving')                               initReceiving();
+  }
+
+  function logout() {
+    if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
+    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null;
+    document.getElementById('dpPopup').style.display = 'none';
+    document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('changePasswordScreen').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginError').textContent = '';
+    document.getElementById('loginUsername').focus();
+  }
+
+  /* ================= SHOP ================= */
+  var SHOP_ORDERS = {};
+
+  function initShop() {
+    var banner = document.getElementById('shop_errorBanner');
+    banner.style.display = 'none';
+    var shopDateIso = document.getElementById('shop_orderRcvdDate_iso');
+    if (shopDateIso && !shopDateIso.value) setDatePickerValue('shop_orderRcvdDate', isoToday_());
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
+        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        fillSelect_('shop_orderVia', data.dropdowns.orderVia);
+        fillSelect_('shop_typeOfSubmission', data.dropdowns.typeOfSubmission);
+        fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
+        fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
+        shopRenderOrders(data.recentOrders);
+        showDateWindowNote('shop_dateWindowNote', data.dateWindow);
+      })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getShopData(CURRENT_TOKEN);
+    initMissingNumbers('shop');
+  }
+
+  function shopRenderOrders(orders) {
+    document.getElementById('shop_recentCount').textContent = orders.length;
+    var body = document.getElementById('shop_ordersBody');
+    body.innerHTML = '';
+    document.getElementById('shop_emptyMsg').style.display = orders.length ? 'none' : 'block';
+    orders.forEach(function(o) {
+      SHOP_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo || '') + '</td><td>' + (o.typeOfSubmission || '') + '</td>' +
+        '<td>' + (o.shippingLocation || '') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
+        '<td>' + (o.deliveredByWhom || '') + '</td>' +
+        '<td><button class="small" onclick="shopOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function shopOpenEdit(slNo) {
+    var o = SHOP_ORDERS[slNo];
+    document.getElementById('shop_editCard').style.display = 'block';
+    document.getElementById('shop_editingInfo').textContent = '- ' + o.shippingLocation + ' (DC ' + o.dcNo + ')';
+    document.getElementById('shopEditForm').dataset.slNo = slNo;
+    setDatePickerValue('shopedit_orderRcvdDate', o.orderRcvdDate || isoToday_());
+    document.getElementById('shopedit_orderVia').value = o.orderVia || '';
+    document.getElementById('shopedit_typeOfSubmission').value = o.typeOfSubmission || '';
+    document.getElementById('shopedit_dcNo').value = o.dcNo || '';
+    document.getElementById('shopedit_shippingLocation').value = o.shippingLocation || '';
+    document.getElementById('shopedit_detailedRemarks').value = o.detailedRemarks || '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function shopCloseEdit() {
+    document.getElementById('shop_editCard').style.display = 'none';
+    document.getElementById('shopedit_statusMsg').textContent = '';
+  }
+
+  document.getElementById('shopEditForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('shopedit_saveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var slNo = Number(this.dataset.slNo);
+    var msg = document.getElementById('shopedit_statusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      orderRcvdDate: document.getElementById('shopedit_orderRcvdDate_iso').value,
+      orderVia: document.getElementById('shopedit_orderVia').value,
+      typeOfSubmission: document.getElementById('shopedit_typeOfSubmission').value,
+      dcNo: document.getElementById('shopedit_dcNo').value,
+      shippingLocation: document.getElementById('shopedit_shippingLocation').value,
+      detailedRemarks: document.getElementById('shopedit_detailedRemarks').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save Changes';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Saved!'; shopCloseEdit(); initShop();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save Changes'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .updateShopFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME);
+  });
+
+  function shopResetForm() {
+    document.getElementById('shopOrderForm').reset();
+    document.getElementById('shop_statusMsg').textContent = '';
+    setDatePickerValue('shop_orderRcvdDate', isoToday_());
+  }
+
+  document.getElementById('shopOrderForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('shop_saveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var msg = document.getElementById('shop_statusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      orderRcvdDate: document.getElementById('shop_orderRcvdDate_iso').value,
+      orderVia: document.getElementById('shop_orderVia').value,
+      shippingLocation: document.getElementById('shop_shippingLocation').value,
+      dcNo: document.getElementById('shop_dcNo').value,
+      typeOfSubmission: document.getElementById('shop_typeOfSubmission').value,
+      detailedRemarks: document.getElementById('shop_detailedRemarks').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save Order';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Order saved! (DC No: ' + document.getElementById('shop_dcNo').value + ')';
+        document.getElementById('shopOrderForm').reset(); initShop();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save Order'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .addOrder(CURRENT_TOKEN, form, CURRENT_USER_NAME);
+  });
+
+  /* ================= GODOWN ================= */
+  var GODOWN_ORDERS = {};
+
+  function initGodown() {
+    var banner = document.getElementById('godown_errorBanner');
+    banner.style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
+        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        fillSelect_('godown_readyByWhom', data.dropdowns.readyByWhom);
+        fillSelect_('godown_colourMakingBy', data.dropdowns.colourMakingBy);
+        fillSelect_('godown_deliveryStatus', data.dropdowns.deliveryStatus);
+        godownRenderPending(data.pending);
+        var noteEl = document.getElementById('godown_dateWindowNote');
+        if (noteEl) noteEl.textContent = '📅 Pending Orders mein har order dikhta hai jab tak Godown update na kare.';
+        godownRenderCompleted(data.completed);
+      })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getGodownData(CURRENT_TOKEN);
+    initMissingNumbers('godown');
+  }
+
+  function godownRenderPending(orders) {
+    document.getElementById('godown_pendingCount').textContent = orders.length;
+    var body = document.getElementById('godown_pendingBody');
+    body.innerHTML = '';
+    document.getElementById('godown_pendingEmpty').style.display = orders.length ? 'none' : 'block';
+    orders.forEach(function(o) {
+      GODOWN_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
+        '<td>' + (o.dcNo||'') + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
+        '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function godownRenderCompleted(orders) {
+    document.getElementById('godown_completedCount').textContent = orders.length;
+    var body = document.getElementById('godown_completedBody');
+    body.innerHTML = '';
+    orders.forEach(function(o) {
+      GODOWN_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo||'') + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td>' + (o.readyByWhom||'') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
+        '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
+        '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function godownOpenEdit(slNo) {
+    var o = GODOWN_ORDERS[slNo];
+    document.getElementById('godown_editCard').style.display = 'block';
+    document.getElementById('godown_editingSlNo').textContent = '- ' + o.shippingLocation + ' (DC ' + o.dcNo + ')';
+    document.getElementById('godownEditForm').dataset.slNo = slNo;
+    document.getElementById('godown_readyByWhom').value = o.readyByWhom || '';
+    document.getElementById('godown_colourMakingBy').value = o.colourMakingBy || '';
+    document.getElementById('godown_deliveryStatus').value = o.deliveryStatus || '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function godownCloseEdit() {
+    document.getElementById('godown_editCard').style.display = 'none';
+    document.getElementById('godown_statusMsg').textContent = '';
+  }
+
+  document.getElementById('godownEditForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('godown_saveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var slNo = Number(this.dataset.slNo);
+    var msg = document.getElementById('godown_statusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      readyByWhom: document.getElementById('godown_readyByWhom').value,
+      colourMakingBy: document.getElementById('godown_colourMakingBy').value,
+      deliveryStatus: document.getElementById('godown_deliveryStatus').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Saved.'; godownCloseEdit(); initGodown();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .updateGodownFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME);
+  });
+
+  /* ================= DISPATCH ================= */
+  var DISPATCH_ORDERS = {};
+
+  function initDispatch() {
+    var banner = document.getElementById('dispatch_errorBanner');
+    banner.style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
+        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
+        fillSelect_('dispatch_deliveredByWhom', data.dropdowns.deliveredByWhom);
+        fillSelect_('dispatch_paymentStatus', data.dropdowns.paymentStatus);
+        dispatchRenderPending(data.pending);
+        var noteEl = document.getElementById('dispatch_dateWindowNote');
+        if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
+        dispatchRenderCompleted(data.completed);
+      })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getDispatchData(CURRENT_TOKEN, CURRENT_ROLE);
+    initMissingNumbers('dispatch');
+  }
+
+  function dispatchRenderPending(orders) {
+    document.getElementById('dispatch_pendingCount').textContent = orders.length;
+    var body = document.getElementById('dispatch_pendingBody');
+    body.innerHTML = '';
+    document.getElementById('dispatch_pendingEmpty').style.display = orders.length ? 'none' : 'block';
+    orders.forEach(function(o) {
+      DISPATCH_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
+        '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
+        '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
+        '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function dispatchRenderCompleted(orders) {
+    document.getElementById('dispatch_completedCount').textContent = orders.length;
+    var body = document.getElementById('dispatch_completedBody');
+    body.innerHTML = '';
+    orders.forEach(function(o) {
+      DISPATCH_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo||'') + '</td>' +
+        '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + stuckBadgeHtml_(o.stuckReason) + '</td>' +
+        '<td>' + (o.deliveredByWhom||'') + '</td><td>' + (o.cartage||'') + '</td>' +
+        '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
+        '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
+        '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function dispatchOpenEdit(slNo) {
+    var o = DISPATCH_ORDERS[slNo];
+    document.getElementById('dispatch_editCard').style.display = 'block';
+    document.getElementById('dispatch_editingSlNo').textContent = '- ' + o.shippingLocation + ' (DC ' + o.dcNo + ')';
+    document.getElementById('dispatchEditForm').dataset.slNo = slNo;
+    setDateTimeValue('dispatch_materialDeliveryDateTime', o.materialDeliveryDateTime || isoNowDateTime_());
+    document.getElementById('dispatch_deliveryStatus').value = o.deliveryStatus || '';
+    document.getElementById('dispatch_deliveredByWhom').value = o.deliveredByWhom || '';
+    document.getElementById('dispatch_cartage').value = o.cartage || '';
+    var receivingField = document.getElementById('dispatch_dateOfReceivingField');
+    var paymentField = document.getElementById('dispatch_paymentStatusField');
+    var amountField = document.getElementById('dispatch_amountReceivedField');
+    if (CURRENT_ROLE === 'shop_dispatch') {
+      receivingField.style.display = 'block';
+      paymentField.style.display = 'block';
+      amountField.style.display = 'block';
+      setDatePickerValue('dispatch_dateOfReceiving', o.dateOfReceiving || isoToday_());
+      document.getElementById('dispatch_paymentStatus').value = o.paymentStatus || '';
+      document.getElementById('dispatch_amountReceived').value = o.amountReceived || '';
+    } else {
+      receivingField.style.display = 'none';
+      paymentField.style.display = 'none';
+      amountField.style.display = 'none';
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function dispatchCloseEdit() {
+    document.getElementById('dispatch_editCard').style.display = 'none';
+    document.getElementById('dispatch_statusMsg').textContent = '';
+  }
+
+  document.getElementById('dispatchEditForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('dispatch_saveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var slNo = Number(this.dataset.slNo);
+    var msg = document.getElementById('dispatch_statusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      materialDeliveryDateTime: getDateTimeValue('dispatch_materialDeliveryDateTime'),
+      deliveryStatus: document.getElementById('dispatch_deliveryStatus').value,
+      deliveredByWhom: document.getElementById('dispatch_deliveredByWhom').value,
+      cartage: document.getElementById('dispatch_cartage').value,
+      dateOfReceiving: document.getElementById('dispatch_dateOfReceiving_iso').value,
+      paymentStatus: document.getElementById('dispatch_paymentStatus').value,
+      amountReceived: document.getElementById('dispatch_amountReceived').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Saved.'; dispatchCloseEdit(); initDispatch();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, CURRENT_ROLE);
+  });
+
+  /* ================= RECEIVING ================= */
+  var RECEIVING_ORDERS = {};
+
+  function initReceiving() {
+    var banner = document.getElementById('receiving_errorBanner');
+    banner.style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
+        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        fillSelect_('receiving_paymentStatus', data.dropdowns.paymentStatus);
+        receivingRenderPending(data.pending);
+        var noteEl = document.getElementById('receiving_dateWindowNote');
+        if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak receive na ho, yahan dikhta rahega.';
+        receivingRenderCompleted(data.completed);
+      })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getReceivingData(CURRENT_TOKEN);
+  }
+
+  function receivingRenderPending(orders) {
+    document.getElementById('receiving_pendingCount').textContent = orders.length;
+    var body = document.getElementById('receiving_pendingBody');
+    body.innerHTML = '';
+    document.getElementById('receiving_pendingEmpty').style.display = orders.length ? 'none' : 'block';
+    orders.forEach(function(o) {
+      RECEIVING_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
+        '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + '</td>' +
+        '<td>' + (o.deliveredByWhom||'') + '</td>' +
+        '<td><button class="small" onclick="receivingOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function receivingRenderCompleted(orders) {
+    document.getElementById('receiving_completedCount').textContent = orders.length;
+    var body = document.getElementById('receiving_completedBody');
+    body.innerHTML = '';
+    orders.forEach(function(o) {
+      RECEIVING_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo||'') + '</td><td>' + (o.shippingLocation||'') + '</td>' +
+        '<td>' + formatDateDisplay(o.dateOfReceiving) + '</td>' +
+        '<td>' + (o.paymentStatus||'') + '</td><td>' + formatAmount_(o.amountReceived) + '</td>' +
+        '<td><button class="small" onclick="receivingOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function receivingOpenEdit(slNo) {
+    var o = RECEIVING_ORDERS[slNo];
+    document.getElementById('receiving_editCard').style.display = 'block';
+    document.getElementById('receiving_editingSlNo').textContent = '- ' + o.shippingLocation + ' (DC ' + o.dcNo + ')';
+    document.getElementById('receivingEditForm').dataset.slNo = slNo;
+    setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || '');
+    document.getElementById('receiving_paymentStatus').value = o.paymentStatus || '';
+    document.getElementById('receiving_amountReceived').value = o.amountReceived || '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function receivingCloseEdit() {
+    document.getElementById('receiving_editCard').style.display = 'none';
+    document.getElementById('receiving_statusMsg').textContent = '';
+  }
+
+  document.getElementById('receivingEditForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('receiving_saveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var slNo = Number(this.dataset.slNo);
+    var msg = document.getElementById('receiving_statusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      dateOfReceiving: document.getElementById('receiving_dateOfReceiving_iso').value,
+      paymentStatus: document.getElementById('receiving_paymentStatus').value,
+      amountReceived: document.getElementById('receiving_amountReceived').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Saved.'; receivingCloseEdit(); initReceiving();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .updateReceivingFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME);
+  });
+
+  /* ================= TOPBAR SEARCH ================= */
+  function topbarSearch() {
+    var date = document.getElementById('topbar_searchDate_iso').value;
+    var dcNo = document.getElementById('topbar_searchDcNo').value.trim();
+    var panel = document.getElementById('topbar_searchResults');
+    var body = document.getElementById('topbar_searchBody');
+    var empty = document.getElementById('topbar_searchEmpty');
+    var countEl = document.getElementById('topbar_searchCount');
+    panel.style.display = 'block';
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);font-size:12px;">Searching...</td></tr>';
+    empty.style.display = 'none'; countEl.textContent = '';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        body.innerHTML = '';
+        if (!data || !data.ok) { body.innerHTML = '<tr><td colspan="7" style="color:var(--red);font-size:12px;">Error</td></tr>'; return; }
+        countEl.textContent = '(' + data.results.length + ')';
+        empty.style.display = data.results.length ? 'none' : 'block';
+        data.results.forEach(function(o) {
+          var editCell = '';
+          if (CURRENT_ROLE === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (CURRENT_ROLE === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+            '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
+            '<td>' + (o.typeOfSubmission||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
+            '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + editCell + '</td>';
+          body.appendChild(tr);
+        });
+      })
+      .withFailureHandler(function(err) { body.innerHTML = '<tr><td colspan="7" style="color:var(--red);font-size:12px;">Error: ' + err.message + '</td></tr>'; })
+      .searchOrders(CURRENT_TOKEN, date, dcNo);
+  }
+
+  function topbarEditFromSearch(slNo) {
+    closeTopbarSearch();
+    if (CURRENT_ROLE === 'godown') godownOpenEdit(slNo);
+    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') dispatchOpenEdit(slNo);
+    else if (CURRENT_ROLE === 'receiving') receivingOpenEdit(slNo);
+  }
+
+  function closeTopbarSearch() { document.getElementById('topbar_searchResults').style.display = 'none'; }
+
+  /* ================= DEBUG ================= */
+  function loadDebugInfo() {
+    var out = document.getElementById('debugOutput');
+    out.style.display = 'block'; out.textContent = 'Loading...';
+    google.script.run
+      .withSuccessHandler(function(data) { out.textContent = JSON.stringify(data, null, 2); })
+      .withFailureHandler(function(err) { out.textContent = 'ERROR: ' + err.message; })
+      .debugInfo(CURRENT_TOKEN);
+  }
+
+  /* ================= SINGLE SIGN-ON (from the Render portal) ================= */
+  function attemptSsoLogin() {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('loginError').textContent = '';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (!res || !res.ok || !res.success) {
+          // Ticket expired / already used / link opened twice: fall back to a normal login.
+          document.getElementById('loginScreen').style.display = 'block';
+          if (res && res.message) document.getElementById('loginError').textContent = res.message;
+          return;
+        }
+        CURRENT_TOKEN = res.token;
+        CURRENT_ROLE = res.role;
+        CURRENT_USER_NAME = res.displayName;
+        if (res.mustChangePassword) {
+          // No password was typed here, so there is nothing to confirm against for a
+          // change; send them to the dashboard and let "Change password" (if you add
+          // one) or the portal handle it. In practice the portal already forces this
+          // before the ticket is ever minted.
+          enterDashboard();
+        } else {
+          enterDashboard();
+        }
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('loginScreen').style.display = 'block';
+        document.getElementById('loginError').textContent = 'Sign-in link failed: ' + err.message;
+      })
+      .ssoLogin(SSO_TICKET);
+  }
+
+  window.addEventListener('load', function() {
+    document.getElementById('dpPopup').style.display = 'none';
+    if (SSO_TICKET) attemptSsoLogin();
+  });
+</script>
+</body>
+</html>
