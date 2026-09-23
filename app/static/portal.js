@@ -711,7 +711,8 @@ async function renderMembers(panel) {
         h('td', {}, h('div', { class: 'row' },
           h('button', { class: 'btn small', text: 'Edit', onclick: () => editUser(u) }),
           h('button', { class: 'btn small', text: 'Reset password', onclick: () => resetPw(u) }),
-          !me && !u.disabled && h('button', { class: 'btn small danger', text: 'Disable', onclick: () => disable(u) }))));
+          !me && !u.disabled && h('button', { class: 'btn small danger', text: 'Disable', onclick: () => disable(u) }),
+          !me && h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(u) }))));
     }));
   };
   search.addEventListener('input', draw);
@@ -730,6 +731,11 @@ async function renderMembers(panel) {
   const disable = async (u) => {
     if (!(await confirmDialog('Disable ' + u.username + '?', `${u.display_name} will be signed out and unable to log in until you reset their password.`, 'Disable', true))) return;
     try { await api(`/admin/users/${u.user_key}/disable`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); }
+  };
+
+  const remove = async (u) => {
+    if (!(await confirmDialog('Delete ' + u.username + '?', `Permanently removes ${u.display_name}'s account. This only works if they have no order or admin-action history - otherwise use Disable instead. Cannot be undone.`, 'Delete', true))) return;
+    try { await api(`/admin/users/${u.user_key}`, { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); }
   };
 
   const add = () => formDialog({ title: 'Add member', submitLabel: 'Create',

@@ -153,6 +153,30 @@ def disable_user(user_key: int, admin=Depends(ADMIN)):
     return {"ok": True}
 
 
+@router.delete("/users/{user_key}")
+def delete_user(user_key: int, admin=Depends(ADMIN)):
+    """Only allowed for accounts with no order or admin-action history - anyone who
+    has actually touched an order or acted in the portal must be disabled instead,
+    since deleting them would orphan real records."""
+    if user_key == admin["user_key"]:
+        raise HTTPException(400, "You cannot delete your own account")
+    with db.cursor() as cur:
+        target = _get_user(cur, user_key)
+        cur.execute(
+            "SELECT count(*) AS n FROM fact_orders WHERE created_by_user_key = %s OR last_updated_by_user_key = %s",
+            (user_key, user_key))
+        order_refs = cur.fetchone()["n"]
+        cur.execute("SELECT count(*) AS n FROM admin_audit_log WHERE admin_user_key = %s", (user_key,))
+        audit_refs = cur.fetchone()["n"]
+        if order_refs or audit_refs:
+            raise HTTPException(
+                409, f"Can't delete {target['username']}: linked to {order_refs} order(s) and "
+                     f"{audit_refs} admin action(s). Disable the account instead to preserve that history.")
+        cur.execute("DELETE FROM dim_user WHERE user_key = %s", (user_key,))
+        audit(cur, admin, "user.delete", target["username"])
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ dashboard
 def _range(date_from, date_to):
     with db.cursor() as cur:
