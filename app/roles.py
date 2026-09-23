@@ -21,7 +21,7 @@ EDITABLE_FIELDS = {
     "receiving": _RECEIVING,
 }
 
-CREATE_ORDER_ROLES = {"shop"}
+CREATE_ORDER_ROLES = {"shop", "admin"}
 
 # Dropdown lookups: which roles may read and add values (the dropdown they fill in).
 LOOKUP_ACCESS = {
@@ -37,6 +37,12 @@ PEOPLE_ACCESS = {
     "colour_making": {"godown"},
     "delivery": {"shop_dispatch", "godown_dispatch"},
 }
+
+
+def can_access(user, allowed_roles) -> bool:
+    """True for anyone in allowed_roles, or for admin, always - admin is a
+    super-user: same powers as every operating role, on every screen."""
+    return user["role"] == "admin" or user["role"] in allowed_roles
 
 # Order visibility. Expressions use aliases: o = fact_orders, ds = dim_delivery_status,
 # st = dim_submission_type. %s is the user's user_key (repeated where needed).
@@ -57,8 +63,8 @@ VISIBILITY = {
     "receiving": (f"((o.material_delivery_datetime IS NOT NULL AND {_STATUS} IS DISTINCT FROM 'shop'"
                   " AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL))"
                   " OR o.last_updated_by_user_key = %s)", 1),
-    # admin: read-only visibility into every order (see main.py's ANY_ORDER_ROLE_OR_ADMIN -
-    # admin is deliberately left out of EDITABLE_FIELDS, so writes stay blocked either way).
+    # admin: sees every order, and (per config.editable_fields_for_role) may edit any
+    # field - a full super-user, same powers as every operating role combined.
     "admin": ("TRUE", 0),
 }
 

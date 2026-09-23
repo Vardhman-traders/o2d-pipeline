@@ -155,14 +155,14 @@ class NameIn(BaseModel):
 
 
 def _lookup(kind, user):
-    if kind not in LOOKUPS or user["role"] not in roles.LOOKUP_ACCESS[kind]:
+    if kind not in LOOKUPS or not roles.can_access(user, roles.LOOKUP_ACCESS[kind]):
         # same answer for unknown and forbidden, so nothing is revealed
         raise HTTPException(404, "Unknown lookup")
     return LOOKUPS[kind]
 
 
 @app.get("/lookups/{kind}")
-def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
         cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
@@ -170,7 +170,7 @@ def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.requir
 
 
 @app.post("/lookups/{kind}")
-def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     """Return the existing value (matched ignoring case/spacing) or create it."""
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
@@ -202,12 +202,12 @@ class PersonIn(BaseModel):
 
 
 def _check_people_role(person_role, user):
-    if user["role"] not in roles.PEOPLE_ACCESS[person_role]:
+    if not roles.can_access(user, roles.PEOPLE_ACCESS[person_role]):
         raise HTTPException(403, "Your role is not allowed to use this list")
 
 
 @app.get("/people")
-def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     _check_people_role(role, user)
     with db.cursor() as cur:
         cur.execute("SELECT person_key AS key, full_name, phone_number, person_role FROM dim_person "
@@ -216,7 +216,7 @@ def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE), _ck=Depends(au
 
 
 @app.post("/people")
-def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     _check_people_role(body.person_role, user)
     with db.cursor() as cur:
         cur.execute(
@@ -406,7 +406,7 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
 
 
 @app.patch("/orders/{sl_no}")
-def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc(fields, user)

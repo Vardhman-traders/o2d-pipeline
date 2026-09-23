@@ -272,6 +272,17 @@
   <div class="topbar" style="position:relative;">
     <h1><span class="badge">VT</span> <span id="roleTitle"></span></h1>
     <div style="display:flex;align-items:center;gap:14px;">
+      <!-- Admin-only: switch which screen to view/act through. Admin has the same API
+           permissions on every one of them (see app/roles.py) - this is purely a
+           client-side choice of which dashboard to look at. -->
+      <select id="admin_viewSwitcher" style="display:none;height:30px;border-radius:6px;border:none;font-size:12.5px;padding:0 8px;" onchange="onAdminViewChange()">
+        <option value="all">All Orders (overview)</option>
+        <option value="shop">Shop</option>
+        <option value="godown">Godown</option>
+        <option value="shop_dispatch">Shop Dispatch</option>
+        <option value="godown_dispatch">Godown Dispatch</option>
+        <option value="receiving">Receiving</option>
+      </select>
       <!-- Search bar -->
       <div id="topbar_search" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 8px;">
         <input type="text" class="dp-input" id="topbar_searchDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('topbar_searchDate')" style="width:118px;height:24px;border:none;border-radius:5px;font-size:11px;padding:0 4px;">
@@ -616,7 +627,7 @@
     <!-- ================= ADMIN SECTION (read-only, every order) ================= -->
     <div id="adminSection" style="display:none;">
       <div id="admin_errorBanner" class="error-banner" style="display:none;"></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Read-only view of every order, across all roles and dates. Editing happens in each role's own dashboard, not here.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Overview of every order, across all roles and dates. To create or edit an order, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above - you have full access to each, exactly like that team.</div>
       <div class="card" style="border-left:4px solid var(--navy);">
         <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
         <div class="table-scroll" style="max-height:600px;">
@@ -638,10 +649,15 @@
 
 <script>
   var CURRENT_TOKEN = null;
-  var CURRENT_ROLE = null;
+  var CURRENT_ROLE = null; // the real, logged-in role (from the JWT) - never changes
   var CURRENT_USER_NAME = null;
   var PENDING_LOGIN_PASSWORD = null; // held only in memory during the forced-change flow
   var AUTO_REFRESH_TIMER = null;
+  // Admin is a super-user (same API permissions as every operating role, on every
+  // screen - see app/roles.py). ADMIN_VIEW is purely a client-side choice of which
+  // screen to look at; it never affects what the API will let the request do.
+  var ADMIN_VIEW = 'all';
+  function effectiveRole() { return CURRENT_ROLE === 'admin' ? ADMIN_VIEW : CURRENT_ROLE; }
   var SSO_TICKET = <?!= JSON.stringify(ssoTicket || '') ?>; // set by the Render portal's "Open" button
 
   function titleForRole(role) {
@@ -650,12 +666,13 @@
     if (role === 'shop_dispatch')    return 'Shop Dispatch Dashboard';
     if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
     if (role === 'receiving')        return 'Receiving Dashboard';
-    if (role === 'admin')           return 'Admin - All Orders (read-only)';
+    if (role === 'admin')           return 'All Orders';
     return 'Dashboard';
   }
 
   function sectionIdForRole(role) {
     if (role === 'shop_dispatch' || role === 'godown_dispatch') return 'dispatchSection';
+    if (role === 'all') return 'adminSection';
     return role + 'Section';
   }
 
@@ -831,28 +848,51 @@
       .changePassword(CURRENT_TOKEN, PENDING_LOGIN_PASSWORD, newPwd);
   });
 
+  var ALL_SECTION_IDS = ['shopSection', 'godownSection', 'dispatchSection', 'receivingSection', 'adminSection'];
+
+  function showEffectiveSection() {
+    ALL_SECTION_IDS.forEach(function(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    var section = document.getElementById(sectionIdForRole(effectiveRole()));
+    if (section) section.style.display = 'block';
+    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
+    document.getElementById('topbar_search').style.display = searchRoles.indexOf(effectiveRole()) !== -1 ? 'flex' : 'none';
+  }
+
+  function onAdminViewChange() {
+    ADMIN_VIEW = document.getElementById('admin_viewSwitcher').value;
+    document.getElementById('roleTitle').textContent = titleForRole(ADMIN_VIEW === 'all' ? 'admin' : ADMIN_VIEW) + ' (as admin)';
+    showEffectiveSection();
+    refreshCurrent();
+  }
+
   function enterDashboard() {
     document.getElementById('dpPopup').style.display = 'none';
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('changePasswordScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = 'block';
-    document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     document.getElementById('userDisplayName').textContent = CURRENT_USER_NAME;
-    var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
-    if (section) section.style.display = 'block';
-    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
-    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    var switcher = document.getElementById('admin_viewSwitcher');
+    if (CURRENT_ROLE === 'admin') {
+      switcher.style.display = 'inline-block';
+      switcher.value = ADMIN_VIEW;
+      document.getElementById('roleTitle').textContent = 'All Orders (as admin)';
+    } else {
+      switcher.style.display = 'none';
+      document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
+    }
+    showEffectiveSection();
     refreshCurrent();
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
   }
 
   function refreshCurrent() {
-    if (CURRENT_ROLE === 'shop')                                        initShop();
-    else if (CURRENT_ROLE === 'godown')                                  initGodown();
-    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
-    else if (CURRENT_ROLE === 'receiving')                               initReceiving();
-    else if (CURRENT_ROLE === 'admin')                                   initAdmin();
+    var r = effectiveRole();
+    if (r === 'shop')                                initShop();
+    else if (r === 'godown')                          initGodown();
+    else if (r === 'shop_dispatch' || r === 'godown_dispatch') initDispatch();
+    else if (r === 'receiving')                       initReceiving();
+    else if (r === 'all')                             initAdmin();
   }
 
   /* ================= ADMIN (READ-ONLY) ================= */
@@ -888,7 +928,7 @@
 
   function logout() {
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
-    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null;
+    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null; ADMIN_VIEW = 'all';
     document.getElementById('dpPopup').style.display = 'none';
     document.getElementById('appScreen').style.display = 'none';
     document.getElementById('changePasswordScreen').style.display = 'none';
@@ -1134,7 +1174,7 @@
         dispatchRenderCompleted(data.completed);
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
-      .getDispatchData(CURRENT_TOKEN, CURRENT_ROLE);
+      .getDispatchData(CURRENT_TOKEN, effectiveRole());
     initMissingNumbers('dispatch');
   }
 
@@ -1186,7 +1226,7 @@
     var receivingField = document.getElementById('dispatch_dateOfReceivingField');
     var paymentField = document.getElementById('dispatch_paymentStatusField');
     var amountField = document.getElementById('dispatch_amountReceivedField');
-    if (CURRENT_ROLE === 'shop_dispatch') {
+    if (effectiveRole() === 'shop_dispatch') {
       receivingField.style.display = 'block';
       paymentField.style.display = 'block';
       amountField.style.display = 'block';
@@ -1231,7 +1271,7 @@
         msg.textContent = 'Saved.'; dispatchCloseEdit(); initDispatch();
       })
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
-      .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, CURRENT_ROLE);
+      .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, effectiveRole());
   });
 
   /* ================= RECEIVING ================= */
@@ -1346,9 +1386,10 @@
         empty.style.display = data.results.length ? 'none' : 'block';
         data.results.forEach(function(o) {
           var editCell = '';
-          if (CURRENT_ROLE === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (CURRENT_ROLE === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          var er = effectiveRole();
+          if (er === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (er === 'shop_dispatch' || er === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (er === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
           var tr = document.createElement('tr');
           tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
             '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
@@ -1363,9 +1404,10 @@
 
   function topbarEditFromSearch(slNo) {
     closeTopbarSearch();
-    if (CURRENT_ROLE === 'godown') godownOpenEdit(slNo);
-    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') dispatchOpenEdit(slNo);
-    else if (CURRENT_ROLE === 'receiving') receivingOpenEdit(slNo);
+    var er = effectiveRole();
+    if (er === 'godown') godownOpenEdit(slNo);
+    else if (er === 'shop_dispatch' || er === 'godown_dispatch') dispatchOpenEdit(slNo);
+    else if (er === 'receiving') receivingOpenEdit(slNo);
   }
 
   function closeTopbarSearch() { document.getElementById('topbar_searchResults').style.display = 'none'; }

@@ -40,11 +40,22 @@ def set(key, value, updated_by=None):
     _value_cache_at[key] = time.time()
 
 
+# Every field an order can carry - the canonical list used both for admin's
+# unrestricted access and to validate the Permissions screen's role x field matrix.
+ALL_ORDER_FIELDS = frozenset({
+    "order_received_date", "order_via_key", "submission_type_key", "dc_inv_no",
+    "shipping_location", "detailed_remarks", "ready_by_person_key", "colour_making_person_key",
+    "delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage",
+    "date_of_receiving", "payment_status_key", "amount_received",
+})
+
 _perm_cache: "dict | None" = None
 _perm_cache_at = 0.0
 
 
 def editable_fields_for_role(role: str) -> set:
+    if role == "admin":  # super-user: every field, on every screen
+        return set(ALL_ORDER_FIELDS)
     global _perm_cache, _perm_cache_at
     now = time.time()
     if _perm_cache is None or now - _perm_cache_at > TTL:

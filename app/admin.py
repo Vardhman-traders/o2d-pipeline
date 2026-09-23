@@ -332,12 +332,7 @@ def rotate_client_key(admin=Depends(ADMIN)):
 
 
 # ------------------------------------------------------------------ permissions (field access per role)
-FIELD_NAMES = sorted({
-    "order_received_date", "order_via_key", "submission_type_key", "dc_inv_no",
-    "shipping_location", "detailed_remarks", "ready_by_person_key", "colour_making_person_key",
-    "delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage",
-    "date_of_receiving", "payment_status_key", "amount_received",
-})
+FIELD_NAMES = sorted(config.ALL_ORDER_FIELDS)
 
 
 @router.get("/permissions")
