@@ -73,6 +73,32 @@ function apiErrorMessage_(res) {
   return 'Request failed (HTTP ' + res.status + ').';
 }
 
+/**
+ * Same contract as apiCall_, but for several independent GETs/POSTs at once.
+ * UrlFetchApp.fetchAll sends them in parallel over one round trip instead of
+ * one-at-a-time, which is where most of the "page feels slow" time was going
+ * (each dashboard load was making 2-4 sequential calls to a free-tier Render
+ * instance). specs: [{method, path, token, payload}]. Returns an array of
+ * { httpOk, status, body } in the same order as specs.
+ */
+function apiCallBatch_(specs) {
+  var requests = specs.map(function (s) {
+    var options = { method: s.method, contentType: 'application/json', muteHttpExceptions: true, headers: {} };
+    if (s.token) options.headers['Authorization'] = 'Bearer ' + s.token;
+    if (s.payload !== null && s.payload !== undefined) options.payload = JSON.stringify(s.payload);
+    options.url = apiBase_() + s.path;
+    return options;
+  });
+  var responses = UrlFetchApp.fetchAll(requests);
+  return responses.map(function (r) {
+    var status = r.getResponseCode();
+    var text = r.getContentText();
+    var body = null;
+    try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+    return { httpOk: status >= 200 && status < 300, status: status, body: body };
+  });
+}
+
 /* ============================== LOGIN / SESSION ============================== */
 
 function login(username, password) {
@@ -136,16 +162,39 @@ function changePassword(token, currentPassword, newPassword) {
 
 var LOOKUP_CACHE_TTL = 120; // seconds
 
+function lookupCacheKey_(path, token) {
+  return 'lk_' + Utilities.base64Encode(path) + '_' + Utilities.base64Encode(token || '').slice(0, 20);
+}
+
 function fetchList_(token, path) {
-  var cacheKey = 'lk_' + Utilities.base64Encode(path) + '_' + Utilities.base64Encode(token || '').slice(0, 20);
+  return fetchListsBatch_(token, [path])[path];
+}
+
+/** Fetches several lookup/people lists in one parallel round trip, reusing
+ *  the cache for any that are still fresh. Returns { path: list }. */
+function fetchListsBatch_(token, paths) {
   var cache = CacheService.getScriptCache();
-  var cached = cache.get(cacheKey);
-  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
-  var res = apiCall_('get', path, token, null);
-  if (!res.httpOk) return { error: apiErrorMessage_(res) };
-  var list = res.body || [];
-  try { cache.put(cacheKey, JSON.stringify(list), LOOKUP_CACHE_TTL); } catch (e) {}
-  return list;
+  var results = {}, toFetch = [];
+  paths.forEach(function (p) {
+    var cached = cache.get(lookupCacheKey_(p, token));
+    if (cached) {
+      try { results[p] = JSON.parse(cached); return; } catch (e) {}
+    }
+    toFetch.push(p);
+  });
+  if (toFetch.length) {
+    var specs = toFetch.map(function (p) { return { method: 'get', path: p, token: token, payload: null }; });
+    var responses = apiCallBatch_(specs);
+    toFetch.forEach(function (p, i) {
+      var res = responses[i];
+      var list = res.httpOk ? (res.body || []) : [];
+      results[p] = list;
+      if (res.httpOk) {
+        try { cache.put(lookupCacheKey_(p, token), JSON.stringify(list), LOOKUP_CACHE_TTL); } catch (e) {}
+      }
+    });
+  }
+  return results;
 }
 
 function nameToKeyMap_(list) {
@@ -163,27 +212,6 @@ function keyByName_(list, name) {
 
 function namesOnly_(list) {
   return (list || []).map(function (r) { return r.name; });
-}
-
-/** Loads the dropdown option lists relevant to a role, by name only (for <select> options). */
-function getFormOptions_(token, role) {
-  var out = { orderVia: [], typeOfSubmission: [], readyByWhom: [], colourMakingBy: [],
-              deliveryStatus: [], paymentStatus: [], deliveredByWhom: [] };
-  if (role === 'shop') {
-    out.orderVia = namesOnly_(fetchList_(token, '/lookups/channels'));
-    out.typeOfSubmission = namesOnly_(fetchList_(token, '/lookups/submission-types'));
-  } else if (role === 'godown') {
-    out.readyByWhom = namesOnly_(fetchList_(token, '/people?role=ready_by'));
-    out.colourMakingBy = namesOnly_(fetchList_(token, '/people?role=colour_making'));
-    out.deliveryStatus = namesOnly_(fetchList_(token, '/lookups/delivery-statuses'));
-  } else if (role === 'godown_dispatch' || role === 'shop_dispatch') {
-    out.deliveryStatus = namesOnly_(fetchList_(token, '/lookups/delivery-statuses'));
-    out.deliveredByWhom = namesOnly_(fetchList_(token, '/people?role=delivery'));
-    if (role === 'shop_dispatch') out.paymentStatus = namesOnly_(fetchList_(token, '/lookups/payment-statuses'));
-  } else if (role === 'receiving') {
-    out.paymentStatus = namesOnly_(fetchList_(token, '/lookups/payment-statuses'));
-  }
-  return out;
 }
 
 /* ============================== ORDER SHAPE MAPPING ============================== */
@@ -241,15 +269,66 @@ function getDashboardDateWindow_() {
 
 /* ============================== SHOP ============================== */
 
+/** Fetches the order list and the role's dropdown lists in one parallel round
+ *  trip (instead of one call, then another) - the main lever for page speed. */
+function getRoleData_(token, role, ordersPath) {
+  var lookupPaths = [];
+  if (role === 'shop') lookupPaths = ['/lookups/channels', '/lookups/submission-types'];
+  else if (role === 'godown') lookupPaths = ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses'];
+  else if (role === 'godown_dispatch' || role === 'shop_dispatch') {
+    lookupPaths = ['/lookups/delivery-statuses', '/people?role=delivery'];
+    if (role === 'shop_dispatch') lookupPaths.push('/lookups/payment-statuses');
+  } else if (role === 'receiving') lookupPaths = ['/lookups/payment-statuses'];
+
+  var cache = CacheService.getScriptCache();
+  var lists = {}, toFetch = [];
+  lookupPaths.forEach(function (p) {
+    var cached = cache.get(lookupCacheKey_(p, token));
+    if (cached) { try { lists[p] = JSON.parse(cached); return; } catch (e) {} }
+    toFetch.push(p);
+  });
+
+  var specs = [{ method: 'get', path: ordersPath, token: token, payload: null }];
+  toFetch.forEach(function (p) { specs.push({ method: 'get', path: p, token: token, payload: null }); });
+  var responses = apiCallBatch_(specs);
+
+  var ordersRes = responses[0];
+  toFetch.forEach(function (p, i) {
+    var res = responses[i + 1];
+    var list = res.httpOk ? (res.body || []) : [];
+    lists[p] = list;
+    if (res.httpOk) { try { cache.put(lookupCacheKey_(p, token), JSON.stringify(list), LOOKUP_CACHE_TTL); } catch (e) {} }
+  });
+
+  var out = { orderVia: [], typeOfSubmission: [], readyByWhom: [], colourMakingBy: [],
+              deliveryStatus: [], paymentStatus: [], deliveredByWhom: [] };
+  if (role === 'shop') {
+    out.orderVia = namesOnly_(lists['/lookups/channels']);
+    out.typeOfSubmission = namesOnly_(lists['/lookups/submission-types']);
+  } else if (role === 'godown') {
+    out.readyByWhom = namesOnly_(lists['/people?role=ready_by']);
+    out.colourMakingBy = namesOnly_(lists['/people?role=colour_making']);
+    out.deliveryStatus = namesOnly_(lists['/lookups/delivery-statuses']);
+  } else if (role === 'godown_dispatch' || role === 'shop_dispatch') {
+    out.deliveryStatus = namesOnly_(lists['/lookups/delivery-statuses']);
+    out.deliveredByWhom = namesOnly_(lists['/people?role=delivery']);
+    if (role === 'shop_dispatch') out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
+  } else if (role === 'receiving') {
+    out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
+  }
+
+  return { ordersRes: ordersRes, dropdowns: out };
+}
+
 function getShopData(token) {
   try {
     var window = getDashboardDateWindow_();
-    var res = apiCall_('get', '/orders?date_from=' + window[0] + '&date_to=' + window[1] + '&limit=200', token, null);
-    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
+    var r = getRoleData_(token, 'shop', '/orders?date_from=' + window[0] + '&date_to=' + window[1] + '&limit=200');
+    if (!r.ordersRes.httpOk) return { ok: false, error: apiErrorMessage_(r.ordersRes) };
     return {
       ok: true,
-      dropdowns: getFormOptions_(token, 'shop'),
-      recentOrders: mapOrders_(res.body),
+      dropdowns: r.dropdowns,
+      recentOrders: mapOrders_(r.ordersRes.body),
       dateWindow: window
     };
   } catch (err) {
@@ -266,10 +345,9 @@ function addOrder(token, form, userName) {
     if (!form.typeOfSubmission) missing.push('Type of Submission');
     if (missing.length) return { ok: true, success: false, message: 'Missing required field(s): ' + missing.join(', ') };
 
-    var channels = fetchList_(token, '/lookups/channels');
-    var subTypes = fetchList_(token, '/lookups/submission-types');
-    var orderViaKey = keyByName_(channels, form.orderVia);
-    var subTypeKey = keyByName_(subTypes, form.typeOfSubmission);
+    var lists = fetchListsBatch_(token, ['/lookups/channels', '/lookups/submission-types']);
+    var orderViaKey = keyByName_(lists['/lookups/channels'], form.orderVia);
+    var subTypeKey = keyByName_(lists['/lookups/submission-types'], form.typeOfSubmission);
     if (!orderViaKey || !subTypeKey) return { ok: true, success: false, message: 'Unknown dropdown value selected. Please refresh and try again.' };
 
     var payload = {
@@ -297,12 +375,11 @@ function updateShopFields(token, slNo, form, userName) {
     if (!form.typeOfSubmission) missing.push('Type of Submission');
     if (missing.length) return { ok: true, success: false, message: 'Missing required field(s): ' + missing.join(', ') };
 
-    var channels = fetchList_(token, '/lookups/channels');
-    var subTypes = fetchList_(token, '/lookups/submission-types');
+    var lists = fetchListsBatch_(token, ['/lookups/channels', '/lookups/submission-types']);
     var payload = {
       order_received_date: form.orderRcvdDate,
-      order_via_key: keyByName_(channels, form.orderVia),
-      submission_type_key: keyByName_(subTypes, form.typeOfSubmission),
+      order_via_key: keyByName_(lists['/lookups/channels'], form.orderVia),
+      submission_type_key: keyByName_(lists['/lookups/submission-types'], form.typeOfSubmission),
       dc_inv_no: form.dcNo,
       shipping_location: form.shippingLocation || null,
       detailed_remarks: form.detailedRemarks || null
@@ -319,12 +396,12 @@ function updateShopFields(token, slNo, form, userName) {
 
 function getGodownData(token) {
   try {
-    var res = apiCall_('get', '/orders?limit=200', token, null);
-    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
-    var orders = mapOrders_(res.body);
+    var r = getRoleData_(token, 'godown', '/orders?limit=200');
+    if (!r.ordersRes.httpOk) return { ok: false, error: apiErrorMessage_(r.ordersRes) };
+    var orders = mapOrders_(r.ordersRes.body);
     var pending = orders.filter(function (o) { return !o.deliveryStatus; });
     var completed = orders.filter(function (o) { return !!o.deliveryStatus; });
-    return { ok: true, dropdowns: getFormOptions_(token, 'godown'), pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
+    return { ok: true, dropdowns: r.dropdowns, pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
   } catch (err) {
     return { ok: false, error: 'getGodownData() failed: ' + err.message };
   }
@@ -332,13 +409,11 @@ function getGodownData(token) {
 
 function updateGodownFields(token, slNo, form, userName) {
   try {
-    var ready = fetchList_(token, '/people?role=ready_by');
-    var colour = fetchList_(token, '/people?role=colour_making');
-    var statuses = fetchList_(token, '/lookups/delivery-statuses');
+    var lists = fetchListsBatch_(token, ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses']);
     var payload = {};
-    if (form.readyByWhom) payload.ready_by_person_key = keyByName_(ready, form.readyByWhom);
-    if (form.colourMakingBy) payload.colour_making_person_key = keyByName_(colour, form.colourMakingBy);
-    if (form.deliveryStatus) payload.delivery_status_key = keyByName_(statuses, form.deliveryStatus);
+    if (form.readyByWhom) payload.ready_by_person_key = keyByName_(lists['/people?role=ready_by'], form.readyByWhom);
+    if (form.colourMakingBy) payload.colour_making_person_key = keyByName_(lists['/people?role=colour_making'], form.colourMakingBy);
+    if (form.deliveryStatus) payload.delivery_status_key = keyByName_(lists['/lookups/delivery-statuses'], form.deliveryStatus);
     var res = apiCall_('patch', '/orders/' + slNo, token, payload);
     if (!res.httpOk) return { ok: true, success: false, message: apiErrorMessage_(res) };
     return { ok: true, success: true };
@@ -351,15 +426,15 @@ function updateGodownFields(token, slNo, form, userName) {
 
 function getDispatchData(token, role) {
   try {
-    var res = apiCall_('get', '/orders?limit=200', token, null);
-    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
-    var orders = mapOrders_(res.body);
+    var r = getRoleData_(token, role, '/orders?limit=200');
+    if (!r.ordersRes.httpOk) return { ok: false, error: apiErrorMessage_(r.ordersRes) };
+    var orders = mapOrders_(r.ordersRes.body);
     var pending = orders.filter(function (o) { return !o.materialDeliveryDateTime; });
     var completed = orders.filter(function (o) {
       return !!o.materialDeliveryDateTime && (!o.dateOfReceiving || !o.paymentStatus);
     });
     completed.forEach(function (o) { o.stuckReason = 'Receiving pending'; });
-    return { ok: true, dropdowns: getFormOptions_(token, role), pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
+    return { ok: true, dropdowns: r.dropdowns, pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
   } catch (err) {
     return { ok: false, error: 'getDispatchData() failed: ' + err.message };
   }
@@ -367,25 +442,32 @@ function getDispatchData(token, role) {
 
 function updateDispatchFields(token, slNo, form, userName, role) {
   try {
-    var statuses = fetchList_(token, '/lookups/delivery-statuses');
-    var delivery = fetchList_(token, '/people?role=delivery');
+    // The WhatsApp "first filled in" alert only applies to godown_dispatch, so only
+    // that role needs the extra "before" order fetch - and it rides in the same
+    // parallel batch as the lookups instead of its own separate round trip.
+    var needsBefore = role === 'godown_dispatch';
+    var lookupPaths = ['/lookups/delivery-statuses', '/people?role=delivery'];
+    if (role === 'shop_dispatch') lookupPaths.push('/lookups/payment-statuses');
+    var specs = lookupPaths.map(function (p) { return { method: 'get', path: p, token: token, payload: null }; });
+    if (needsBefore) specs.push({ method: 'get', path: '/orders/' + slNo, token: token, payload: null });
+    var batchRes = apiCallBatch_(specs);
+    var lists = {};
+    lookupPaths.forEach(function (p, i) { lists[p] = batchRes[i].httpOk ? (batchRes[i].body || []) : []; });
+    var before = needsBefore && batchRes[lookupPaths.length].httpOk ? mapOrder_(batchRes[lookupPaths.length].body) : null;
+
     var payload = {};
-    if (form.deliveryStatus) payload.delivery_status_key = keyByName_(statuses, form.deliveryStatus);
+    if (form.deliveryStatus) payload.delivery_status_key = keyByName_(lists['/lookups/delivery-statuses'], form.deliveryStatus);
     if (form.materialDeliveryDateTime) payload.material_delivery_datetime = form.materialDeliveryDateTime;
-    if (form.deliveredByWhom) payload.delivered_by_person_key = keyByName_(delivery, form.deliveredByWhom);
+    if (form.deliveredByWhom) payload.delivered_by_person_key = keyByName_(lists['/people?role=delivery'], form.deliveredByWhom);
     if (form.cartage !== '' && form.cartage !== undefined && form.cartage !== null) payload.cartage = Number(form.cartage);
 
     if (role === 'shop_dispatch') {
-      var payments = fetchList_(token, '/lookups/payment-statuses');
       if (form.dateOfReceiving) payload.date_of_receiving = form.dateOfReceiving;
-      if (form.paymentStatus) payload.payment_status_key = keyByName_(payments, form.paymentStatus);
+      if (form.paymentStatus) payload.payment_status_key = keyByName_(lists['/lookups/payment-statuses'], form.paymentStatus);
       if (form.amountReceived !== '' && form.amountReceived !== undefined && form.amountReceived !== null) {
         payload.amount_received = Number(form.amountReceived);
       }
     }
-
-    var beforeRes = apiCall_('get', '/orders/' + slNo, token, null);
-    var before = beforeRes.httpOk ? mapOrder_(beforeRes.body) : null;
 
     var res = apiCall_('patch', '/orders/' + slNo, token, payload);
     if (!res.httpOk) return { ok: true, success: false, message: apiErrorMessage_(res) };
@@ -443,12 +525,12 @@ function sendGodownDispatchWhatsAppAlert_(o) {
 
 function getReceivingData(token) {
   try {
-    var res = apiCall_('get', '/orders?limit=200', token, null);
-    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
-    var orders = mapOrders_(res.body);
+    var r = getRoleData_(token, 'receiving', '/orders?limit=200');
+    if (!r.ordersRes.httpOk) return { ok: false, error: apiErrorMessage_(r.ordersRes) };
+    var orders = mapOrders_(r.ordersRes.body);
     var pending = orders.filter(function (o) { return !o.dateOfReceiving || !o.paymentStatus; });
     var completed = orders.filter(function (o) { return !!o.dateOfReceiving && !!o.paymentStatus; });
-    return { ok: true, dropdowns: getFormOptions_(token, 'receiving'), pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
+    return { ok: true, dropdowns: r.dropdowns, pending: pending, completed: completed, dateWindow: getDashboardDateWindow_() };
   } catch (err) {
     return { ok: false, error: 'getReceivingData() failed: ' + err.message };
   }

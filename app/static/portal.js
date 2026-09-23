@@ -222,8 +222,8 @@ function showLogin(message) {
       route();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; pass.value = ''; }
   });
-  mount(h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
-    h('h1', { text: 'Vardhman Traders' }), h('p', { class: 'sub', text: 'Sign in to continue' }), form));
+  mount(h('div', { class: 'login-screen' }, h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
+    h('h1', { text: 'Vardhman Traders' }), h('p', { class: 'sub', text: 'Sign in to your sales & operations portal' }), form)));
 }
 
 function showChangePassword(forced) {
@@ -249,9 +249,9 @@ function showChangePassword(forced) {
       route();
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
   });
-  mount(h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
+  mount(h('div', { class: 'login-screen' }, h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
     h('h1', { text: 'Change your password' }),
-    h('p', { class: 'sub', text: forced ? 'You must choose a new password before continuing.' : 'Choose a new password.' }), form));
+    h('p', { class: 'sub', text: forced ? 'You must choose a new password before continuing.' : 'Choose a new password.' }), form)));
 }
 
 // ------------------------------------------------------------------ shell
@@ -280,10 +280,13 @@ async function openAppLink(url) {
   }
 }
 
+const TAB_ICON = { dashboard: '📊', members: '👥', setup: '⚙️' };
+
 function topbar(links) {
   return h('header', { class: 'topbar' },
-    h('div', { class: 'brand' }, h('span', { class: 'badge', text: 'VT' }), 'Vardhman Traders'),
-    ...links.map((l) => safeHttps(l.url) && h('button', { class: 'btn', text: 'Open ' + l.name + ' ↗', onclick: () => openAppLink(l.url) })),
+    h('div', { class: 'brand' }, h('div', { class: 'brand-mark', text: 'VT' }),
+      h('div', { class: 'brand-text' }, h('span', { class: 'name', text: 'Vardhman Traders' }), h('span', { class: 'tag', text: 'Sales & Operations Portal' }))),
+    ...links.map((l) => safeHttps(l.url) && h('button', { class: 'btn open-app', text: 'Open ' + l.name + ' ↗', onclick: () => openAppLink(l.url) })),
     h('span', { class: 'who' }, S.user.display_name, h('span', { class: 'role-chip', text: S.user.role.replace('_', ' ') })),
     h('button', { class: 'btn', text: 'Change password', onclick: () => showChangePassword(false) }),
     h('button', { class: 'btn', text: 'Sign out', onclick: () => signOut() }));
@@ -298,33 +301,68 @@ async function showPortal() {
   if (!isAdmin) return renderHome(body, links);
 
   const holder = h('div');
-  const tabs = [['dashboard', 'Dashboard'], ['members', 'Members'], ['apps', 'Apps'], ['activity', 'Activity log']];
+  const tabs = [['dashboard', 'Dashboard'], ['members', 'Members'], ['setup', 'Setup']];
   const bar = h('div', { class: 'tabs', role: 'tablist' });
   const draw = () => {
     bar.replaceChildren(...tabs.map(([id, label]) => h('button', {
-      class: 'tab', role: 'tab', 'aria-selected': String(S.tab === id), text: label,
-      onclick: () => { S.tab = id; draw(); openTab(); } })));
+      class: 'tab', role: 'tab', 'aria-selected': String(S.tab === id),
+      onclick: () => { S.tab = id; draw(); openTab(); } }, TAB_ICON[id] + ' ' + label)));
   };
   const openTab = () => {
     stopTimer(); hideTip();
     // A fresh panel per visit: a slow response from a tab you already left writes into a detached node.
     const panel = h('div', { id: 'panel' });
     holder.replaceChildren(panel);
-    ({ dashboard: renderDashboard, members: renderMembers, apps: renderApps, activity: renderActivity })[S.tab](panel);
+    ({ dashboard: renderDashboard, members: renderMembers, setup: renderSetup })[S.tab](panel);
   };
   body.append(bar, holder);
   draw(); openTab();
+}
+
+// Emoji chosen by keyword in the app's name, so a shop/godown/dispatch/receiving
+// tracker gets a sensible icon without admin having to pick one manually.
+function iconForApp(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('dispatch')) return '🚚';
+  if (n.includes('receiv')) return '📥';
+  if (n.includes('godown') || n.includes('warehouse') || n.includes('stock')) return '📦';
+  if (n.includes('shop')) return '🧾';
+  if (n.includes('order') || n.includes('track')) return '📋';
+  if (n.includes('report') || n.includes('dashboard')) return '📊';
+  return '🔗';
 }
 
 function renderHome(body, links) {
   const tiles = links.map((l) => {
     const url = safeHttps(l.url);
     return url && h('button', { class: 'app-tile', onclick: () => openAppLink(url) },
+      h('span', { class: 'icon-circle', text: iconForApp(l.name) }),
       h('strong', { text: l.name }), h('span', { text: 'Open ↗' }));
   });
-  body.append(h('h1', { text: 'Welcome, ' + S.user.display_name, style: 'font-size:20px' }),
-    links.length ? h('p', { class: 'note', text: 'Your apps' }) : h('p', { class: 'note', style: 'margin-top:8px', text: 'No apps have been assigned to you yet. Please contact the administrator.' }),
-    h('div', { class: 'apps' }, ...tiles));
+  body.append(h('div', { class: 'home-wrap' }, h('div', { class: 'home-inner' },
+    h('h1', { text: 'Welcome, ' + S.user.display_name }),
+    h('p', { class: 'note', text: links.length ? 'Choose an app to continue' : 'No apps have been assigned to you yet. Please contact the administrator.' }),
+    h('div', { class: 'apps' }, ...tiles))));
+}
+
+// ------------------------------------------------------------------ setup (apps + activity)
+async function renderSetup(panel) {
+  const sub = [['apps', 'Apps'], ['activity', 'Activity log']];
+  if (!S.setupTab) S.setupTab = 'apps';
+  const bar = h('div', { class: 'subtabs', role: 'tablist' });
+  const inner = h('div');
+  const drawBar = () => {
+    bar.replaceChildren(...sub.map(([id, label]) => h('button', {
+      class: 'subtab', role: 'tab', 'aria-selected': String(S.setupTab === id), text: label,
+      onclick: () => { S.setupTab = id; drawBar(); openInner(); } })));
+  };
+  const openInner = () => {
+    const p = h('div');
+    inner.replaceChildren(p);
+    (S.setupTab === 'apps' ? renderApps : renderActivity)(p);
+  };
+  panel.replaceChildren(bar, inner);
+  drawBar(); openInner();
 }
 
 // ------------------------------------------------------------------ charts
@@ -438,8 +476,9 @@ function delta(cur, prev, goodWhenUp = true, label = 'previous period') {
   return h('span', { class: `delta ${up ? 'up' : 'down'}-${good ? 'good' : 'bad'}`, text: `${up ? '▲' : '▼'} ${nDec.format(Math.abs(pct) * 100)}% vs ${label}` });
 }
 
-function tile(label, value, sub, hero) {
-  return h('div', { class: 'tile' + (hero ? ' hero' : '') }, h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), h('div', { class: 'sub' }, sub));
+function tile(label, value, sub, hero, icon) {
+  return h('div', { class: 'tile' + (hero ? ' hero' : '') }, icon && h('span', { class: 'icon', text: icon }),
+    h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), h('div', { class: 'sub' }, sub));
 }
 
 async function renderDashboard(panel) {
@@ -510,15 +549,15 @@ function dashboardNodes(d) {
   const prevLabel = `prior ${days} day${days > 1 ? 's' : ''}`;
 
   const kpi1 = h('div', { class: 'kpis' },
-    tile('Orders received', fmtInt(hd.orders), [periodLabel, h('br'), delta(hd.orders, pv.orders, true, prevLabel)], true),
-    tile('Delivered', fmtInt(hd.delivered), [pct(hd.delivered), h('br'), delta(hd.delivered, pv.delivered, true, prevLabel)]),
-    tile('Fully closed', fmtInt(hd.closed), pct(hd.closed)),
-    tile('Cancelled', fmtInt(hd.cancelled), [pct(hd.cancelled), h('br'), delta(hd.cancelled, pv.cancelled, false, prevLabel)]));
+    tile('Orders received', fmtInt(hd.orders), [periodLabel, h('br'), delta(hd.orders, pv.orders, true, prevLabel)], true, '📋'),
+    tile('Delivered', fmtInt(hd.delivered), [pct(hd.delivered), h('br'), delta(hd.delivered, pv.delivered, true, prevLabel)], false, '🚚'),
+    tile('Fully closed', fmtInt(hd.closed), pct(hd.closed), false, '✅'),
+    tile('Cancelled', fmtInt(hd.cancelled), [pct(hd.cancelled), h('br'), delta(hd.cancelled, pv.cancelled, false, prevLabel)], false, '✖️'));
   const kpi2 = h('div', { class: 'kpis second' },
-    tile('Typical order-to-delivery time', fmtHours(hd.median_hours), (() => { const dm = delta(hd.median_hours, pv.median_hours, false, prevLabel); return dm ? ['median · ', dm] : 'median'; })()),
-    tile('Delivered within 24 h', fmtPct(hd.within_24h), 'of delivered orders'),
-    tile('Amount received', fmtMoney(hd.amount_received), delta(Number(hd.amount_received), Number(pv.amount_received), true, prevLabel)),
-    tile('Cartage', fmtMoney(hd.cartage), delta(Number(hd.cartage), Number(pv.cartage), false, prevLabel)));
+    tile('Typical order-to-delivery time', fmtHours(hd.median_hours), (() => { const dm = delta(hd.median_hours, pv.median_hours, false, prevLabel); return dm ? ['median · ', dm] : 'median'; })(), false, '⏱️'),
+    tile('Delivered within 24 h', fmtPct(hd.within_24h), 'of delivered orders', false, '⚡'),
+    tile('Amount received', fmtMoney(hd.amount_received), delta(Number(hd.amount_received), Number(pv.amount_received), true, prevLabel), false, '💰'),
+    tile('Cartage', fmtMoney(hd.cartage), delta(Number(hd.cartage), Number(pv.cartage), false, prevLabel), false, '🧮'));
 
   // orders per day
   const daily = d.daily.map((x) => ({ ...x, label: fmtDate(x.date), value: x.orders }));
