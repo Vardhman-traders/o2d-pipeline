@@ -170,6 +170,37 @@ def get_dashboard(date_from: Optional[date] = None, date_to: Optional[date] = No
     return dashboard.build(date_from, date_to)
 
 
+# Backs the dashboard's "click a bar to see the orders" drill-down. date_from/date_to
+# scope it to the selected period (or omit both for the pipeline chart, which is
+# always "right now" regardless of period); stage and the hour range narrow further.
+@router.get("/orders")
+def admin_list_orders(
+    date_from: Optional[date] = None, date_to: Optional[date] = None,
+    stage: Optional[str] = Query(default=None, description="one stage, or several comma-separated"),
+    min_hours: Optional[float] = None, max_hours: Optional[float] = None,
+    limit: int = Query(default=200, ge=1, le=500), admin=Depends(ADMIN),
+):
+    where, params = ["1=1"], []
+    if date_from:
+        where.append("order_date >= %s"); params.append(date_from)
+    if date_to:
+        where.append("order_date <= %s"); params.append(date_to)
+    if stage:
+        stages = [s.strip() for s in stage.split(",") if s.strip()]
+        where.append("stage = ANY(%s)"); params.append(stages)
+    if min_hours is not None:
+        where.append("hours_to_deliver >= %s"); params.append(min_hours)
+    if max_hours is not None:
+        where.append("hours_to_deliver < %s"); params.append(max_hours)
+    with db.cursor() as cur:
+        cur.execute(f"""
+            SELECT sl_no, dc_inv_no, order_date, stage, delivery_status, channel, submission_type,
+                   shipping_location, amount_received, cartage, hours_to_deliver, created_by
+            FROM v_orders WHERE {' AND '.join(where)}
+            ORDER BY order_date DESC, sl_no DESC LIMIT %s""", params + [limit])
+        return cur.fetchall()
+
+
 # ------------------------------------------------------------------ Excel export
 EXPORT_COLUMNS = [  # (header, view column, width)
     ("Sl No", "sl_no", 8), ("DC / Inv No", "dc_inv_no", 14), ("Order date", "order_date", 12),

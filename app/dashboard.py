@@ -57,8 +57,6 @@ def build(date_from: date, date_to: date) -> dict:
                 SELECT dd.full_date AS date, dd.is_monday_holiday AS holiday,
                        count(v.order_key) AS orders,
                        count(v.order_key) FILTER (WHERE v.stage = 'Cancelled') AS cancelled,
-                       COALESCE(sum(v.amount_received), 0) AS amount_received,
-                       COALESCE(sum(v.cartage), 0) AS cartage,
                        avg(v.hours_to_deliver) AS avg_hours
                 FROM dim_date dd LEFT JOIN v_orders v ON v.order_date = dd.full_date
                 WHERE dd.full_date BETWEEN %s AND %s GROUP BY dd.full_date, dd.is_monday_holiday
@@ -69,46 +67,14 @@ def build(date_from: date, date_to: date) -> dict:
                               WHEN hours_to_deliver < 24 THEN 3 WHEN hours_to_deliver < 48 THEN 4 ELSE 5 END AS o,
                          CASE WHEN hours_to_deliver < 2 THEN 'Under 2 h' WHEN hours_to_deliver < 6 THEN '2 to 6 h'
                               WHEN hours_to_deliver < 24 THEN '6 to 24 h' WHEN hours_to_deliver < 48 THEN '1 to 2 days'
-                              ELSE 'Over 2 days' END AS bucket, count(*) AS n
+                              ELSE 'Over 2 days' END AS bucket,
+                         CASE WHEN hours_to_deliver < 2 THEN 0 WHEN hours_to_deliver < 6 THEN 2
+                              WHEN hours_to_deliver < 24 THEN 6 WHEN hours_to_deliver < 48 THEN 24 ELSE 48 END AS min_hours,
+                         CASE WHEN hours_to_deliver < 2 THEN 2 WHEN hours_to_deliver < 6 THEN 6
+                              WHEN hours_to_deliver < 24 THEN 24 WHEN hours_to_deliver < 48 THEN 48 END AS max_hours,
+                         count(*) AS n
                   FROM v_orders WHERE order_date BETWEEN %s AND %s AND hours_to_deliver IS NOT NULL
-                  GROUP BY 1, 2) t ORDER BY o""", rng),
-            "by_channel": _rows(cur, """
-                SELECT COALESCE(channel, 'Not set') AS label, count(*) AS orders,
-                       COALESCE(sum(amount_received), 0) AS amount_received
-                FROM v_orders WHERE order_date BETWEEN %s AND %s GROUP BY 1 ORDER BY 2 DESC""", rng),
-            "by_submission_type": _rows(cur, """
-                SELECT COALESCE(submission_type, 'Not set') AS label, count(*) AS orders
-                FROM v_orders WHERE order_date BETWEEN %s AND %s GROUP BY 1 ORDER BY 2 DESC""", rng),
-            "by_delivery_status": _rows(cur, """
-                SELECT COALESCE(delivery_status, 'Not set') AS label, count(*) AS orders
-                FROM v_orders WHERE order_date BETWEEN %s AND %s GROUP BY 1 ORDER BY 2 DESC""", rng),
-            "by_payment_status": _rows(cur, """
-                SELECT COALESCE(payment_status, 'Not set') AS label, count(*) AS orders,
-                       COALESCE(sum(amount_received), 0) AS amount_received
-                FROM v_orders WHERE order_date BETWEEN %s AND %s GROUP BY 1 ORDER BY 2 DESC""", rng),
-            "by_hour": _rows(cur, """
-                SELECT h.hour, count(v.order_key) AS orders
-                FROM generate_series(0, 23) AS h(hour)
-                LEFT JOIN v_orders v ON v.order_date BETWEEN %s AND %s
-                     AND EXTRACT(HOUR FROM v.timestamp_created AT TIME ZONE %s)::int = h.hour
-                GROUP BY h.hour ORDER BY h.hour""", (date_from, date_to, IST)),
-            "ready_by": _rows(cur, """
-                SELECT ready_by AS label, count(*) AS orders FROM v_orders
-                WHERE order_date BETWEEN %s AND %s AND ready_by IS NOT NULL
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 12""", rng),
-            "colour_making_by": _rows(cur, """
-                SELECT colour_making_by AS label, count(*) AS orders FROM v_orders
-                WHERE order_date BETWEEN %s AND %s AND colour_making_by IS NOT NULL
-                GROUP BY 1 ORDER BY 2 DESC""", rng),
-            "delivered_by": _rows(cur, """
-                SELECT delivered_by AS label, count(*) AS orders, COALESCE(sum(cartage), 0) AS cartage,
-                       avg(hours_to_deliver) AS avg_hours
-                FROM v_orders WHERE order_date BETWEEN %s AND %s AND delivered_by IS NOT NULL
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 12""", rng),
-            "created_by": _rows(cur, """
-                SELECT created_by AS label, count(*) AS orders FROM v_orders
-                WHERE order_date BETWEEN %s AND %s AND created_by IS NOT NULL
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 12""", rng),
+                  GROUP BY 1, 2, 3, 4) t ORDER BY o""", rng),
             # Right now, regardless of the selected range:
             "pipeline": _rows(cur, """
                 SELECT stage AS label, count(*) AS orders, min(timestamp_created) AS oldest

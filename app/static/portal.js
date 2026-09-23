@@ -114,12 +114,42 @@ function showTip(evt, head, lines) {
 function hideTip() { tipEl().hidden = true; }
 
 // ------------------------------------------------------------------ dialogs
-function dialog(title, bodyNodes, actionNodes) {
-  const dlg = h('dialog', {}, h('h2', { text: title }), ...bodyNodes, h('div', { class: 'actions' }, ...actionNodes));
+function dialog(title, bodyNodes, actionNodes, extraClass) {
+  const dlg = h('dialog', { class: extraClass }, h('h2', { text: title }), ...bodyNodes, h('div', { class: 'actions' }, ...actionNodes));
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg);
   dlg.showModal();
   return dlg;
+}
+
+// Click-through from any dashboard bar/segment: opens a wide modal listing the
+// matching orders, via the same params the chart segment represents (a date, a
+// stage, an hour range - see admin_list_orders in app/admin.py).
+async function openDrilldown(title, params) {
+  const body = h('div', {}, h('p', { class: 'note', text: 'Loading…' }));
+  const close = h('button', { class: 'btn primary', text: 'Close' });
+  const dlg = dialog(title, [body], [close], 'wide');
+  close.addEventListener('click', () => dlg.close());
+  try {
+    const qs = new URLSearchParams(params).toString();
+    const rows = await api('/admin/orders?' + qs);
+    const cols = [
+      { head: 'Sl No', get: (r) => r.sl_no },
+      { head: 'DC / Inv', get: (r) => r.dc_inv_no || '' },
+      { head: 'Order date', get: (r) => fmtDate(r.order_date) },
+      { head: 'Stage', get: (r) => r.stage },
+      { head: 'Delivery status', get: (r) => r.delivery_status || '–' },
+      { head: 'Channel', get: (r) => r.channel || '' },
+      { head: 'Location', get: (r) => r.shipping_location || '' },
+      { head: 'Amount', num: 1, get: (r) => fmtMoney(r.amount_received) },
+      { head: 'Hrs to deliver', num: 1, get: (r) => (r.hours_to_deliver == null ? '–' : fmtHours(Number(r.hours_to_deliver))) },
+    ];
+    body.replaceChildren(
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: rows.length + ' matching order' + (rows.length === 1 ? '' : 's') + (rows.length === 200 ? ' (showing first 200)' : '') }),
+      rows.length ? tableFor(cols, rows) : h('div', { class: 'empty', text: 'No matching orders.' }));
+  } catch (ex) {
+    body.replaceChildren(h('div', { class: 'msg error', text: ex.message }));
+  }
 }
 
 function randomPassword() {
@@ -389,17 +419,21 @@ function chartCard(id, title, sub, build, cols, rows, extra) {
     body, extra);
 }
 
-function barList(rows, { valueKey = 'orders', fmt = fmtInt, tip }) {
+function barList(rows, { valueKey = 'orders', fmt = fmtInt, tip, onClick }) {
   const max = Math.max(...rows.map((r) => Number(r[valueKey]) || 0), 1);
   return h('div', { class: 'bars' }, rows.map((r) => {
     const v = Number(r[valueKey]) || 0;
-    const el = h('div', { class: 'bar-row', tabindex: '0' },
+    const el = h('div', { class: 'bar-row' + (onClick ? ' clickable' : ''), tabindex: '0' },
       h('div', { class: 'bar-label', title: r.label, text: r.label }),
       h('div', { class: 'bar-track' }, h('div', { class: 'bar-fill', style: `width:${(v / max) * 100}%` })),
       h('div', { class: 'bar-val', text: fmt(v) }));
     const show = (e) => showTip(e, r.label, tip ? tip(r) : [[fmt(v), valueKey]]);
     el.addEventListener('pointermove', show); el.addEventListener('focus', show);
     el.addEventListener('pointerleave', hideTip); el.addEventListener('blur', hideTip);
+    if (onClick) {
+      el.addEventListener('click', () => onClick(r));
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(r); } });
+    }
     return el;
   }));
 }
@@ -422,8 +456,8 @@ function columnChart(rows, opts) {
   return wrap;
 }
 
-function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210 }, W) {
-  const H = height, m = { l: 46, r: 8, t: 16, b: 24 };
+function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210, onClick, cumulative }, W) {
+  const H = height, m = { l: 46, r: cumulative ? 40 : 8, t: 16, b: 24 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const maxV = Math.max(...rows.map((r) => r.value), 0);
   const step = niceStep(maxV || 1), top = Math.max(step * Math.ceil((maxV || 1) / step), step);
@@ -436,6 +470,21 @@ function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210 }, W) {
   }
   const every = labelEvery || Math.max(1, Math.ceil(rows.length / Math.max(3, Math.floor(pw / 80))));
   const peakIdx = rows.findIndex((r) => r.value === maxV && maxV > 0);
+
+  // Cumulative % overlay - right axis, so "when have 80% of deliveries happened" reads at a glance.
+  let cumPoints = null;
+  if (cumulative) {
+    const total = rows.reduce((a, r) => a + r.value, 0) || 1;
+    let running = 0;
+    cumPoints = rows.map((r, i) => { running += r.value; return { x: m.l + slot * i + slot / 2, pct: running / total }; });
+    const yc = (pct) => m.t + ph - pct * ph;
+    [0, 0.25, 0.5, 0.75, 1].forEach((pct) => svg.append(
+      s('text', { x: W - m.r + 6, y: yc(pct) + 3, 'text-anchor': 'start' }, Math.round(pct * 100) + '%')));
+    const path = cumPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${yc(p.pct)}`).join(' ');
+    svg.append(s('path', { class: 'cum-line', d: path, fill: 'none' }));
+    cumPoints.forEach((p) => svg.append(s('circle', { class: 'cum-dot', cx: p.x, cy: yc(p.pct), r: 2.5 })));
+  }
+
   rows.forEach((r, i) => {
     const cx = m.l + slot * i + slot / 2, x = cx - bw / 2, yy = y(r.value), rad = Math.min(4, bw / 2);
     let bar = null;
@@ -446,11 +495,15 @@ function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210 }, W) {
     }
     if (i % every === 0) svg.append(s('text', { x: cx, y: H - 8, 'text-anchor': 'middle' }, r.label));
     if (i === peakIdx) svg.append(s('text', { class: 'peak', x: cx, y: yy - 5, 'text-anchor': 'middle' }, fmt(r.value)));
-    const hit = s('rect', { class: 'hit', x: cx - slot / 2, y: m.t, width: slot, height: ph, tabindex: '0', 'aria-label': `${r.label}: ${fmt(r.value)}` });
+    const hit = s('rect', { class: 'hit' + (onClick ? ' clickable' : ''), x: cx - slot / 2, y: m.t, width: slot, height: ph, tabindex: '0', 'aria-label': `${r.label}: ${fmt(r.value)}` });
     const show = (e) => { if (bar) bar.classList.add('hot'); showTip(e, r.label, tip ? tip(r) : [[fmt(r.value), '']]); };
     const hide = () => { if (bar) bar.classList.remove('hot'); hideTip(); };
     hit.addEventListener('pointermove', show); hit.addEventListener('focus', show);
     hit.addEventListener('pointerleave', hide); hit.addEventListener('blur', hide);
+    if (onClick) {
+      hit.addEventListener('click', () => onClick(r));
+      hit.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(r); } });
+    }
     svg.append(hit);
   });
   return svg;
@@ -479,6 +532,26 @@ function delta(cur, prev, goodWhenUp = true, label = 'previous period') {
 function tile(label, value, sub, hero, icon) {
   return h('div', { class: 'tile' + (hero ? ' hero' : '') }, icon && h('span', { class: 'icon', text: icon }),
     h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), h('div', { class: 'sub' }, sub));
+}
+
+/* A funnel segment: width is proportional to its share of the total, and it's
+   clickable through to the matching orders. Segments in one funnel() call are
+   meant to be mutually exclusive and sum to the total. */
+function funnel(segments, total) {
+  const max = total || 1;
+  return h('div', { class: 'funnel' }, segments.map((seg) => {
+    const pct = max ? seg.value / max : 0;
+    const el = h('div', { class: 'funnel-seg' + (seg.onClick ? ' clickable' : ''), tabindex: seg.onClick ? '0' : undefined },
+      h('div', { class: 'funnel-bar-track' }, h('div', { class: 'funnel-bar-fill', style: `width:${Math.max(pct * 100, seg.value > 0 ? 2 : 0)}%; background:${seg.color}` })),
+      h('div', { class: 'funnel-label' },
+        h('strong', { text: fmtInt(seg.value) }), h('span', { text: ' ' + seg.label }),
+        h('span', { class: 'funnel-pct', text: total ? ' · ' + fmtPct(pct) : '' })));
+    if (seg.onClick) {
+      el.addEventListener('click', seg.onClick);
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seg.onClick(); } });
+    }
+    return el;
+  }));
 }
 
 async function renderDashboard(panel) {
@@ -544,66 +617,73 @@ async function renderDashboard(panel) {
 function dashboardNodes(d) {
   const hd = d.headline, pv = d.previous, days = d.range.days;
   delta.comparable = !!d.data_start && d.range.previous_from >= d.data_start;
-  const pct = (n) => (hd.orders ? fmtPct(n / hd.orders) + ' of orders' : '');
   const periodLabel = `${fmtDate(d.range.from)} – ${fmtDate(d.range.to)} · ${days} day${days > 1 ? 's' : ''}`;
   const prevLabel = `prior ${days} day${days > 1 ? 's' : ''}`;
+  const drill = (extra) => openDrilldown(extra.title, { date_from: d.range.from, date_to: d.range.to, ...extra.params });
 
-  const kpi1 = h('div', { class: 'kpis' },
-    tile('Orders received', fmtInt(hd.orders), [periodLabel, h('br'), delta(hd.orders, pv.orders, true, prevLabel)], true, '📋'),
-    tile('Delivered', fmtInt(hd.delivered), [pct(hd.delivered), h('br'), delta(hd.delivered, pv.delivered, true, prevLabel)], false, '🚚'),
-    tile('Fully closed', fmtInt(hd.closed), pct(hd.closed), false, '✅'),
-    tile('Cancelled', fmtInt(hd.cancelled), [pct(hd.cancelled), h('br'), delta(hd.cancelled, pv.cancelled, false, prevLabel)], false, '✖️'));
+  // ---- the story: total -> cancelled / open / delivered, delivered -> awaiting receiving / closed
+  const cancelled = hd.cancelled, delivered = hd.delivered, closed = hd.closed;
+  const open = hd.orders - cancelled - delivered;
+  const awaitingReceiving = delivered - closed;
+
+  const story = h('p', { class: 'story' },
+    `Of `, h('strong', { text: fmtInt(hd.orders) }), ` orders received ${periodLabel}, `,
+    h('strong', { text: fmtInt(cancelled) }), ` were cancelled and `,
+    h('strong', { text: fmtInt(open) }), ` are still open. `,
+    h('strong', { text: fmtInt(delivered) }), ` have been delivered, of which `,
+    h('strong', { text: fmtInt(closed) }), ` are fully closed and `,
+    h('strong', { text: fmtInt(awaitingReceiving) }), ` are awaiting receiving or payment.`);
+
+  const topFunnel = funnel([
+    { label: 'Cancelled', value: cancelled, color: 'var(--bad)', onClick: () => drill({ title: 'Cancelled orders', params: { stage: 'Cancelled' } }) },
+    { label: 'Still open (awaiting godown / dispatch)', value: open, color: 'var(--warn)', onClick: () => drill({ title: 'Open orders', params: { stage: 'Awaiting godown,Awaiting dispatch' } }) },
+    { label: 'Delivered', value: delivered, color: 'var(--good)', onClick: () => drill({ title: 'Delivered orders', params: { stage: 'Awaiting receiving,Closed' } }) },
+  ], hd.orders);
+  const subFunnel = funnel([
+    { label: 'Awaiting receiving / payment', value: awaitingReceiving, color: 'var(--warn)', onClick: () => drill({ title: 'Awaiting receiving or payment', params: { stage: 'Awaiting receiving' } }) },
+    { label: 'Fully closed', value: closed, color: 'var(--good)', onClick: () => drill({ title: 'Fully closed orders', params: { stage: 'Closed' } }) },
+  ], delivered);
+
+  const storyCard = h('div', { class: 'card story-card' },
+    h('div', { class: 'section-head' }, h('div', {}, h('h1', { text: fmtInt(hd.orders) + ' orders' }), h('div', { class: 'sub', text: periodLabel })),
+      delta(hd.orders, pv.orders, true, prevLabel)),
+    story, topFunnel,
+    h('div', { class: 'funnel-sub-label', text: 'Of the delivered orders:' }), subFunnel);
+
   const kpi2 = h('div', { class: 'kpis second' },
     tile('Typical order-to-delivery time', fmtHours(hd.median_hours), (() => { const dm = delta(hd.median_hours, pv.median_hours, false, prevLabel); return dm ? ['median · ', dm] : 'median'; })(), false, '⏱️'),
     tile('Delivered within 24 h', fmtPct(hd.within_24h), 'of delivered orders', false, '⚡'),
     tile('Amount received', fmtMoney(hd.amount_received), delta(Number(hd.amount_received), Number(pv.amount_received), true, prevLabel), false, '💰'),
     tile('Cartage', fmtMoney(hd.cartage), delta(Number(hd.cartage), Number(pv.cartage), false, prevLabel), false, '🧮'));
 
-  // orders per day
+  // orders per day - click a day to see that day's orders
   const daily = d.daily.map((x) => ({ ...x, label: fmtDate(x.date), value: x.orders }));
   const perDay = chartCard('daily', 'Orders per day', periodLabel,
-    () => columnChart(daily, { tip: (r) => [[fmtInt(r.orders), 'orders'], [fmtInt(r.cancelled), 'cancelled'], [fmtHours(r.avg_hours), 'avg to deliver']].concat(r.holiday ? [['Monday', 'holiday']] : []) }),
+    () => columnChart(daily, {
+      tip: (r) => [[fmtInt(r.orders), 'orders'], [fmtInt(r.cancelled), 'cancelled'], [fmtHours(r.avg_hours), 'avg to deliver']].concat(r.holiday ? [['Monday', 'holiday']] : []),
+      onClick: (r) => openDrilldown('Orders on ' + fmtDate(r.date), { date_from: r.date, date_to: r.date }),
+    }),
     [{ head: 'Date', get: (r) => fmtDate(r.date) }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Cancelled', num: 1, get: (r) => fmtInt(r.cancelled) }, { head: 'Avg to deliver', num: 1, get: (r) => fmtHours(r.avg_hours) }],
     d.daily.filter((x) => x.orders > 0 || !x.holiday), null);
 
-  // pipeline
+  // pipeline - click a stage to see those orders (always "right now", not period-scoped)
   const pipe = d.pipeline;
   const pipeCard = chartCard('pipeline', 'Where open orders are right now', 'All dates, not just the selected period',
-    () => barList(pipe, { tip: (r) => [[fmtInt(r.orders), 'open orders'], [r.oldest ? 'since ' + fmtDate(r.oldest) : '', 'oldest']] }),
+    () => barList(pipe, {
+      tip: (r) => [[fmtInt(r.orders), 'open orders'], [r.oldest ? 'since ' + fmtDate(r.oldest) : '', 'oldest']],
+      onClick: (r) => openDrilldown(r.label, { stage: r.label }),
+    }),
     [{ head: 'Stage', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Oldest', get: (r) => fmtDate(r.oldest) }], pipe,
     h('p', { class: 'note', style: 'margin-top:10px', text: 'Awaiting godown = no delivery status yet. Awaiting dispatch = not delivered. Awaiting receiving = delivered but date received or payment status missing.' }));
 
-  // delivery time
-  const buckets = d.delivery_time_buckets.map((b) => ({ label: b.bucket, value: b.n }));
+  // delivery time, with a cumulative-% line on the right axis - click a bucket to see those orders
+  const buckets = d.delivery_time_buckets.map((b) => ({ label: b.bucket, value: b.n, min_hours: b.min_hours, max_hours: b.max_hours }));
   const timeCard = chartCard('o2d', 'Order-to-delivery time', `Median ${fmtHours(hd.median_hours)} · 9 in 10 within ${fmtHours(hd.p90_hours)} · average ${fmtHours(hd.avg_hours)}`,
-    () => columnChart(buckets, { labelEvery: 1, tip: (r) => [[fmtInt(r.value), 'orders']] }),
+    () => columnChart(buckets, {
+      labelEvery: 1, cumulative: true, tip: (r) => [[fmtInt(r.value), 'orders']],
+      onClick: (r) => openDrilldown(r.label + ' to deliver', { min_hours: r.min_hours, ...(r.max_hours != null ? { max_hours: r.max_hours } : {}) }),
+    }),
     [{ head: 'Time from logging to delivery', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.value) }], buckets, null);
-
-  // money by day
-  const money = d.daily.map((x) => ({ ...x, label: fmtDate(x.date), value: Number(x.amount_received) }));
-  const moneyCard = chartCard('money', 'Amount received per day', 'Rupees, by order date',
-    () => columnChart(money, { fmt: fmtMoney, tip: (r) => [[fmtMoney(r.value), 'received'], [fmtMoney(r.cartage), 'cartage']] }),
-    [{ head: 'Date', get: (r) => fmtDate(r.date) }, { head: 'Received', num: 1, get: (r) => fmtMoney(r.amount_received) }, { head: 'Cartage', num: 1, get: (r) => fmtMoney(r.cartage) }],
-    d.daily.filter((x) => Number(x.amount_received) > 0 || Number(x.cartage) > 0), null);
-
-  const simple = (id, title, sub, rows, valueKey = 'orders', headName = 'Orders') => chartCard(id, title, sub,
-    () => barList(rows, { valueKey }), [{ head: title.replace(/^By /, ''), get: (r) => r.label }, { head: headName, num: 1, get: (r) => fmtInt(r[valueKey]) }], rows, null);
-
-  const channel = chartCard('channel', 'By order channel', 'Orders in period',
-    () => barList(d.by_channel, { tip: (r) => [[fmtInt(r.orders), 'orders'], [fmtMoney(r.amount_received), 'received']] }),
-    [{ head: 'Channel', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Received', num: 1, get: (r) => fmtMoney(r.amount_received) }], d.by_channel, null);
-  const payment = chartCard('payment', 'By payment status', 'Orders in period',
-    () => barList(d.by_payment_status, { tip: (r) => [[fmtInt(r.orders), 'orders'], [fmtMoney(r.amount_received), 'received']] }),
-    [{ head: 'Payment status', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Received', num: 1, get: (r) => fmtMoney(r.amount_received) }], d.by_payment_status, null);
-
-  const hours = d.by_hour.map((x) => ({ label: String(x.hour).padStart(2, '0'), value: x.orders }));
-  const hourCard = chartCard('hours', 'When orders are logged', 'By hour of day (India time)',
-    () => columnChart(hours, { labelEvery: 3, tip: (r) => [[fmtInt(r.value), `orders at ${r.label}:00`]] }),
-    [{ head: 'Hour', get: (r) => r.label + ':00' }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.value) }], hours.some((x) => x.value) ? hours : [], null);
-
-  const delivered = chartCard('deliveredby', 'By delivery person', 'Orders delivered in period',
-    () => barList(d.delivered_by, { tip: (r) => [[fmtInt(r.orders), 'orders'], [fmtHours(r.avg_hours), 'avg to deliver'], [fmtMoney(r.cartage), 'cartage']] }),
-    [{ head: 'Person', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Avg time', num: 1, get: (r) => fmtHours(r.avg_hours) }, { head: 'Cartage', num: 1, get: (r) => fmtMoney(r.cartage) }], d.delivered_by, null);
 
   const oldest = h('section', { class: 'chart-card wide' },
     h('div', { class: 'chart-head' }, h('div', {}, h('h3', { text: 'Longest-waiting open orders' }), h('div', { class: 'sub', text: 'Oldest 10 orders that are not closed or cancelled (any date)' }))),
@@ -613,14 +693,9 @@ function dashboardNodes(d) {
       { head: 'Waiting', num: 1, get: (r) => fmtHours(Number(r.age_hours)) }, { head: 'Location', get: (r) => r.shipping_location || '' }], d.oldest_open)
       : h('div', { class: 'empty', text: 'Nothing is waiting. 🎉' }));
 
-  return [kpi1, kpi2,
+  return [storyCard, kpi2,
     h('div', { class: 'grid' }, h('div', { class: 'wide' }, perDay)),
     h('div', { class: 'grid' }, pipeCard, timeCard),
-    h('div', { class: 'grid' }, channel, simple('subtype', 'By submission type', 'Orders in period', d.by_submission_type),
-      simple('dstatus', 'By delivery status', 'Orders in period', d.by_delivery_status), payment),
-    h('div', { class: 'grid' }, moneyCard, hourCard),
-    h('div', { class: 'grid three' }, simple('readyby', 'By ready-by person', 'Orders prepared', d.ready_by), delivered,
-      h('div', {}, simple('colour', 'By colour-making person', 'Orders', d.colour_making_by), h('div', { style: 'height:14px' }), simple('createdby', 'Data entry by staff', 'Orders logged', d.created_by))),
     h('div', { class: 'grid' }, oldest)];
 }
 
