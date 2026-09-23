@@ -664,17 +664,17 @@ function debugInfo(token) {
   try {
     var res = apiCall_('get', '/health', null, null);
     var me = token ? apiCall_('get', '/auth/me', token, null) : null;
-    var sheet = null;
-    try {
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
-      if (ss) sheet = { name: ss.getName(), id: ss.getId() };
-    } catch (e) { /* not container-bound, or no sheet access from this context */ }
+    // SpreadsheetApp.getActiveSpreadsheet() does not carry the container binding
+    // across when this script runs as a deployed Web App (only works from inside
+    // the Sheet's own UI), so it can never answer "which sheet is this" here.
+    // Set a plain label once instead: Script Properties -> SHEET_LABEL.
+    var label = PropertiesService.getScriptProperties().getProperty('SHEET_LABEL');
     return {
       ok: true,
       apiBase: apiBase_(),
       apiHealth: res.body,
       whoAmI: me ? me.body : 'not logged in',
-      boundSpreadsheet: sheet || 'unavailable from this context',
+      sheetLabel: label || '(not set - add a SHEET_LABEL script property so this deployment identifies itself)',
       clientKeyConfigured: !!clientKey_() // never show the value itself
     };
   } catch (err) {
