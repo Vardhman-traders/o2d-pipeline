@@ -510,3 +510,155 @@ def my_links(user=Depends(ANY_LOGGED_IN)):
             cur.execute("SELECT link_key, name, url FROM app_links WHERE active AND %s = ANY(roles) "
                         "ORDER BY sort_order, name", (user["role"],))
         return cur.fetchall()
+
+
+# ------------------------------------------------------------------ dropdown values (lookups + people)
+# Every dropdown value used to only be creatable implicitly (an operating user typing
+# a new one) - admin can now directly rename, delete or add any of them.
+LOOKUP_FK_COLUMN = {
+    "channels": "order_via_key", "submission-types": "submission_type_key",
+    "delivery-statuses": "delivery_status_key", "payment-statuses": "payment_status_key",
+}
+PERSON_FK_COLUMN = {
+    "ready_by": "ready_by_person_key", "colour_making": "colour_making_person_key",
+    "delivery": "delivered_by_person_key",
+}
+
+
+def _lookup_or_404(kind):
+    if kind not in config.LOOKUPS:
+        raise HTTPException(404, "Unknown lookup")
+    return config.LOOKUPS[kind]
+
+
+class LookupValueIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=150)
+
+    @field_validator("name")
+    @classmethod
+    def _clean(cls, v):
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("name must not be blank")
+        return v
+
+
+@router.get("/lookups/{kind}")
+def admin_list_lookup(kind: str, admin=Depends(ADMIN)):
+    table, key, name = _lookup_or_404(kind)
+    with db.cursor() as cur:
+        cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
+        return cur.fetchall()
+
+
+@router.post("/lookups/{kind}", status_code=201)
+def admin_add_lookup(kind: str, body: LookupValueIn, admin=Depends(ADMIN)):
+    table, key, name = _lookup_or_404(kind)
+    try:
+        with db.cursor() as cur:
+            cur.execute(f"INSERT INTO {table} ({name}) VALUES (%s) RETURNING {key} AS key, {name} AS name",
+                        (body.name,))
+            row = cur.fetchone()
+            audit(cur, admin, "lookup.add", f"{kind}:{body.name}")
+    except pgerr.UniqueViolation:
+        raise HTTPException(409, "That value already exists (case/spacing-insensitive).")
+    return row
+
+
+@router.put("/lookups/{kind}/{value_key}")
+def admin_rename_lookup(kind: str, value_key: int, body: LookupValueIn, admin=Depends(ADMIN)):
+    table, key, name = _lookup_or_404(kind)
+    try:
+        with db.cursor() as cur:
+            cur.execute(f"UPDATE {table} SET {name} = %s WHERE {key} = %s RETURNING {key}", (body.name, value_key))
+            if not cur.fetchone():
+                raise HTTPException(404, "Value not found")
+            audit(cur, admin, "lookup.rename", f"{kind}:{value_key}", {"name": body.name})
+    except pgerr.UniqueViolation:
+        raise HTTPException(409, "That value already exists (case/spacing-insensitive).")
+    return {"ok": True}
+
+
+@router.delete("/lookups/{kind}/{value_key}")
+def admin_delete_lookup(kind: str, value_key: int, admin=Depends(ADMIN)):
+    table, key, name = _lookup_or_404(kind)
+    fk_col = LOOKUP_FK_COLUMN[kind]
+    with db.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n FROM fact_orders WHERE {fk_col} = %s", (value_key,))
+        refs = cur.fetchone()["n"]
+        if refs:
+            raise HTTPException(409, f"Can't delete: {refs} order(s) use this value.")
+        cur.execute(f"SELECT {name} AS name FROM {table} WHERE {key} = %s", (value_key,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Value not found")
+        cur.execute(f"DELETE FROM {table} WHERE {key} = %s", (value_key,))
+        audit(cur, admin, "lookup.delete", f"{kind}:{row['name']}")
+    return {"ok": True}
+
+
+class PersonValueIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    full_name: str = Field(min_length=1, max_length=150)
+    phone_number: Optional[str] = Field(default=None, max_length=30)
+
+
+@router.get("/people")
+def admin_list_people(role: str = Query(...), admin=Depends(ADMIN)):
+    if role not in PERSON_FK_COLUMN:
+        raise HTTPException(422, f"role must be one of: {', '.join(PERSON_FK_COLUMN)}")
+    with db.cursor() as cur:
+        cur.execute("SELECT person_key AS key, full_name, phone_number FROM dim_person "
+                    "WHERE person_role = %s ORDER BY lower(full_name)", (role,))
+        return cur.fetchall()
+
+
+@router.post("/people", status_code=201)
+def admin_add_person(role: str = Query(...), body: PersonValueIn = ..., admin=Depends(ADMIN)):
+    if role not in PERSON_FK_COLUMN:
+        raise HTTPException(422, f"role must be one of: {', '.join(PERSON_FK_COLUMN)}")
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO dim_person (full_name, phone_number, person_role) VALUES (%s, %s, %s) "
+                "RETURNING person_key AS key, full_name, phone_number", (body.full_name, body.phone_number, role))
+            row = cur.fetchone()
+            audit(cur, admin, "person.add", f"{role}:{body.full_name}")
+    except pgerr.UniqueViolation:
+        raise HTTPException(409, "That name already exists for this list.")
+    return row
+
+
+@router.put("/people/{person_key}")
+def admin_edit_person(person_key: int, body: PersonValueIn, admin=Depends(ADMIN)):
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE dim_person SET full_name = %s, phone_number = %s WHERE person_key = %s RETURNING person_key",
+                (body.full_name, body.phone_number, person_key))
+            if not cur.fetchone():
+                raise HTTPException(404, "Person not found")
+            audit(cur, admin, "person.edit", str(person_key), {"full_name": body.full_name})
+    except pgerr.UniqueViolation:
+        raise HTTPException(409, "That name already exists for this list.")
+    return {"ok": True}
+
+
+@router.delete("/people/{person_key}")
+def admin_delete_person(person_key: int, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM fact_orders WHERE ready_by_person_key = %s "
+            "OR colour_making_person_key = %s OR delivered_by_person_key = %s",
+            (person_key, person_key, person_key))
+        refs = cur.fetchone()["n"]
+        if refs:
+            raise HTTPException(409, f"Can't delete: {refs} order(s) use this person.")
+        cur.execute("SELECT full_name FROM dim_person WHERE person_key = %s", (person_key,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Person not found")
+        cur.execute("DELETE FROM dim_person WHERE person_key = %s", (person_key,))
+        audit(cur, admin, "person.delete", row["full_name"])
+    return {"ok": True}

@@ -453,6 +453,21 @@
               <label class="with-badge"><span class="field-badge" style="background:var(--godown-color);">3</span>Delivery Status<span class="required-star">*</span></label>
               <select id="godown_deliveryStatus" required><option value="">-- select --</option></select>
             </div>
+            <!-- Shown only if admin has granted this role the matching permission
+                 (Setup -> Permissions) - hidden otherwise, not a hardcoded assumption. -->
+            <div class="field" id="godown_dateOfReceivingField" style="display:none;">
+              <label>Date of Receiving</label>
+              <input type="text" class="dp-input" id="godown_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('godown_dateOfReceiving')">
+              <input type="hidden" id="godown_dateOfReceiving_iso">
+            </div>
+            <div class="field" id="godown_paymentStatusField" style="display:none;">
+              <label>Mat. Payment Status</label>
+              <select id="godown_paymentStatus"><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="godown_amountReceivedField" style="display:none;">
+              <label>Amount Received (Rs)</label>
+              <input type="number" id="godown_amountReceived" min="0" step="1" placeholder="0">
+            </div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="godown_saveBtn">Save</button>
@@ -652,6 +667,27 @@
         </div>
       </div>
 
+      <div class="card" style="border-left:4px solid var(--navy);margin-bottom:16px;">
+        <h2>🔍 Missing Numbers - pick any date</h2>
+        <div class="row" style="gap:10px;align-items:end;margin-bottom:10px;">
+          <div class="field" style="margin-bottom:0;">
+            <label>Date</label>
+            <input type="text" class="dp-input" id="admin_missingDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_missingDate')">
+            <input type="hidden" id="admin_missingDate_iso">
+          </div>
+          <button type="button" class="primary" onclick="adminCheckMissingNumbers()">Check</button>
+        </div>
+        <div id="admin_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
+        <div id="admin_missingWrapper" style="display:none;">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div id="admin_missingContainer"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div id="admin_missingInvoiceContainer"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="border-left:4px solid var(--navy);">
         <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
         <div class="table-scroll" style="max-height:600px;">
@@ -680,6 +716,8 @@
   var CURRENT_TOKEN = null;
   var CURRENT_ROLE = null; // the real, logged-in role (from the JWT) - never changes
   var CURRENT_USER_NAME = null;
+  var MY_FIELDS = []; // which order fields this role may set, per Setup -> Permissions
+  function canSet_(field) { return MY_FIELDS.indexOf(field) !== -1; }
   var PENDING_LOGIN_PASSWORD = null; // held only in memory during the forced-change flow
   var AUTO_REFRESH_TIMER = null;
   // Admin is a super-user (same API permissions as every operating role, on every
@@ -791,35 +829,50 @@
       buildMissingGroupHtml_(challan) + '</div></div>';
   }
 
+  function renderMissingNumbers_(prefix, data) {
+    if (!data || !data.ok) return;
+    var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
+    var challanContainer = document.getElementById(prefix + '_missingContainer');
+    if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
+      return buildMissingChallanDayBlockHtml_(r.date, r.challan);
+    }).join('');
+
+    var invoiceBlocks = [];
+    if (data.invoiceByDate) {
+      invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
+    }
+    var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
+    if (invoiceContainer) {
+      invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
+        return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
+      }).join('');
+    }
+
+    var invoiceHasMissing = invoiceBlocks.length > 0;
+    var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
+    var wrapper = document.getElementById(prefix + '_missingWrapper');
+    var allClear = document.getElementById(prefix + '_missingAllClear');
+    if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
+    if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
+  }
+
   function initMissingNumbers(prefix) {
     google.script.run
-      .withSuccessHandler(function(data) {
-        if (!data || !data.ok) return;
-        var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
-        var challanContainer = document.getElementById(prefix + '_missingContainer');
-        if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
-          return buildMissingChallanDayBlockHtml_(r.date, r.challan);
-        }).join('');
-
-        var invoiceBlocks = [];
-        if (data.invoiceByDate) {
-          invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
-        }
-        var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
-        if (invoiceContainer) {
-          invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
-            return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
-          }).join('');
-        }
-
-        var invoiceHasMissing = invoiceBlocks.length > 0;
-        var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
-        var wrapper = document.getElementById(prefix + '_missingWrapper');
-        var allClear = document.getElementById(prefix + '_missingAllClear');
-        if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
-        if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
-      })
+      .withSuccessHandler(function(data) { renderMissingNumbers_(prefix, data); })
       .getMissingNumbersForWindow(CURRENT_TOKEN);
+  }
+
+  // Admin only: check missing numbers for any date they pick, not just today.
+  function adminCheckMissingNumbers() {
+    var date = document.getElementById('admin_missingDate_iso').value;
+    if (!date) { alert('Pick a date first.'); return; }
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data || !data.ok) { alert('Error: ' + (data ? data.error : 'no response')); return; }
+        renderMissingNumbers_('admin', data);
+      })
+      .withFailureHandler(function(err) { alert('Call failed: ' + err.message); })
+      .getMissingNumbersForDate(CURRENT_TOKEN, date);
   }
 
   /* ---- Login ---- */
@@ -919,8 +972,18 @@
       switcher.style.display = 'none';
       document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     }
-    showEffectiveSection();
-    refreshCurrent();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        MY_FIELDS = (res && res.ok) ? res.fields : [];
+        showEffectiveSection();
+        refreshCurrent();
+      })
+      .withFailureHandler(function() {
+        MY_FIELDS = [];
+        showEffectiveSection();
+        refreshCurrent();
+      })
+      .getMyFields(CURRENT_TOKEN);
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
   }
@@ -1142,6 +1205,7 @@
         fillSelect_('godown_readyByWhom', data.dropdowns.readyByWhom);
         fillSelect_('godown_colourMakingBy', data.dropdowns.colourMakingBy);
         fillSelect_('godown_deliveryStatus', data.dropdowns.deliveryStatus);
+        fillSelect_('godown_paymentStatus', data.dropdowns.paymentStatus);
         godownRenderPending(data.pending);
         var noteEl = document.getElementById('godown_dateWindowNote');
         if (noteEl) noteEl.textContent = '📅 Pending Orders mein har order dikhta hai jab tak Godown update na kare.';
@@ -1193,6 +1257,16 @@
     document.getElementById('godown_readyByWhom').value = o.readyByWhom || '';
     document.getElementById('godown_colourMakingBy').value = o.colourMakingBy || '';
     document.getElementById('godown_deliveryStatus').value = o.deliveryStatus || '';
+    // These only show if admin has granted godown this field in Setup -> Permissions.
+    var showPayments = canSet_('payment_status_key') || canSet_('date_of_receiving') || canSet_('amount_received');
+    ['godown_dateOfReceivingField', 'godown_paymentStatusField', 'godown_amountReceivedField'].forEach(function(id) {
+      document.getElementById(id).style.display = showPayments ? 'block' : 'none';
+    });
+    if (showPayments) {
+      setDatePickerValue('godown_dateOfReceiving', o.dateOfReceiving || '');
+      document.getElementById('godown_paymentStatus').value = o.paymentStatus || '';
+      document.getElementById('godown_amountReceived').value = o.amountReceived || '';
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1214,6 +1288,11 @@
       colourMakingBy: document.getElementById('godown_colourMakingBy').value,
       deliveryStatus: document.getElementById('godown_deliveryStatus').value
     };
+    if (document.getElementById('godown_paymentStatusField').style.display !== 'none') {
+      form.dateOfReceiving = document.getElementById('godown_dateOfReceiving_iso').value;
+      form.paymentStatus = document.getElementById('godown_paymentStatus').value;
+      form.amountReceived = document.getElementById('godown_amountReceived').value;
+    }
     google.script.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
@@ -1296,7 +1375,10 @@
     var receivingField = document.getElementById('dispatch_dateOfReceivingField');
     var paymentField = document.getElementById('dispatch_paymentStatusField');
     var amountField = document.getElementById('dispatch_amountReceivedField');
-    if (effectiveRole() === 'shop_dispatch') {
+    // Shown only if admin has granted this role (shop_dispatch by default, but
+    // godown_dispatch too if toggled on in Setup -> Permissions) these fields.
+    var showPayments = canSet_('date_of_receiving') || canSet_('payment_status_key') || canSet_('amount_received');
+    if (showPayments) {
       receivingField.style.display = 'block';
       paymentField.style.display = 'block';
       amountField.style.display = 'block';
@@ -1328,11 +1410,13 @@
       materialDeliveryDateTime: getDateTimeValue('dispatch_materialDeliveryDateTime'),
       deliveryStatus: document.getElementById('dispatch_deliveryStatus').value,
       deliveredByWhom: document.getElementById('dispatch_deliveredByWhom').value,
-      cartage: document.getElementById('dispatch_cartage').value,
-      dateOfReceiving: document.getElementById('dispatch_dateOfReceiving_iso').value,
-      paymentStatus: document.getElementById('dispatch_paymentStatus').value,
-      amountReceived: document.getElementById('dispatch_amountReceived').value
+      cartage: document.getElementById('dispatch_cartage').value
     };
+    if (document.getElementById('dispatch_paymentStatusField').style.display !== 'none') {
+      form.dateOfReceiving = document.getElementById('dispatch_dateOfReceiving_iso').value;
+      form.paymentStatus = document.getElementById('dispatch_paymentStatus').value;
+      form.amountReceived = document.getElementById('dispatch_amountReceived').value;
+    }
     google.script.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';

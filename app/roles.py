@@ -34,7 +34,9 @@ LOOKUP_ACCESS = {
     "channels": {"shop"},
     "submission-types": {"shop"},
     "delivery-statuses": {"godown", "shop_dispatch", "godown_dispatch"},
-    "payment-statuses": {"shop_dispatch", "receiving"},
+    # godown included so its Mat. Payment Status field (Setup -> Permissions can grant
+    # payment_status_key to godown) has a list to read from, if admin turns it on.
+    "payment-statuses": {"shop_dispatch", "godown_dispatch", "godown", "receiving"},
 }
 
 # People lists (include phone numbers): which roles may read/add each kind.

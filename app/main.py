@@ -43,13 +43,7 @@ async def security_headers(request, call_next):
         response.headers["Cache-Control"] = "no-store"
     return response
 
-# name -> (table, key column, name column); static, so safe to interpolate into SQL
-LOOKUPS = {
-    "channels": ("dim_order_channel", "channel_key", "channel_name"),
-    "submission-types": ("dim_submission_type", "submission_type_key", "type_name"),
-    "delivery-statuses": ("dim_delivery_status", "status_key", "status_name"),
-    "payment-statuses": ("dim_payment_status", "payment_status_key", "status_name"),
-}
+LOOKUPS = config.LOOKUPS  # shared with admin.py's CRUD over the same tables
 PERSON_ROLES = Literal["ready_by", "colour_making", "delivery"]
 ANY_ORDER_ROLE = auth.require_roles(*roles.ORDER_ROLES)
 # Read-only: lets admin view every order (roles.VISIBILITY["admin"] = unrestricted),
@@ -100,7 +94,10 @@ def login(body: LoginIn, request: Request):
 
 @app.get("/auth/me")
 def me(user=Depends(auth.current_user)):
-    return user
+    # editable_fields lets the front end show/hide fields based on whatever admin
+    # has actually granted this role in Setup -> Permissions, instead of a
+    # hardcoded assumption baked into the UI.
+    return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"]))}
 
 
 class SsoExchangeIn(BaseModel):

@@ -298,13 +298,13 @@ async function route() {
 // opened synchronously (on the click) so browsers don't treat it as a blocked popup;
 // its location is filled in once the ticket comes back.
 async function openAppLink(url) {
-  const win = window.open('', '_blank', 'noopener,noreferrer');
+  // No intermediate blank tab: navigate straight there. Simpler and no popup-blocker
+  // risk (it's not a new window), at the cost of leaving the portal page.
   try {
     const { ticket } = await api('/auth/sso-ticket', { method: 'POST' });
     const joined = url + (url.includes('?') ? '&' : '?') + 'ssoTicket=' + encodeURIComponent(ticket);
-    if (win) win.location = joined; else window.open(joined, '_blank', 'noopener,noreferrer');
+    window.location.href = joined;
   } catch (ex) {
-    if (win) win.close();
     alert('Could not open this app: ' + ex.message);
   }
 }
@@ -376,8 +376,8 @@ function renderHome(body, links) {
 
 // ------------------------------------------------------------------ setup (apps + activity)
 async function renderSetup(panel) {
-  const sub = [['apps', 'Apps'], ['permissions', 'Permissions'], ['security', 'Security'], ['activity', 'Activity log']];
-  const renderers = { apps: renderApps, permissions: renderPermissions, security: renderSecurity, activity: renderActivity };
+  const sub = [['apps', 'Apps'], ['lists', 'Dropdown values'], ['permissions', 'Permissions'], ['security', 'Security'], ['activity', 'Activity log']];
+  const renderers = { apps: renderApps, lists: renderLists, permissions: renderPermissions, security: renderSecurity, activity: renderActivity };
   if (!S.setupTab) S.setupTab = 'apps';
   const bar = h('div', { class: 'subtabs', role: 'tablist' });
   const inner = h('div');
@@ -855,6 +855,78 @@ async function renderPermissions(panel) {
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Role' }), h('th', { class: 'num', text: 'Can view all orders' }))), h('tbody', {}, viewRows)))),
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each operating role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
     h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
+}
+
+// ------------------------------------------------------------------ dropdown values (lookups + people)
+const LIST_KINDS = [
+  { key: 'channels', label: 'Order Channels', kind: 'lookup' },
+  { key: 'submission-types', label: 'Submission Types', kind: 'lookup' },
+  { key: 'delivery-statuses', label: 'Delivery Statuses', kind: 'lookup' },
+  { key: 'payment-statuses', label: 'Payment Statuses', kind: 'lookup' },
+  { key: 'ready_by', label: 'Ready-By People', kind: 'person' },
+  { key: 'colour_making', label: 'Colour-Making People', kind: 'person' },
+  { key: 'delivery', label: 'Delivery People', kind: 'person' },
+];
+
+async function renderLists(panel) {
+  panel.replaceChildren(
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Values shown in every dropdown across the order-entry apps. Deleting is blocked while any order still uses that value.' }),
+    ...LIST_KINDS.map((k) => h('div', { class: 'card', style: 'margin-bottom:16px', id: 'listcard_' + k.key })));
+  LIST_KINDS.forEach((k) => renderOneList(document.getElementById('listcard_' + k.key), k));
+}
+
+async function renderOneList(container, k) {
+  container.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let rows;
+  try { rows = k.kind === 'lookup' ? await api('/admin/lookups/' + k.key) : await api('/admin/people?role=' + k.key); }
+  catch (ex) { return container.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const reload = () => renderOneList(container, k);
+  const label = (r) => (k.kind === 'lookup' ? r.name : r.full_name);
+  const path = (r) => (k.kind === 'lookup' ? '/admin/lookups/' + k.key + '/' + r.key : '/admin/people/' + r.key);
+
+  const del = async (r) => {
+    if (!(await confirmDialog('Delete "' + label(r) + '"?', 'Only works if no order currently uses this value.', 'Delete', true))) return;
+    try { await api(path(r), { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); }
+  };
+
+  const editRow = (r) => {
+    if (k.kind === 'lookup') {
+      formDialog({ title: 'Rename', fields: [{ name: 'name', label: 'Name', value: r.name, required: true, maxlength: 150 }],
+        onSubmit: async (v) => { await api(path(r), { method: 'PUT', body: v }); reload(); } });
+    } else {
+      formDialog({ title: 'Edit person', fields: [
+        { name: 'full_name', label: 'Name', value: r.full_name, required: true, maxlength: 150 },
+        { name: 'phone_number', label: 'Phone (optional)', value: r.phone_number || '' }],
+        onSubmit: async (v) => { await api(path(r), { method: 'PUT', body: { full_name: v.full_name, phone_number: v.phone_number || null } }); reload(); } });
+    }
+  };
+
+  const addRow = () => {
+    if (k.kind === 'lookup') {
+      formDialog({ title: 'Add ' + k.label, submitLabel: 'Add', fields: [{ name: 'name', label: 'Name', required: true, maxlength: 150 }],
+        onSubmit: async (v) => { await api('/admin/lookups/' + k.key, { method: 'POST', body: v }); reload(); } });
+    } else {
+      formDialog({ title: 'Add person', submitLabel: 'Add', fields: [
+        { name: 'full_name', label: 'Name', required: true, maxlength: 150 },
+        { name: 'phone_number', label: 'Phone (optional)' }],
+        onSubmit: async (v) => { await api('/admin/people?role=' + k.key, { method: 'POST', body: { full_name: v.full_name, phone_number: v.phone_number || null } }); reload(); } });
+    }
+  };
+
+  container.replaceChildren(
+    h('div', { class: 'row', style: 'margin-bottom:10px' },
+      h('h2', { style: 'font-size:14px;margin:0', text: k.label }),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn small primary', text: '+ Add', onclick: addRow })),
+    rows.length ? h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', { text: 'Name' }), k.kind === 'person' ? h('th', { text: 'Phone' }) : null, h('th', { text: '' }))),
+      h('tbody', {}, rows.map((r) => h('tr', {},
+        h('td', { text: label(r) }),
+        k.kind === 'person' ? h('td', { text: r.phone_number || '' }) : null,
+        h('td', {}, h('div', { class: 'row' },
+          h('button', { class: 'btn small', text: 'Edit', onclick: () => editRow(r) }),
+          h('button', { class: 'btn small danger', text: 'Delete', onclick: () => del(r) }))))))))
+      : h('div', { class: 'empty', text: 'Nothing yet.' }));
 }
 
 // ------------------------------------------------------------------ activity

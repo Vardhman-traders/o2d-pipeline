@@ -134,6 +134,19 @@ function login(username, password) {
   }
 }
 
+/** Which order fields this logged-in user may actually set, per Setup -> Permissions -
+ *  lets the UI show/hide fields based on real admin-granted permission instead of a
+ *  hardcoded per-role assumption. */
+function getMyFields(token) {
+  try {
+    var res = apiCall_('get', '/auth/me', token, null);
+    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
+    return { ok: true, fields: res.body.editable_fields || [] };
+  } catch (err) {
+    return { ok: false, error: 'getMyFields() failed: ' + err.message };
+  }
+}
+
 /** Exchanges a one-time ticket (from the Render portal's "Open" button) for a session,
  *  without ever handling the user's password here. Same response shape as login(). */
 function ssoLogin(ticket) {
@@ -288,10 +301,9 @@ function getDashboardDateWindow_() {
 function getRoleData_(token, role, ordersPath) {
   var lookupPaths = [];
   if (role === 'shop') lookupPaths = ['/lookups/channels', '/lookups/submission-types'];
-  else if (role === 'godown') lookupPaths = ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses'];
+  else if (role === 'godown') lookupPaths = ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses', '/lookups/payment-statuses'];
   else if (role === 'godown_dispatch' || role === 'shop_dispatch') {
-    lookupPaths = ['/lookups/delivery-statuses', '/people?role=delivery'];
-    if (role === 'shop_dispatch') lookupPaths.push('/lookups/payment-statuses');
+    lookupPaths = ['/lookups/delivery-statuses', '/people?role=delivery', '/lookups/payment-statuses'];
   } else if (role === 'receiving') lookupPaths = ['/lookups/payment-statuses'];
 
   var cache = CacheService.getScriptCache();
@@ -323,10 +335,11 @@ function getRoleData_(token, role, ordersPath) {
     out.readyByWhom = namesOnly_(lists['/people?role=ready_by']);
     out.colourMakingBy = namesOnly_(lists['/people?role=colour_making']);
     out.deliveryStatus = namesOnly_(lists['/lookups/delivery-statuses']);
+    out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
   } else if (role === 'godown_dispatch' || role === 'shop_dispatch') {
     out.deliveryStatus = namesOnly_(lists['/lookups/delivery-statuses']);
     out.deliveredByWhom = namesOnly_(lists['/people?role=delivery']);
-    if (role === 'shop_dispatch') out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
+    out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
   } else if (role === 'receiving') {
     out.paymentStatus = namesOnly_(lists['/lookups/payment-statuses']);
   }
@@ -423,11 +436,22 @@ function getGodownData(token) {
 
 function updateGodownFields(token, slNo, form, userName) {
   try {
-    var lists = fetchListsBatch_(token, ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses']);
+    // Payment/receiving fields only sent if the form actually included them - App.html
+    // only shows those inputs when this role's Permissions grant allows it, so a
+    // vanilla godown submit never carries them.
+    var needsPayments = form.paymentStatus !== undefined;
+    var lookupPaths = ['/people?role=ready_by', '/people?role=colour_making', '/lookups/delivery-statuses'];
+    if (needsPayments) lookupPaths.push('/lookups/payment-statuses');
+    var lists = fetchListsBatch_(token, lookupPaths);
     var payload = {};
     if (form.readyByWhom) payload.ready_by_person_key = keyByName_(lists['/people?role=ready_by'], form.readyByWhom);
     if (form.colourMakingBy) payload.colour_making_person_key = keyByName_(lists['/people?role=colour_making'], form.colourMakingBy);
     if (form.deliveryStatus) payload.delivery_status_key = keyByName_(lists['/lookups/delivery-statuses'], form.deliveryStatus);
+    if (form.dateOfReceiving) payload.date_of_receiving = form.dateOfReceiving;
+    if (form.paymentStatus) payload.payment_status_key = keyByName_(lists['/lookups/payment-statuses'], form.paymentStatus);
+    if (form.amountReceived !== '' && form.amountReceived !== undefined && form.amountReceived !== null) {
+      payload.amount_received = Number(form.amountReceived);
+    }
     var res = apiCall_('patch', '/orders/' + slNo, token, payload);
     if (!res.httpOk) return { ok: true, success: false, message: apiErrorMessage_(res) };
     return { ok: true, success: true };
@@ -460,8 +484,12 @@ function updateDispatchFields(token, slNo, form, userName, role) {
     // that role needs the extra "before" order fetch - and it rides in the same
     // parallel batch as the lookups instead of its own separate round trip.
     var needsBefore = role === 'godown_dispatch';
+    // Payment fields only present in the form if App.html actually showed them -
+    // which it only does when this role's Permissions grant allows it - so this
+    // works for whichever dispatch role admin has turned it on for, not just shop_dispatch.
+    var needsPayments = form.paymentStatus !== undefined;
     var lookupPaths = ['/lookups/delivery-statuses', '/people?role=delivery'];
-    if (role === 'shop_dispatch') lookupPaths.push('/lookups/payment-statuses');
+    if (needsPayments) lookupPaths.push('/lookups/payment-statuses');
     var specs = lookupPaths.map(function (p) { return { method: 'get', path: p, token: token, payload: null }; });
     if (needsBefore) specs.push({ method: 'get', path: '/orders/' + slNo, token: token, payload: null });
     var batchRes = apiCallBatch_(specs);
@@ -475,7 +503,7 @@ function updateDispatchFields(token, slNo, form, userName, role) {
     if (form.deliveredByWhom) payload.delivered_by_person_key = keyByName_(lists['/people?role=delivery'], form.deliveredByWhom);
     if (form.cartage !== '' && form.cartage !== undefined && form.cartage !== null) payload.cartage = Number(form.cartage);
 
-    if (role === 'shop_dispatch') {
+    if (needsPayments) {
       if (form.dateOfReceiving) payload.date_of_receiving = form.dateOfReceiving;
       if (form.paymentStatus) payload.payment_status_key = keyByName_(lists['/lookups/payment-statuses'], form.paymentStatus);
       if (form.amountReceived !== '' && form.amountReceived !== undefined && form.amountReceived !== null) {
@@ -628,38 +656,54 @@ function findMissingInSequence_(nums) {
   return { min: min, max: max, missing: missing };
 }
 
+function missingNumbersForDates_(token, dates) {
+  var dateFrom = dates[0], dateTo = dates[dates.length - 1];
+  var res = apiCall_('get', '/orders?date_from=' + dateFrom + '&date_to=' + dateTo + '&limit=200', token, null);
+  if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
+  var windowOrders = mapOrders_(res.body);
+
+  var challanByDate = dates.map(function (d) {
+    var dayOrders = windowOrders.filter(function (o) { return o.orderRcvdDate === d; });
+    var nums = extractNumericDcNos_(dayOrders);
+    return { date: d, challan: findMissingInSequence_(nums.small) };
+  });
+
+  var invoiceByDate = dates.map(function (d) {
+    var dayOrders = windowOrders.filter(function (o) { return o.orderRcvdDate === d; });
+    var nums = extractNumericDcNos_(dayOrders);
+    var largeNums = nums.large;
+    if (largeNums.length === 0) return { date: d, invoice: { min: null, max: null, missing: [] } };
+    largeNums.sort(function (a, b) { return a - b; });
+    var missing = [];
+    for (var i = 0; i < largeNums.length - 1; i++) {
+      var curr = largeNums[i], next = largeNums[i + 1];
+      if (next - curr > 1 && next - curr <= 10) {
+        for (var g = curr + 1; g < next; g++) missing.push(g);
+      }
+    }
+    return { date: d, invoice: { min: largeNums[0], max: largeNums[largeNums.length - 1], missing: missing } };
+  });
+
+  return { ok: true, challanByDate: challanByDate, invoiceByDate: invoiceByDate };
+}
+
+/** Live day only (today), per department - narrower than the old 2-day window. */
 function getMissingNumbersForWindow(token) {
   try {
-    var dates = getDashboardDateWindow_();
-    var res = apiCall_('get', '/orders?date_from=' + dates[0] + '&date_to=' + dates[1] + '&limit=200', token, null);
-    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
-    var windowOrders = mapOrders_(res.body);
-
-    var challanByDate = dates.map(function (d) {
-      var dayOrders = windowOrders.filter(function (o) { return o.orderRcvdDate === d; });
-      var nums = extractNumericDcNos_(dayOrders);
-      return { date: d, challan: findMissingInSequence_(nums.small) };
-    });
-
-    var invoiceByDate = dates.map(function (d) {
-      var dayOrders = windowOrders.filter(function (o) { return o.orderRcvdDate === d; });
-      var nums = extractNumericDcNos_(dayOrders);
-      var largeNums = nums.large;
-      if (largeNums.length === 0) return { date: d, invoice: { min: null, max: null, missing: [] } };
-      largeNums.sort(function (a, b) { return a - b; });
-      var missing = [];
-      for (var i = 0; i < largeNums.length - 1; i++) {
-        var curr = largeNums[i], next = largeNums[i + 1];
-        if (next - curr > 1 && next - curr <= 10) {
-          for (var g = curr + 1; g < next; g++) missing.push(g);
-        }
-      }
-      return { date: d, invoice: { min: largeNums[0], max: largeNums[largeNums.length - 1], missing: missing } };
-    });
-
-    return { ok: true, challanByDate: challanByDate, invoiceByDate: invoiceByDate };
+    var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyy-MM-dd');
+    return missingNumbersForDates_(token, [today]);
   } catch (err) {
     return { ok: false, error: 'getMissingNumbersForWindow() failed: ' + err.message };
+  }
+}
+
+/** Admin only, UI-enforced: missing numbers for any one date they pick. */
+function getMissingNumbersForDate(token, dateStr) {
+  try {
+    if (!dateStr) return { ok: false, error: 'No date supplied.' };
+    return missingNumbersForDates_(token, [dateStr]);
+  } catch (err) {
+    return { ok: false, error: 'getMissingNumbersForDate() failed: ' + err.message };
   }
 }
 

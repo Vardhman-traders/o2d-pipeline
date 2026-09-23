@@ -13,6 +13,16 @@ from . import db
 TTL = 30
 CLIENT_KEY_CONFIG_KEY = "apps_script_client_key"
 
+# Shared between main.py (the operating API) and admin.py (admin CRUD over the same
+# tables) - name -> (table, key column, name column); static, safe to interpolate.
+LOOKUPS = {
+    "channels": ("dim_order_channel", "channel_key", "channel_name"),
+    "submission-types": ("dim_submission_type", "submission_type_key", "type_name"),
+    "delivery-statuses": ("dim_delivery_status", "status_key", "status_name"),
+    "payment-statuses": ("dim_payment_status", "payment_status_key", "status_name"),
+}
+PERSON_ROLES = ("ready_by", "colour_making", "delivery")
+
 _value_cache: dict = {}
 _value_cache_at: dict = {}
 
