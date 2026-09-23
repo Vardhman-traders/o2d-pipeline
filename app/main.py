@@ -55,7 +55,10 @@ ANY_ORDER_ROLE = auth.require_roles(*roles.ORDER_ROLES)
 # Read-only: lets admin view every order (roles.VISIBILITY["admin"] = unrestricted),
 # without touching write access - admin has no entry in EDITABLE_FIELDS, so
 # create/update stay blocked regardless of which dependency guards the route.
-ANY_ORDER_ROLE_OR_ADMIN = auth.require_roles(*roles.ORDER_ROLES, "admin")
+# admin, cashier, accounts, cartage all get read-only order visibility (roles.VISIBILITY);
+# none of them can actually write anything (no role_field_permissions rows), so including
+# them here only ever grants viewing, whichever write endpoint this guards.
+ANY_ORDER_ROLE_OR_ADMIN = auth.require_roles(*roles.ORDER_ROLES, "admin", "cashier", "accounts", "cartage")
 
 
 def date_key(d: Optional[date]) -> Optional[int]:

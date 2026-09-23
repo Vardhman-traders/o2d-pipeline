@@ -686,7 +686,7 @@ function dashboardNodes(d) {
 }
 
 // ------------------------------------------------------------------ members
-const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch', godown_dispatch: 'Godown dispatch', receiving: 'Receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage' };
+const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch', godown_dispatch: 'Godown dispatch', receiving: 'Receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)' };
 const roleLabel = (r) => ROLE_HELP[r] || r;
 
 async function renderMembers(panel) {

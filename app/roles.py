@@ -66,6 +66,14 @@ VISIBILITY = {
     # admin: sees every order, and (per config.editable_fields_for_role) may edit any
     # field - a full super-user, same powers as every operating role combined.
     "admin": ("TRUE", 0),
+    # cashier/accounts/cartage: read-only visibility into every order, same as admin's
+    # overview - but never write (no entries for these roles in role_field_permissions,
+    # so config.editable_fields_for_role returns empty for them). Admin decides who gets
+    # this via which roles they tick on an app link in Setup -> Apps; the role itself
+    # carries no order-editing power regardless of which app it's attached to.
+    "cashier": ("TRUE", 0),
+    "accounts": ("TRUE", 0),
+    "cartage": ("TRUE", 0),
 }
 
 

@@ -686,7 +686,16 @@
   // screen - see app/roles.py). ADMIN_VIEW is purely a client-side choice of which
   // screen to look at; it never affects what the API will let the request do.
   var ADMIN_VIEW = 'all';
-  function effectiveRole() { return CURRENT_ROLE === 'admin' ? ADMIN_VIEW : CURRENT_ROLE; }
+  // cashier/accounts/cartage get the same read-only "All Orders" overview as admin's
+  // default view - no operating screen exists for these roles (they never create or
+  // edit orders), but whichever roles an admin ticks on an app link should still get
+  // something useful to look at, not a blank page.
+  var VIEW_ONLY_ROLES = ['cashier', 'accounts', 'cartage'];
+  function effectiveRole() {
+    if (CURRENT_ROLE === 'admin') return ADMIN_VIEW;
+    if (VIEW_ONLY_ROLES.indexOf(CURRENT_ROLE) !== -1) return 'all';
+    return CURRENT_ROLE;
+  }
   var SSO_TICKET = <?!= JSON.stringify(ssoTicket || '') ?>; // set by the Render portal's "Open" button
 
   function titleForRole(role) {
@@ -696,6 +705,7 @@
     if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
     if (role === 'receiving')        return 'Receiving Dashboard';
     if (role === 'admin')           return 'All Orders';
+    if (VIEW_ONLY_ROLES.indexOf(role) !== -1) return 'All Orders (view only)';
     return 'Dashboard';
   }
 
