@@ -1,7 +1,9 @@
 """Admin-only routes: members, dashboard numbers, Excel export, app links, audit log.
 Also the /links route every logged-in user calls to see which apps they may open."""
 import io
+import os
 import re
+import secrets
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
@@ -11,7 +13,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import auth, dashboard, db, roles
+from . import auth, config, dashboard, db, roles
 
 ADMIN = auth.require_roles("admin")
 ANY_LOGGED_IN = auth.require_roles(*roles.ALL_ROLES)
@@ -304,6 +306,79 @@ def get_audit(limit: int = Query(default=100, ge=1, le=500), admin=Depends(ADMIN
         cur.execute("SELECT audit_key, at, admin_username, action, target, details FROM admin_audit_log "
                     "ORDER BY at DESC, audit_key DESC LIMIT %s", (limit,))
         return cur.fetchall()
+
+
+# ------------------------------------------------------------------ security (client key)
+@router.get("/security")
+def get_security(admin=Depends(ADMIN)):
+    has_db_value = bool(config.get(config.CLIENT_KEY_CONFIG_KEY))
+    has_env_value = bool(os.environ.get("APPS_SCRIPT_CLIENT_KEY"))
+    return {
+        "client_key_configured": has_db_value or has_env_value,
+        "client_key_source": "database" if has_db_value else ("environment" if has_env_value else "none"),
+    }
+
+
+@router.post("/security/client-key/rotate")
+def rotate_client_key(admin=Depends(ADMIN)):
+    """Generates a new secret and stores it in the database, replacing any env-var
+    value. Returned once; admin must copy it into the one authorized Apps Script
+    project's CLIENT_KEY Script Property, or every order-data call starts failing."""
+    with db.cursor() as cur:
+        new_key = secrets.token_urlsafe(48)
+        config.set(config.CLIENT_KEY_CONFIG_KEY, new_key, updated_by=admin["username"])
+        audit(cur, admin, "security.rotate_client_key")
+    return {"client_key": new_key}
+
+
+# ------------------------------------------------------------------ permissions (field access per role)
+FIELD_NAMES = sorted({
+    "order_received_date", "order_via_key", "submission_type_key", "dc_inv_no",
+    "shipping_location", "detailed_remarks", "ready_by_person_key", "colour_making_person_key",
+    "delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage",
+    "date_of_receiving", "payment_status_key", "amount_received",
+})
+
+
+@router.get("/permissions")
+def get_permissions(admin=Depends(ADMIN)):
+    rows = config.all_field_permissions()
+    have = {(r["role"], r["field_name"]) for r in rows if r["editable"]}
+    return {
+        "roles": sorted(roles.ORDER_ROLES),
+        "fields": FIELD_NAMES,
+        "editable": [{"role": role, "field_name": f, "editable": (role, f) in have}
+                     for role in sorted(roles.ORDER_ROLES) for f in FIELD_NAMES],
+    }
+
+
+class PermissionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str
+    field_name: str
+    editable: bool
+
+    @field_validator("role")
+    @classmethod
+    def _role(cls, v):
+        if v not in roles.ORDER_ROLES:
+            raise ValueError(f"role must be one of: {', '.join(sorted(roles.ORDER_ROLES))}")
+        return v
+
+    @field_validator("field_name")
+    @classmethod
+    def _field(cls, v):
+        if v not in FIELD_NAMES:
+            raise ValueError(f"unknown field: {v}")
+        return v
+
+
+@router.put("/permissions")
+def set_permission(body: PermissionIn, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        config.set_field_permission(body.role, body.field_name, body.editable)
+        audit(cur, admin, "permission.set", f"{body.role}.{body.field_name}", {"editable": body.editable})
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ app links

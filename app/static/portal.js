@@ -376,7 +376,8 @@ function renderHome(body, links) {
 
 // ------------------------------------------------------------------ setup (apps + activity)
 async function renderSetup(panel) {
-  const sub = [['apps', 'Apps'], ['activity', 'Activity log']];
+  const sub = [['apps', 'Apps'], ['permissions', 'Permissions'], ['security', 'Security'], ['activity', 'Activity log']];
+  const renderers = { apps: renderApps, permissions: renderPermissions, security: renderSecurity, activity: renderActivity };
   if (!S.setupTab) S.setupTab = 'apps';
   const bar = h('div', { class: 'subtabs', role: 'tablist' });
   const inner = h('div');
@@ -388,7 +389,7 @@ async function renderSetup(panel) {
   const openInner = () => {
     const p = h('div');
     inner.replaceChildren(p);
-    (S.setupTab === 'apps' ? renderApps : renderActivity)(p);
+    renderers[S.setupTab](p);
   };
   panel.replaceChildren(bar, inner);
   drawBar(); openInner();
@@ -775,6 +776,57 @@ async function renderApps(panel) {
         h('td', {}, h('span', { class: 'pill' + (l.active ? '' : ' off'), text: l.active ? 'Active' : 'Hidden' })),
         h('td', {}, h('div', { class: 'row' }, h('button', { class: 'btn small', text: 'Edit', onclick: () => edit(l) }), h('button', { class: 'btn small danger', text: 'Delete', onclick: () => del(l) }))))))))
       : h('div', { class: 'card empty', text: 'No apps yet. Click “Add app” and paste your Apps Script web address.' }));
+}
+
+// ------------------------------------------------------------------ security (client key)
+async function renderSecurity(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let sec;
+  try { sec = await api('/admin/security'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const sourceLabel = { database: 'Set from this dashboard', environment: 'Set via Render environment variable (not yet rotated here)', none: 'Not configured - order endpoints are currently open to any caller' }[sec.client_key_source];
+  const rotate = async () => {
+    if (!(await confirmDialog('Rotate the client key?', 'Every Apps Script deployment using the old key will immediately stop being able to read or write orders, until you update its CLIENT_KEY Script Property with the new value.', 'Rotate', true))) return;
+    try {
+      const res = await api('/admin/security/client-key/rotate', { method: 'POST' });
+      secretDialog('New client key', 'Copy this into the ONE authorized Apps Script project: Project Settings → Script Properties → CLIENT_KEY. It will not be shown again.', res.client_key);
+      renderSecurity(panel);
+    } catch (ex) { alert(ex.message); }
+  };
+  panel.replaceChildren(
+    h('div', { class: 'card' },
+      h('h2', { style: 'font-size:15px;margin-bottom:10px', text: 'Apps Script client key' }),
+      h('p', { class: 'note', style: 'margin-bottom:14px', text: 'Only the Apps Script deployment holding the current key may read or write orders through the API. Rotating it invalidates any other copy - including any extra Google Sheet you don’t want connected.' }),
+      h('p', {}, h('span', { class: 'pill' + (sec.client_key_configured ? '' : ' off'), text: sec.client_key_configured ? 'Configured' : 'Not configured' }), ' ', h('span', { class: 'note', text: sourceLabel })),
+      h('div', { class: 'actions', style: 'justify-content:flex-start;margin-top:14px' }, h('button', { class: 'btn primary', text: sec.client_key_configured ? 'Rotate key' : 'Generate key', onclick: rotate }))));
+}
+
+// ------------------------------------------------------------------ permissions (field access per role)
+async function renderPermissions(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let data;
+  try { data = await api('/admin/permissions'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const byKey = {};
+  data.editable.forEach((e) => { byKey[e.role + '|' + e.field_name] = e.editable; });
+
+  const toggle = async (role, field, checked, cb) => {
+    cb.disabled = true;
+    try { await api('/admin/permissions', { method: 'PUT', body: { role, field_name: field, editable: checked } }); }
+    catch (ex) { cb.checked = !checked; alert(ex.message); }
+    cb.disabled = false;
+  };
+
+  const head = h('tr', {}, h('th', { text: 'Field' }), ...data.roles.map((r) => h('th', { class: 'num', text: roleLabel(r) })));
+  const body = data.fields.map((f) => h('tr', {}, h('td', { text: f }),
+    ...data.roles.map((r) => {
+      const cb = h('input', { type: 'checkbox' });
+      cb.checked = !!byKey[r + '|' + f];
+      cb.addEventListener('change', () => toggle(r, f, cb.checked, cb));
+      return h('td', { class: 'num' }, cb);
+    })));
+
+  panel.replaceChildren(
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
+    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
 }
 
 // ------------------------------------------------------------------ activity

@@ -11,7 +11,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from . import db
+from . import config, db
 
 _bearer = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
@@ -154,7 +154,9 @@ def redeem_sso_ticket(ticket: str):
 # this over - Script Properties live per Apps Script project, so a duplicate has to be
 # deliberately configured with the real secret before it can touch order data.
 def require_client_key(request: Request):
-    expected = os.environ.get("APPS_SCRIPT_CLIENT_KEY")
+    # DB value (set from the admin dashboard) wins once someone rotates it there;
+    # the env var only matters before that first rotation.
+    expected = config.get(config.CLIENT_KEY_CONFIG_KEY) or os.environ.get("APPS_SCRIPT_CLIENT_KEY")
     if not expected:
         return  # not configured: leave order endpoints open (e.g. local dev)
     got = request.headers.get("X-Client-Key", "")

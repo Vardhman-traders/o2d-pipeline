@@ -8,7 +8,10 @@ ALL_ROLES = ORDER_ROLES | NO_ACCESS_ROLES
 _DISPATCH = {"delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage"}
 _RECEIVING = {"date_of_receiving", "payment_status_key", "amount_received"}
 
-# Fields each role may write on an order. Anything else is rejected (403).
+# Historical default / seed data for the role_field_permissions table (migration 006).
+# No longer read at request time - app/main.py's _check_editable() now calls
+# config.editable_fields_for_role(), which is DB-backed and editable from the admin
+# dashboard's Setup -> Permissions screen. Kept here as the documented starting point.
 EDITABLE_FIELDS = {
     "shop": {"order_received_date", "order_via_key", "submission_type_key", "dc_inv_no",
              "shipping_location", "detailed_remarks"},

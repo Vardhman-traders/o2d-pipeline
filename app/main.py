@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import admin, auth, db, roles
+from . import admin, auth, config, db, roles
 
 
 @asynccontextmanager
@@ -320,7 +320,7 @@ def _db_columns(fields: dict) -> dict:
 
 
 def _check_editable(fields: dict, user):
-    denied = sorted(set(fields) - roles.EDITABLE_FIELDS.get(user["role"], set()))
+    denied = sorted(set(fields) - config.editable_fields_for_role(user["role"]))
     if denied:
         raise HTTPException(403, f"Your role ({user['role']}) may not set: {', '.join(denied)}")
 
