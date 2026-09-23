@@ -54,6 +54,9 @@ VISIBILITY = {
     "receiving": (f"((o.material_delivery_datetime IS NOT NULL AND {_STATUS} IS DISTINCT FROM 'shop'"
                   " AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL))"
                   " OR o.last_updated_by_user_key = %s)", 1),
+    # admin: read-only visibility into every order (see main.py's ANY_ORDER_ROLE_OR_ADMIN -
+    # admin is deliberately left out of EDITABLE_FIELDS, so writes stay blocked either way).
+    "admin": ("TRUE", 0),
 }
 
 

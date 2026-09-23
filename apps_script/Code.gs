@@ -550,6 +550,20 @@ function getReceivingData(token) {
   }
 }
 
+/* ============================== ADMIN (READ-ONLY, ALL ORDERS) ============================== */
+/* Admin has no entry in EDITABLE_FIELDS on the API, so this is view-only by design -
+   admin manages members/roles/apps from the Render portal, not order data here. */
+
+function getAdminOrders(token) {
+  try {
+    var res = apiCall_('get', '/orders?limit=300', token, null);
+    if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
+    return { ok: true, orders: mapOrders_(res.body) };
+  } catch (err) {
+    return { ok: false, error: 'getAdminOrders() failed: ' + err.message };
+  }
+}
+
 function updateReceivingFields(token, slNo, form, userName) {
   try {
     var payments = fetchList_(token, '/lookups/payment-statuses');

@@ -613,6 +613,22 @@
       </div>
     </div>
 
+    <!-- ================= ADMIN SECTION (read-only, every order) ================= -->
+    <div id="adminSection" style="display:none;">
+      <div id="admin_errorBanner" class="error-banner" style="display:none;"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Read-only view of every order, across all roles and dates. Editing happens in each role's own dashboard, not here.</div>
+      <div class="card" style="border-left:4px solid var(--navy);">
+        <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
+        <div class="table-scroll" style="max-height:600px;">
+          <table>
+            <thead><tr><th>Sl No</th><th>Date</th><th>DC No</th><th>Via</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Delivered By</th><th>Payment</th><th>Amount</th><th>Cartage</th><th>Address</th><th>Created By</th></tr></thead>
+            <tbody id="admin_ordersBody"></tbody>
+          </table>
+          <div class="empty" id="admin_emptyMsg" style="display:none;">No orders found.</div>
+        </div>
+      </div>
+    </div>
+
     <div style="text-align:center;margin-top:10px;">
       <a href="#" onclick="loadDebugInfo();return false;" style="font-size:12px;color:var(--muted);">🔧 Debug info</a>
       <pre id="debugOutput" style="display:none;text-align:left;background:#111;color:#9fdc9f;font-size:11px;padding:14px;border-radius:8px;margin-top:10px;overflow:auto;max-height:300px;"></pre>
@@ -634,6 +650,7 @@
     if (role === 'shop_dispatch')    return 'Shop Dispatch Dashboard';
     if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
     if (role === 'receiving')        return 'Receiving Dashboard';
+    if (role === 'admin')           return 'Admin - All Orders (read-only)';
     return 'Dashboard';
   }
 
@@ -835,6 +852,38 @@
     else if (CURRENT_ROLE === 'godown')                                  initGodown();
     else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
     else if (CURRENT_ROLE === 'receiving')                               initReceiving();
+    else if (CURRENT_ROLE === 'admin')                                   initAdmin();
+  }
+
+  /* ================= ADMIN (READ-ONLY) ================= */
+  function initAdmin() {
+    var banner = document.getElementById('admin_errorBanner');
+    banner.style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
+        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        var orders = data.orders;
+        document.getElementById('admin_ordersCount').textContent = orders.length;
+        var body = document.getElementById('admin_ordersBody');
+        body.innerHTML = '';
+        document.getElementById('admin_emptyMsg').style.display = orders.length ? 'none' : 'block';
+        orders.forEach(function(o) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + o.slNo + '</td>' +
+            '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+            '<td>' + (o.dcNo||'') + '</td><td>' + (o.orderVia||'') + '</td>' +
+            '<td>' + (o.typeOfSubmission||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
+            '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + (o.deliveredByWhom||'') + '</td>' +
+            '<td>' + (o.paymentStatus||'') + '</td><td>' + formatAmount_(o.amountReceived) + '</td>' +
+            '<td>' + formatAmount_(o.cartage) + '</td>' +
+            '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
+            '<td>' + (o.createdBy||'') + '</td>';
+          body.appendChild(tr);
+        });
+      })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getAdminOrders(CURRENT_TOKEN);
   }
 
   function logout() {

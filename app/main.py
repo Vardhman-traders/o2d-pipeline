@@ -52,6 +52,10 @@ LOOKUPS = {
 }
 PERSON_ROLES = Literal["ready_by", "colour_making", "delivery"]
 ANY_ORDER_ROLE = auth.require_roles(*roles.ORDER_ROLES)
+# Read-only: lets admin view every order (roles.VISIBILITY["admin"] = unrestricted),
+# without touching write access - admin has no entry in EDITABLE_FIELDS, so
+# create/update stay blocked regardless of which dependency guards the route.
+ANY_ORDER_ROLE_OR_ADMIN = auth.require_roles(*roles.ORDER_ROLES, "admin")
 
 
 def date_key(d: Optional[date]) -> Optional[int]:
@@ -343,7 +347,7 @@ def list_orders(
     include_cancelled: bool = True,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    user=Depends(ANY_ORDER_ROLE),
+    user=Depends(ANY_ORDER_ROLE_OR_ADMIN),
     _ck=Depends(auth.require_client_key),
 ):
     vis_sql, vis_params = roles.visibility(user)
@@ -367,7 +371,7 @@ def list_orders(
 
 
 @app.get("/orders/{sl_no}")
-def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
+def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     vis_sql, vis_params = roles.visibility(user)
     with db.cursor() as cur:
         cur.execute(ORDER_SELECT + f" WHERE o.sl_no = %s AND {vis_sql}", [sl_no] + vis_params)
