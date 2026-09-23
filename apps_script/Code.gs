@@ -556,7 +556,7 @@ function getReceivingData(token) {
 
 function getAdminOrders(token) {
   try {
-    var res = apiCall_('get', '/orders?limit=300', token, null);
+    var res = apiCall_('get', '/orders?limit=200', token, null); // 200 is the API's max per request
     if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
     return { ok: true, orders: mapOrders_(res.body) };
   } catch (err) {
