@@ -224,9 +224,15 @@ function fetchListsBatch_(token, paths) {
   return results;
 }
 
+/** /lookups/* rows are {key, name}; /people rows are {key, full_name, ...} - this
+ *  reads whichever one is actually present, instead of assuming "name" always. */
+function rowLabel_(row) {
+  return row.name !== undefined ? row.name : row.full_name;
+}
+
 function nameToKeyMap_(list) {
   var m = {};
-  (list || []).forEach(function (row) { m[String(row.name).trim().toLowerCase()] = row.key; });
+  (list || []).forEach(function (row) { m[String(rowLabel_(row)).trim().toLowerCase()] = row.key; });
   return m;
 }
 
@@ -238,7 +244,7 @@ function keyByName_(list, name) {
 }
 
 function namesOnly_(list) {
-  return (list || []).map(function (r) { return r.name; });
+  return (list || []).map(rowLabel_);
 }
 
 /* ============================== ORDER SHAPE MAPPING ============================== */
