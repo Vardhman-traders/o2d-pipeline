@@ -578,9 +578,10 @@ function getReceivingData(token) {
   }
 }
 
-/* ============================== ADMIN (READ-ONLY, ALL ORDERS) ============================== */
-/* Admin has no entry in EDITABLE_FIELDS on the API, so this is view-only by design -
-   admin manages members/roles/apps from the Render portal, not order data here. */
+/* ============================== ADMIN (ALL ORDERS - VIEW + EDIT) ============================== */
+/* Admin is a full super-user (config.editable_fields_for_role("admin") = every
+   field), including on archived orders via the archived=true query param - only
+   admin ever gets that; every other role's calls never pass it. */
 
 function getAdminOrders(token, filters) {
   try {
@@ -589,11 +590,72 @@ function getAdminOrders(token, filters) {
     if (filters.dateFrom) qs.push('date_from=' + filters.dateFrom);
     if (filters.dateTo) qs.push('date_to=' + filters.dateTo);
     if (filters.q) qs.push('q=' + encodeURIComponent(filters.q));
+    if (filters.archived) qs.push('archived=true');
     var res = apiCall_('get', '/orders?' + qs.join('&'), token, null);
     if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
     return { ok: true, orders: mapOrders_(res.body) };
   } catch (err) {
     return { ok: false, error: 'getAdminOrders() failed: ' + err.message };
+  }
+}
+
+/** Every dropdown list combined, for the one comprehensive admin edit form
+ *  (admin may set any field, so needs every list, unlike a role-specific form). */
+function getAdminFormOptions(token) {
+  try {
+    var paths = ['/lookups/channels', '/lookups/submission-types', '/lookups/delivery-statuses',
+                 '/lookups/payment-statuses', '/people?role=ready_by', '/people?role=colour_making',
+                 '/people?role=delivery'];
+    var lists = fetchListsBatch_(token, paths);
+    return {
+      ok: true,
+      dropdowns: {
+        orderVia: namesOnly_(lists['/lookups/channels']),
+        typeOfSubmission: namesOnly_(lists['/lookups/submission-types']),
+        deliveryStatus: namesOnly_(lists['/lookups/delivery-statuses']),
+        paymentStatus: namesOnly_(lists['/lookups/payment-statuses']),
+        readyByWhom: namesOnly_(lists['/people?role=ready_by']),
+        colourMakingBy: namesOnly_(lists['/people?role=colour_making']),
+        deliveredByWhom: namesOnly_(lists['/people?role=delivery'])
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: 'getAdminFormOptions() failed: ' + err.message };
+  }
+}
+
+/** Admin may edit any field of any order, active or archived - archived must be
+ *  passed through exactly (true for a row loaded from the Archive view) so the
+ *  server can find the row at all (see roles.visibility's archived toggle). */
+function updateAdminOrder(token, slNo, form, archived) {
+  try {
+    var lists = fetchListsBatch_(token, ['/lookups/channels', '/lookups/submission-types',
+      '/lookups/delivery-statuses', '/lookups/payment-statuses', '/people?role=ready_by',
+      '/people?role=colour_making', '/people?role=delivery']);
+    var payload = {};
+    if (form.orderRcvdDate) payload.order_received_date = form.orderRcvdDate;
+    if (form.orderVia) payload.order_via_key = keyByName_(lists['/lookups/channels'], form.orderVia);
+    if (form.typeOfSubmission) payload.submission_type_key = keyByName_(lists['/lookups/submission-types'], form.typeOfSubmission);
+    if (form.dcNo !== undefined) payload.dc_inv_no = form.dcNo;
+    if (form.shippingLocation !== undefined) payload.shipping_location = form.shippingLocation || null;
+    if (form.detailedRemarks !== undefined) payload.detailed_remarks = form.detailedRemarks || null;
+    if (form.readyByWhom) payload.ready_by_person_key = keyByName_(lists['/people?role=ready_by'], form.readyByWhom);
+    if (form.colourMakingBy) payload.colour_making_person_key = keyByName_(lists['/people?role=colour_making'], form.colourMakingBy);
+    if (form.deliveryStatus) payload.delivery_status_key = keyByName_(lists['/lookups/delivery-statuses'], form.deliveryStatus);
+    if (form.materialDeliveryDateTime) payload.material_delivery_datetime = form.materialDeliveryDateTime;
+    if (form.deliveredByWhom) payload.delivered_by_person_key = keyByName_(lists['/people?role=delivery'], form.deliveredByWhom);
+    if (form.cartage !== '' && form.cartage !== undefined && form.cartage !== null) payload.cartage = Number(form.cartage);
+    if (form.dateOfReceiving) payload.date_of_receiving = form.dateOfReceiving;
+    if (form.paymentStatus) payload.payment_status_key = keyByName_(lists['/lookups/payment-statuses'], form.paymentStatus);
+    if (form.amountReceived !== '' && form.amountReceived !== undefined && form.amountReceived !== null) {
+      payload.amount_received = Number(form.amountReceived);
+    }
+    var qs = archived ? '?archived=true' : '';
+    var res = apiCall_('patch', '/orders/' + slNo + qs, token, payload);
+    if (!res.httpOk) return { ok: true, success: false, message: apiErrorMessage_(res) };
+    return { ok: true, success: true };
+  } catch (err) {
+    return { ok: false, error: 'updateAdminOrder() failed: ' + err.message };
   }
 }
 

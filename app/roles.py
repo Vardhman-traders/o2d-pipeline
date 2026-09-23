@@ -93,8 +93,14 @@ def is_test_user(user):
     return user["username"].startswith(TEST_USER_PREFIX)
 
 
-def visibility(user):
-    """(sql, params) restricting orders to those this user may see. Deny by default."""
+def visibility(user, archived=None):
+    """(sql, params) restricting orders to those this user may see. Deny by default.
+
+    archived: only meaningful for admin - None/False means "active only" (everyone
+    else's behavior, unconditionally); True means "archived only", for the admin
+    dashboard's Current/Archive toggle. No other role can ever see archived orders,
+    regardless of this argument - operating screens never pass it.
+    """
     entry = VISIBILITY.get(user["role"])
     if entry is None:
         # Not a role with built-in workflow visibility - fall through to the
@@ -105,8 +111,8 @@ def visibility(user):
     sql, n = entry
     if is_test_user(user):
         sql = f"({sql}) AND upper(o.dc_inv_no) LIKE '{TEST_DC_PREFIX}%%'"
-    # Archived orders never appear on any operating screen, regardless of the
-    # "or I last touched it" clauses above - archiving only ever applies to
-    # orders that are already Closed or Cancelled, so there is nothing left
-    # for an operating role to act on.
-    return f"o.archived_at IS NULL AND ({sql})", [user["user_key"]] * n
+    if user["role"] == "admin" and archived:
+        archived_clause = "o.archived_at IS NOT NULL"
+    else:
+        archived_clause = "o.archived_at IS NULL"
+    return f"{archived_clause} AND ({sql})", [user["user_key"]] * n

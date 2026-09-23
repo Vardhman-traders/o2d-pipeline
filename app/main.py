@@ -345,12 +345,13 @@ def list_orders(
     q: Optional[str] = Query(default=None, max_length=100,
                              description="matches DC/Inv no or shipping location"),
     include_cancelled: bool = True,
+    archived: Optional[bool] = Query(default=None, description="admin only: True shows archived orders instead of active ones"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user=Depends(ANY_ORDER_ROLE_OR_ADMIN),
     _ck=Depends(auth.require_client_key),
 ):
-    vis_sql, vis_params = roles.visibility(user)
+    vis_sql, vis_params = roles.visibility(user, archived=archived)
     where, params = [vis_sql], list(vis_params)
     if delivery_status_key is not None:
         where.append("o.delivery_status_key = %s"); params.append(delivery_status_key)
@@ -371,8 +372,8 @@ def list_orders(
 
 
 @app.get("/orders/{sl_no}")
-def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
-    vis_sql, vis_params = roles.visibility(user)
+def get_order(sl_no: int, archived: Optional[bool] = Query(default=None), user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+    vis_sql, vis_params = roles.visibility(user, archived=archived)
     with db.cursor() as cur:
         cur.execute(ORDER_SELECT + f" WHERE o.sl_no = %s AND {vis_sql}", [sl_no] + vis_params)
         row = cur.fetchone()
@@ -406,7 +407,8 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
 
 
 @app.patch("/orders/{sl_no}")
-def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(default=None),
+                  user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc(fields, user)
@@ -420,7 +422,7 @@ def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE_OR_AD
     if "delivery_status_key" in fields:
         sets.append(f"is_cancelled = {CANCELLED_SQL}")
         params.append(fields["delivery_status_key"])
-    vis_sql, vis_params = roles.visibility(user)
+    vis_sql, vis_params = roles.visibility(user, archived=archived)
     try:
         with db.cursor() as cur:
             # Lock the row only if this user is allowed to see it.

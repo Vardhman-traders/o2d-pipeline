@@ -36,6 +36,11 @@
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
   .card h2 .count { background: var(--blue-2); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 999px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel-2); padding: 7px 16px; cursor: pointer; font-weight: 700; color: var(--muted); border-right: 1px solid var(--border); font-size: 13px; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.active { background: var(--blue-2); color: #fff; }
   label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
   input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 14px; font-family: inherit; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(47,111,237,0.14); }
@@ -642,9 +647,15 @@
     <!-- ================= ADMIN SECTION (overview, every order) ================= -->
     <div id="adminSection" style="display:none;">
       <div id="admin_errorBanner" class="error-banner" style="display:none;"></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Overview of every active (non-archived) order, across all roles and dates. To create or edit an order, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above - you have full access to each, exactly like that team.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Every order, across all roles and dates - you can edit any of them directly below. To use a specific team's own workflow instead, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above.</div>
 
       <div class="card" style="border-left:4px solid var(--navy);margin-bottom:16px;">
+        <div class="row" style="margin-bottom:14px;">
+          <div class="seg" id="admin_archiveToggle">
+            <button type="button" class="active" data-archived="false" onclick="adminSetArchived(false)">Current</button>
+            <button type="button" data-archived="true" onclick="adminSetArchived(true)">Archive</button>
+          </div>
+        </div>
         <div class="grid" style="align-items:end;">
           <div class="field">
             <label>From date</label>
@@ -688,11 +699,91 @@
         </div>
       </div>
 
+      <!-- Comprehensive edit form: admin may set any field on any order, active or archived. -->
+      <div class="card" id="admin_editCard" style="display:none;border-left:4px solid var(--navy);margin-bottom:16px;">
+        <h2>✏️ Edit Order <span id="admin_editingSlNo"></span></h2>
+        <form id="adminEditForm">
+          <div class="grid">
+            <div class="field">
+              <label>Order Received Date</label>
+              <input type="text" class="dp-input" id="admin_edit_orderRcvdDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_orderRcvdDate')">
+              <input type="hidden" id="admin_edit_orderRcvdDate_iso">
+            </div>
+            <div class="field">
+              <label>Order Received Thru</label>
+              <select id="admin_edit_orderVia"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Type of Submission</label>
+              <select id="admin_edit_typeOfSubmission"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>DC / Invoice No.</label>
+              <input type="text" id="admin_edit_dcNo">
+            </div>
+            <div class="field">
+              <label>Address</label>
+              <input type="text" id="admin_edit_shippingLocation">
+            </div>
+            <div class="field" style="grid-column:span 2;">
+              <label>Detailed Remarks</label>
+              <textarea id="admin_edit_detailedRemarks"></textarea>
+            </div>
+            <div class="field">
+              <label>Ready By Whom</label>
+              <select id="admin_edit_readyByWhom"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Colour Making By Whom</label>
+              <select id="admin_edit_colourMakingBy"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Delivery Status</label>
+              <select id="admin_edit_deliveryStatus"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Material Delivery Date &amp; Time</label>
+              <div style="display:flex;gap:6px;">
+                <input type="text" class="dp-input" id="admin_edit_materialDeliveryDateTime" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_materialDeliveryDateTime')" style="flex:1;">
+                <input type="time" id="admin_edit_materialDeliveryDateTime_time" style="width:110px;">
+              </div>
+              <input type="hidden" id="admin_edit_materialDeliveryDateTime_iso">
+            </div>
+            <div class="field">
+              <label>Delivered By Whom</label>
+              <select id="admin_edit_deliveredByWhom"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Cartage (Rs)</label>
+              <input type="number" id="admin_edit_cartage" min="0" step="1">
+            </div>
+            <div class="field">
+              <label>Date of Receiving</label>
+              <input type="text" class="dp-input" id="admin_edit_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_dateOfReceiving')">
+              <input type="hidden" id="admin_edit_dateOfReceiving_iso">
+            </div>
+            <div class="field">
+              <label>Mat. Payment Status</label>
+              <select id="admin_edit_paymentStatus"><option value="">-- no change --</option></select>
+            </div>
+            <div class="field">
+              <label>Amount Received (Rs)</label>
+              <input type="number" id="admin_edit_amountReceived" min="0" step="1">
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="admin_editSaveBtn">Save</button>
+            <button type="button" class="ghost" onclick="adminCloseEdit()">Cancel</button>
+            <span id="admin_editStatusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
       <div class="card" style="border-left:4px solid var(--navy);">
         <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
         <div class="table-scroll" style="max-height:600px;">
           <table>
-            <thead><tr><th>Sl No</th><th>Date</th><th>DC No</th><th>Via</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Delivered By</th><th>Payment</th><th>Amount</th><th>Cartage</th><th>Address</th><th>Created By</th></tr></thead>
+            <thead><tr><th>Sl No</th><th>Date</th><th>DC No</th><th>Via</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Delivered By</th><th>Payment</th><th>Amount</th><th>Cartage</th><th>Address</th><th>Created By</th><th></th></tr></thead>
             <tbody id="admin_ordersBody"></tbody>
           </table>
           <div class="empty" id="admin_emptyMsg" style="display:none;">No orders found.</div>
@@ -801,7 +892,8 @@
     var sel = document.getElementById(selectId);
     if (!sel) return;
     var current = sel.value;
-    sel.innerHTML = '<option value="">-- select --</option>';
+    var firstLabel = keepFirst && sel.options.length ? sel.options[0].textContent : '-- select --';
+    sel.innerHTML = '<option value="">' + firstLabel + '</option>';
     (names || []).forEach(function(name) {
       var opt = document.createElement('option');
       opt.value = name; opt.textContent = name;
@@ -1001,6 +1093,19 @@
   var ADMIN_LIMIT = 50;
   var ADMIN_OFFSET = 0;
   var ADMIN_FILTERS = { dateFrom: '', dateTo: '', q: '' };
+  var ADMIN_ARCHIVED = false; // Current vs Archive toggle
+  var ADMIN_ORDERS = {}; // slNo -> order, for the edit form
+  var ADMIN_OPTIONS_LOADED = false;
+
+  function adminSetArchived(archived) {
+    ADMIN_ARCHIVED = archived;
+    ADMIN_OFFSET = 0;
+    document.querySelectorAll('#admin_archiveToggle button').forEach(function(b) {
+      b.classList.toggle('active', (b.getAttribute('data-archived') === 'true') === archived);
+    });
+    adminCloseEdit();
+    initAdmin();
+  }
 
   function adminApplyFilters() {
     ADMIN_FILTERS = {
@@ -1027,7 +1132,8 @@
   function initAdmin() {
     var banner = document.getElementById('admin_errorBanner');
     banner.style.display = 'none';
-    var req = { dateFrom: ADMIN_FILTERS.dateFrom, dateTo: ADMIN_FILTERS.dateTo, q: ADMIN_FILTERS.q, limit: ADMIN_LIMIT, offset: ADMIN_OFFSET };
+    var req = { dateFrom: ADMIN_FILTERS.dateFrom, dateTo: ADMIN_FILTERS.dateTo, q: ADMIN_FILTERS.q,
+                limit: ADMIN_LIMIT, offset: ADMIN_OFFSET, archived: ADMIN_ARCHIVED };
     google.script.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
@@ -1038,6 +1144,7 @@
         body.innerHTML = '';
         document.getElementById('admin_emptyMsg').style.display = orders.length ? 'none' : 'block';
         orders.forEach(function(o) {
+          ADMIN_ORDERS[o.slNo] = o;
           var tr = document.createElement('tr');
           tr.innerHTML = '<td>' + o.slNo + '</td>' +
             '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
@@ -1047,17 +1154,106 @@
             '<td>' + (o.paymentStatus||'') + '</td><td>' + formatAmount_(o.amountReceived) + '</td>' +
             '<td>' + formatAmount_(o.cartage) + '</td>' +
             '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
-            '<td>' + (o.createdBy||'') + '</td>';
+            '<td>' + (o.createdBy||'') + '</td>' +
+            '<td><button type="button" class="small" onclick="adminOpenEdit(' + o.slNo + ')">Edit</button></td>';
           body.appendChild(tr);
         });
         var from = orders.length ? ADMIN_OFFSET + 1 : 0;
-        document.getElementById('admin_pageLabel').textContent = 'Showing ' + from + '–' + (ADMIN_OFFSET + orders.length);
+        document.getElementById('admin_pageLabel').textContent = 'Showing ' + from + '–' + (ADMIN_OFFSET + orders.length) + (ADMIN_ARCHIVED ? ' (Archive)' : ' (Current)');
         document.getElementById('admin_prevBtn').disabled = ADMIN_OFFSET === 0;
         document.getElementById('admin_nextBtn').disabled = orders.length < ADMIN_LIMIT;
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getAdminOrders(CURRENT_TOKEN, req);
   }
+
+  function adminEnsureFormOptions_(callback) {
+    if (ADMIN_OPTIONS_LOADED) { callback(); return; }
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data && data.ok) {
+          fillSelect_('admin_edit_orderVia', data.dropdowns.orderVia, true);
+          fillSelect_('admin_edit_typeOfSubmission', data.dropdowns.typeOfSubmission, true);
+          fillSelect_('admin_edit_deliveryStatus', data.dropdowns.deliveryStatus, true);
+          fillSelect_('admin_edit_paymentStatus', data.dropdowns.paymentStatus, true);
+          fillSelect_('admin_edit_readyByWhom', data.dropdowns.readyByWhom, true);
+          fillSelect_('admin_edit_colourMakingBy', data.dropdowns.colourMakingBy, true);
+          fillSelect_('admin_edit_deliveredByWhom', data.dropdowns.deliveredByWhom, true);
+          ADMIN_OPTIONS_LOADED = true;
+        }
+        callback();
+      })
+      .withFailureHandler(callback)
+      .getAdminFormOptions(CURRENT_TOKEN);
+  }
+
+  function adminOpenEdit(slNo) {
+    adminEnsureFormOptions_(function() {
+      var o = ADMIN_ORDERS[slNo];
+      document.getElementById('admin_editCard').style.display = 'block';
+      document.getElementById('admin_editingSlNo').textContent = '- ' + (o.shippingLocation || '') + ' (DC ' + o.dcNo + ')';
+      document.getElementById('adminEditForm').dataset.slNo = slNo;
+      document.getElementById('adminEditForm').dataset.archived = ADMIN_ARCHIVED ? 'true' : 'false';
+      setDatePickerValue('admin_edit_orderRcvdDate', o.orderRcvdDate || '');
+      document.getElementById('admin_edit_orderVia').value = o.orderVia || '';
+      document.getElementById('admin_edit_typeOfSubmission').value = o.typeOfSubmission || '';
+      document.getElementById('admin_edit_dcNo').value = o.dcNo || '';
+      document.getElementById('admin_edit_shippingLocation').value = o.shippingLocation || '';
+      document.getElementById('admin_edit_detailedRemarks').value = o.detailedRemarks || '';
+      document.getElementById('admin_edit_readyByWhom').value = o.readyByWhom || '';
+      document.getElementById('admin_edit_colourMakingBy').value = o.colourMakingBy || '';
+      document.getElementById('admin_edit_deliveryStatus').value = o.deliveryStatus || '';
+      setDateTimeValue('admin_edit_materialDeliveryDateTime', o.materialDeliveryDateTime || '');
+      document.getElementById('admin_edit_deliveredByWhom').value = o.deliveredByWhom || '';
+      document.getElementById('admin_edit_cartage').value = o.cartage || '';
+      setDatePickerValue('admin_edit_dateOfReceiving', o.dateOfReceiving || '');
+      document.getElementById('admin_edit_paymentStatus').value = o.paymentStatus || '';
+      document.getElementById('admin_edit_amountReceived').value = o.amountReceived || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  function adminCloseEdit() {
+    document.getElementById('admin_editCard').style.display = 'none';
+    document.getElementById('admin_editStatusMsg').textContent = '';
+  }
+
+  document.getElementById('adminEditForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var saveBtn = document.getElementById('admin_editSaveBtn');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+    var slNo = Number(this.dataset.slNo);
+    var archived = this.dataset.archived === 'true';
+    var msg = document.getElementById('admin_editStatusMsg');
+    msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    var form = {
+      orderRcvdDate: document.getElementById('admin_edit_orderRcvdDate_iso').value,
+      orderVia: document.getElementById('admin_edit_orderVia').value,
+      typeOfSubmission: document.getElementById('admin_edit_typeOfSubmission').value,
+      dcNo: document.getElementById('admin_edit_dcNo').value,
+      shippingLocation: document.getElementById('admin_edit_shippingLocation').value,
+      detailedRemarks: document.getElementById('admin_edit_detailedRemarks').value,
+      readyByWhom: document.getElementById('admin_edit_readyByWhom').value,
+      colourMakingBy: document.getElementById('admin_edit_colourMakingBy').value,
+      deliveryStatus: document.getElementById('admin_edit_deliveryStatus').value,
+      materialDeliveryDateTime: getDateTimeValue('admin_edit_materialDeliveryDateTime'),
+      deliveredByWhom: document.getElementById('admin_edit_deliveredByWhom').value,
+      cartage: document.getElementById('admin_edit_cartage').value,
+      dateOfReceiving: document.getElementById('admin_edit_dateOfReceiving_iso').value,
+      paymentStatus: document.getElementById('admin_edit_paymentStatus').value,
+      amountReceived: document.getElementById('admin_edit_amountReceived').value
+    };
+    google.script.run
+      .withSuccessHandler(function(res) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
+        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
+        msg.textContent = 'Saved.'; adminCloseEdit(); initAdmin();
+      })
+      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
+      .updateAdminOrder(CURRENT_TOKEN, slNo, form, archived);
+  });
 
   function logout() {
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
