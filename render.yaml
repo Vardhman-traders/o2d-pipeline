@@ -14,5 +14,9 @@ services:
         sync: false       # paste the Postgres *Internal* Database URL
       - key: JWT_SECRET
         sync: false       # paste a long random string
+      - key: APPS_SCRIPT_CLIENT_KEY
+        sync: false       # paste a long random string; must exactly match the Apps Script
+                          # project's "CLIENT_KEY" Script Property. Only the one deployment
+                          # holding this value can read/write orders - see app/auth.py.
       - key: DB_POOL_MAX
         value: "5"

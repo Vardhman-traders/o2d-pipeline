@@ -1,4 +1,5 @@
 """Username/password login (bcrypt hashes in dim_user) issuing short-lived JWTs."""
+import hmac
 import os
 import secrets
 import threading
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import db
@@ -146,6 +147,19 @@ def redeem_sso_ticket(ticket: str):
     if now >= expires:
         return None
     return user_key
+
+
+# ---- Apps Script client key: proves the caller is the one authorized Apps Script
+# deployment, not a copy-pasted duplicate. A copy of Code.gs's *text* does not carry
+# this over - Script Properties live per Apps Script project, so a duplicate has to be
+# deliberately configured with the real secret before it can touch order data.
+def require_client_key(request: Request):
+    expected = os.environ.get("APPS_SCRIPT_CLIENT_KEY")
+    if not expected:
+        return  # not configured: leave order endpoints open (e.g. local dev)
+    got = request.headers.get("X-Client-Key", "")
+    if not hmac.compare_digest(got, expected):
+        raise HTTPException(401, "Invalid or missing client key")
 
 
 def require_roles(*roles):

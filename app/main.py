@@ -108,7 +108,7 @@ def sso_ticket(user=Depends(auth.current_user)):
 
 
 @app.post("/auth/sso-exchange")
-def sso_exchange(body: SsoExchangeIn):
+def sso_exchange(body: SsoExchangeIn, _ck=Depends(auth.require_client_key)):
     user_key = auth.redeem_sso_ticket(body.ticket)
     if not user_key:
         raise HTTPException(401, "This link has expired or was already used. Please sign in again.")
@@ -158,7 +158,7 @@ def _lookup(kind, user):
 
 
 @app.get("/lookups/{kind}")
-def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE)):
+def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
         cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
@@ -166,7 +166,7 @@ def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE)):
 
 
 @app.post("/lookups/{kind}")
-def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE)):
+def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     """Return the existing value (matched ignoring case/spacing) or create it."""
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
@@ -203,7 +203,7 @@ def _check_people_role(person_role, user):
 
 
 @app.get("/people")
-def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE)):
+def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     _check_people_role(role, user)
     with db.cursor() as cur:
         cur.execute("SELECT person_key AS key, full_name, phone_number, person_role FROM dim_person "
@@ -212,7 +212,7 @@ def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE)):
 
 
 @app.post("/people")
-def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE)):
+def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     _check_people_role(body.person_role, user)
     with db.cursor() as cur:
         cur.execute(
@@ -344,6 +344,7 @@ def list_orders(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user=Depends(ANY_ORDER_ROLE),
+    _ck=Depends(auth.require_client_key),
 ):
     vis_sql, vis_params = roles.visibility(user)
     where, params = [vis_sql], list(vis_params)
@@ -366,7 +367,7 @@ def list_orders(
 
 
 @app.get("/orders/{sl_no}")
-def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE)):
+def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     vis_sql, vis_params = roles.visibility(user)
     with db.cursor() as cur:
         cur.execute(ORDER_SELECT + f" WHERE o.sl_no = %s AND {vis_sql}", [sl_no] + vis_params)
@@ -377,7 +378,7 @@ def get_order(sl_no: int, user=Depends(ANY_ORDER_ROLE)):
 
 
 @app.post("/orders", status_code=201)
-def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES)), _ck=Depends(auth.require_client_key)):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc({"dc_inv_no": fields.get("dc_inv_no")} if roles.is_test_user(user) else {}, user)
@@ -401,7 +402,7 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
 
 
 @app.patch("/orders/{sl_no}")
-def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE)):
+def update_order(sl_no: int, body: OrderPatch, user=Depends(ANY_ORDER_ROLE), _ck=Depends(auth.require_client_key)):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc(fields, user)

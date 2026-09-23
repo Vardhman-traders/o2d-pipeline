@@ -23,6 +23,17 @@ function apiBase_() {
   return (fromProps || DEFAULT_API_BASE_URL).replace(/\/$/, '');
 }
 
+/** Proves this call comes from the one authorized Apps Script deployment, not a
+ *  copy-pasted duplicate: Script Properties are per-project, so copying this file's
+ *  text into another Sheet does NOT carry the secret over. Set once via Project
+ *  Settings -> Script Properties -> CLIENT_KEY (must match Render's
+ *  APPS_SCRIPT_CLIENT_KEY exactly). If unset, calls simply omit the header - the API
+ *  then either rejects them (if it requires the key) or allows them (if it doesn't
+ *  have one configured yet, e.g. before you've set this up). */
+function clientKey_() {
+  return PropertiesService.getScriptProperties().getProperty('CLIENT_KEY') || '';
+}
+
 /* ============================== ROUTING ============================== */
 
 function doGet(e) {
@@ -53,6 +64,7 @@ function apiCall_(method, path, token, payload) {
     headers: {}
   };
   if (token) options.headers['Authorization'] = 'Bearer ' + token;
+  var ck = clientKey_(); if (ck) options.headers['X-Client-Key'] = ck;
   if (payload !== null && payload !== undefined) options.payload = JSON.stringify(payload);
 
   var response = UrlFetchApp.fetch(apiBase_() + path, options);
@@ -82,9 +94,11 @@ function apiErrorMessage_(res) {
  * { httpOk, status, body } in the same order as specs.
  */
 function apiCallBatch_(specs) {
+  var ck = clientKey_();
   var requests = specs.map(function (s) {
     var options = { method: s.method, contentType: 'application/json', muteHttpExceptions: true, headers: {} };
     if (s.token) options.headers['Authorization'] = 'Bearer ' + s.token;
+    if (ck) options.headers['X-Client-Key'] = ck;
     if (s.payload !== null && s.payload !== undefined) options.payload = JSON.stringify(s.payload);
     options.url = apiBase_() + s.path;
     return options;
@@ -650,11 +664,18 @@ function debugInfo(token) {
   try {
     var res = apiCall_('get', '/health', null, null);
     var me = token ? apiCall_('get', '/auth/me', token, null) : null;
+    var sheet = null;
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) sheet = { name: ss.getName(), id: ss.getId() };
+    } catch (e) { /* not container-bound, or no sheet access from this context */ }
     return {
       ok: true,
       apiBase: apiBase_(),
       apiHealth: res.body,
-      whoAmI: me ? me.body : 'not logged in'
+      whoAmI: me ? me.body : 'not logged in',
+      boundSpreadsheet: sheet || 'unavailable from this context',
+      clientKeyConfigured: !!clientKey_() // never show the value itself
     };
   } catch (err) {
     return { ok: false, error: 'debugInfo() failed: ' + err.message };
