@@ -3,7 +3,7 @@ services:
   - type: web
     name: vardhman-api
     runtime: python
-    plan: free            # change to "starter" to avoid sleeping when idle
+    plan: starter         # paid plan: no idle sleep, more headroom for concurrent connections
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
@@ -19,4 +19,4 @@ services:
                           # project's "CLIENT_KEY" Script Property. Only the one deployment
                           # holding this value can read/write orders - see app/auth.py.
       - key: DB_POOL_MAX
-        value: "5"
+        value: "15"   # raised now that both services are on paid plans with more connection headroom
