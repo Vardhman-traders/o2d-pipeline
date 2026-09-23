@@ -56,8 +56,7 @@ function shiftDate(iso, days) {
 }
 
 // ------------------------------------------------------------------ state + API
-const S = { token: sessionStorage.getItem('vt_token'), user: null, tab: 'dashboard', timer: null,
-            range: { preset: '30d', from: null, to: null }, tableView: {} };
+const S = { token: sessionStorage.getItem('vt_token'), user: null, tab: 'dashboard', timer: null, tableView: {} };
 
 function safeHttps(url) {
   try { return new URL(url).protocol === 'https:' ? url : null; } catch { return null; }
@@ -510,16 +509,6 @@ function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210, onClick,
 }
 
 // ------------------------------------------------------------------ dashboard
-function rangeFromPreset() {
-  const t = todayIST(), r = S.range;
-  if (r.preset === 'custom') return { from: r.from || t, to: r.to || t };
-  if (r.preset === 'today') return { from: t, to: t };
-  if (r.preset === '7d') return { from: shiftDate(t, -6), to: t };
-  if (r.preset === 'month') return { from: t.slice(0, 8) + '01', to: t };
-  if (r.preset === '90d') return { from: shiftDate(t, -89), to: t };
-  return { from: shiftDate(t, -29), to: t };
-}
-
 function delta(cur, prev, goodWhenUp = true, label = 'previous period') {
   if (!delta.comparable) return null; // earlier period is only partly covered by the data: a % would mislead
   if (prev == null || cur == null || prev === 0) return h('span', { class: 'delta flat', text: prev === 0 && cur > 0 ? `new vs ${label}` : `no ${label} data` });
@@ -534,18 +523,16 @@ function tile(label, value, sub, hero, icon) {
     h('div', { class: 'label', text: label }), h('div', { class: 'value', text: value }), h('div', { class: 'sub' }, sub));
 }
 
-/* A funnel segment: width is proportional to its share of the total, and it's
-   clickable through to the matching orders. Segments in one funnel() call are
-   meant to be mutually exclusive and sum to the total. */
+/* A funnel stage, as a row of horizontal KPI scorecards - clickable through to the
+   matching orders. Segments in one funnel() call are meant to be mutually exclusive
+   and sum to the total. */
 function funnel(segments, total) {
-  const max = total || 1;
   return h('div', { class: 'funnel' }, segments.map((seg) => {
-    const pct = max ? seg.value / max : 0;
-    const el = h('div', { class: 'funnel-seg' + (seg.onClick ? ' clickable' : ''), tabindex: seg.onClick ? '0' : undefined },
-      h('div', { class: 'funnel-bar-track' }, h('div', { class: 'funnel-bar-fill', style: `width:${Math.max(pct * 100, seg.value > 0 ? 2 : 0)}%; background:${seg.color}` })),
-      h('div', { class: 'funnel-label' },
-        h('strong', { text: fmtInt(seg.value) }), h('span', { text: ' ' + seg.label }),
-        h('span', { class: 'funnel-pct', text: total ? ' · ' + fmtPct(pct) : '' })));
+    const pct = total ? seg.value / total : 0;
+    const el = h('div', { class: 'funnel-card' + (seg.onClick ? ' clickable' : ''), style: `--seg-color:${seg.color}`, tabindex: seg.onClick ? '0' : undefined },
+      h('div', { class: 'funnel-value', text: fmtInt(seg.value) }),
+      h('div', { class: 'funnel-label', text: seg.label }),
+      h('div', { class: 'funnel-pct', text: total ? fmtPct(pct) + ' of total' : '' }));
     if (seg.onClick) {
       el.addEventListener('click', seg.onClick);
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seg.onClick(); } });
@@ -554,29 +541,25 @@ function funnel(segments, total) {
   }));
 }
 
+// With archiving on, "active" data is naturally always a recent + still-open window,
+// so a user-facing period picker no longer adds much - the dashboard just always shows
+// this fixed trailing window.
+const DASHBOARD_WINDOW_DAYS = 30;
+function fixedDashboardRange() {
+  const to = todayIST();
+  return { from: shiftDate(to, -(DASHBOARD_WINDOW_DAYS - 1)), to };
+}
+
 async function renderDashboard(panel) {
-  const dateFrom = h('input', { type: 'date', 'aria-label': 'From date' });
-  const dateTo = h('input', { type: 'date', 'aria-label': 'To date' });
   const stamp = h('span', { text: 'Loading…' });
   const body = h('div', { id: 'dash-body' });
   const dl = h('button', { class: 'btn primary', text: '⬇ Download Excel' });
-  const presets = [['today', 'Today'], ['7d', '7 days'], ['30d', '30 days'], ['month', 'This month'], ['90d', '90 days']];
-  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Period' });
   let busy = false, last = null;
-
-  const syncControls = () => {
-    const r = rangeFromPreset();
-    dateFrom.value = r.from; dateTo.value = r.to;
-    seg.replaceChildren(...presets.map(([id, label]) => h('button', { 'aria-pressed': String(S.range.preset === id), text: label,
-      onclick: () => { S.range = { preset: id }; syncControls(); load(); } })));
-  };
-  const custom = () => { S.range = { preset: 'custom', from: dateFrom.value, to: dateTo.value }; seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false')); if (dateFrom.value && dateTo.value && dateFrom.value <= dateTo.value) load(); };
-  dateFrom.addEventListener('change', custom); dateTo.addEventListener('change', custom);
 
   async function load() {
     if (busy) return;
     busy = true; body.classList.add('loading');
-    const r = rangeFromPreset();
+    const r = fixedDashboardRange();
     try {
       const d = await api(`/admin/dashboard?date_from=${r.from}&date_to=${r.to}`);
       last = d;
@@ -590,7 +573,7 @@ async function renderDashboard(panel) {
   }
 
   dl.addEventListener('click', async () => {
-    const r = rangeFromPreset();
+    const r = fixedDashboardRange();
     dl.disabled = true; dl.textContent = 'Preparing…';
     try {
       const res = await api(`/admin/export.xlsx?date_from=${r.from}&date_to=${r.to}`, { raw: true });
@@ -602,10 +585,9 @@ async function renderDashboard(panel) {
   });
 
   panel.replaceChildren(
-    h('div', { class: 'filters' }, seg, dateFrom, h('span', { class: 'note', text: 'to' }), dateTo, dl,
+    h('div', { class: 'filters' }, dl,
       h('span', { class: 'live' }, h('span', { class: 'dot' }), 'Live · refreshes every 30 s · ', stamp)),
     body);
-  syncControls();
   await load();
   if (!panel.isConnected) return; // user already left this tab
   S.timer = setInterval(() => {
@@ -676,8 +658,11 @@ function dashboardNodes(d) {
     [{ head: 'Stage', get: (r) => r.label }, { head: 'Orders', num: 1, get: (r) => fmtInt(r.orders) }, { head: 'Oldest', get: (r) => fmtDate(r.oldest) }], pipe,
     h('p', { class: 'note', style: 'margin-top:10px', text: 'Awaiting godown = no delivery status yet. Awaiting dispatch = not delivered. Awaiting receiving = delivered but date received or payment status missing.' }));
 
-  // delivery time, with a cumulative-% line on the right axis - click a bucket to see those orders
-  const buckets = d.delivery_time_buckets.map((b) => ({ label: b.bucket, value: b.n, min_hours: b.min_hours, max_hours: b.max_hours }));
+  // delivery time, Pareto-style: biggest bucket first, with a cumulative-% line
+  // on the right axis - click a bucket to see those orders
+  const buckets = d.delivery_time_buckets
+    .map((b) => ({ label: b.bucket, value: b.n, min_hours: b.min_hours, max_hours: b.max_hours }))
+    .sort((a, b) => b.value - a.value);
   const timeCard = chartCard('o2d', 'Order-to-delivery time', `Median ${fmtHours(hd.median_hours)} · 9 in 10 within ${fmtHours(hd.p90_hours)} · average ${fmtHours(hd.avg_hours)}`,
     () => columnChart(buckets, {
       labelEvery: 1, cumulative: true, tip: (r) => [[fmtInt(r.value), 'orders']],
