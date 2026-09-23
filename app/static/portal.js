@@ -803,8 +803,9 @@ async function renderSecurity(panel) {
 // ------------------------------------------------------------------ permissions (field access per role)
 async function renderPermissions(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let data;
-  try { data = await api('/admin/permissions'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  let data, viewData;
+  try { [data, viewData] = await Promise.all([api('/admin/permissions'), api('/admin/view-access')]); }
+  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   const byKey = {};
   data.editable.forEach((e) => { byKey[e.role + '|' + e.field_name] = e.editable; });
 
@@ -824,8 +825,29 @@ async function renderPermissions(panel) {
       return h('td', { class: 'num' }, cb);
     })));
 
+  // View access: roles with no built-in order workflow (cashier, accounts, cartage) -
+  // whether they can see orders at all is a plain on/off switch, off by default.
+  const viewByRole = {};
+  viewData.access.forEach((v) => { viewByRole[v.role] = v.can_view; });
+  const toggleView = async (role, checked, cb) => {
+    cb.disabled = true;
+    try { await api('/admin/view-access', { method: 'PUT', body: { role, can_view: checked } }); }
+    catch (ex) { cb.checked = !checked; alert(ex.message); }
+    cb.disabled = false;
+  };
+  const viewRows = viewData.roles.map((r) => {
+    const cb = h('input', { type: 'checkbox' });
+    cb.checked = !!viewByRole[r];
+    cb.addEventListener('change', () => toggleView(r, cb.checked, cb));
+    return h('tr', {}, h('td', { text: roleLabel(r) }), h('td', { class: 'num' }, cb));
+  });
+
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
+    h('div', { class: 'card', style: 'margin-bottom:16px' },
+      h('h2', { style: 'font-size:15px;margin-bottom:8px', text: 'View access' }),
+      h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Roles with no order-entry role of their own (cashier, accounts, cartage) have no visibility into orders until you turn it on here. Read-only either way - this never grants editing.' }),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Role' }), h('th', { class: 'num', text: 'Can view all orders' }))), h('tbody', {}, viewRows)))),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each operating role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
     h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
 }
 

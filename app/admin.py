@@ -376,6 +376,41 @@ def set_permission(body: PermissionIn, admin=Depends(ADMIN)):
     return {"ok": True}
 
 
+# ------------------------------------------------------------------ view access (non-operational roles)
+# Roles with no built-in order workflow (shop/godown/etc. already have their own
+# visibility logic baked into roles.py and aren't included here). Whether one of
+# these can view orders at all is entirely admin's call, defaulting to no access.
+VIEW_ACCESS_ROLES = sorted(roles.NO_ACCESS_ROLES - {"admin", "legacy"})
+
+
+@router.get("/view-access")
+def get_view_access(admin=Depends(ADMIN)):
+    have = {r["role"]: r["can_view"] for r in config.all_view_access()}
+    return {"roles": VIEW_ACCESS_ROLES,
+            "access": [{"role": r, "can_view": have.get(r, False)} for r in VIEW_ACCESS_ROLES]}
+
+
+class ViewAccessIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str
+    can_view: bool
+
+    @field_validator("role")
+    @classmethod
+    def _role(cls, v):
+        if v not in VIEW_ACCESS_ROLES:
+            raise ValueError(f"role must be one of: {', '.join(VIEW_ACCESS_ROLES)}")
+        return v
+
+
+@router.put("/view-access")
+def set_view_access(body: ViewAccessIn, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        config.set_view_access(body.role, body.can_view)
+        audit(cur, admin, "view_access.set", body.role, {"can_view": body.can_view})
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ app links
 class LinkIn(BaseModel):
     model_config = ConfigDict(extra="forbid")

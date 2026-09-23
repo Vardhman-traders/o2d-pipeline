@@ -1,7 +1,13 @@
 """Who may see and change what. Everything role-related lives here so it is easy to audit."""
 
+from . import config
+
 ORDER_ROLES = {"shop", "godown", "shop_dispatch", "godown_dispatch", "receiving"}
-# Known roles with no access to orders through this API.
+# Roles with no built-in operational workflow. "No access" is the default for them,
+# not a permanent rule - admin can grant read-only visibility to any of these from
+# Setup -> Permissions (role_view_access table). "admin" itself always sees everything
+# regardless (see VISIBILITY below); "legacy" is disabled-login historical accounts,
+# never assignable.
 NO_ACCESS_ROLES = {"admin", "cashier", "accounts", "cartage", "legacy"}
 ALL_ROLES = ORDER_ROLES | NO_ACCESS_ROLES
 
@@ -66,14 +72,12 @@ VISIBILITY = {
     # admin: sees every order, and (per config.editable_fields_for_role) may edit any
     # field - a full super-user, same powers as every operating role combined.
     "admin": ("TRUE", 0),
-    # cashier/accounts/cartage: read-only visibility into every order, same as admin's
-    # overview - but never write (no entries for these roles in role_field_permissions,
-    # so config.editable_fields_for_role returns empty for them). Admin decides who gets
-    # this via which roles they tick on an app link in Setup -> Apps; the role itself
-    # carries no order-editing power regardless of which app it's attached to.
-    "cashier": ("TRUE", 0),
-    "accounts": ("TRUE", 0),
-    "cartage": ("TRUE", 0),
+    # Every other role (cashier, accounts, cartage, and anything added later) is NOT
+    # listed here on purpose: those roles have no built-in operational workflow, so
+    # whether they can view orders at all is a pure admin-controlled setting - see
+    # visibility() below, which checks config.can_view_all_orders() for any role not
+    # in this dict. Defaults to no access until admin explicitly grants it from
+    # Setup -> Permissions.
 }
 
 
@@ -90,6 +94,10 @@ def is_test_user(user):
 def visibility(user):
     """(sql, params) restricting orders to those this user may see. Deny by default."""
     entry = VISIBILITY.get(user["role"])
+    if entry is None:
+        # Not a role with built-in workflow visibility - fall through to the
+        # admin-controlled setting. No entry / not granted = deny, same as before.
+        entry = ("TRUE", 0) if config.can_view_all_orders(user["role"]) else None
     if entry is None:
         return "FALSE", []
     sql, n = entry

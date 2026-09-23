@@ -85,3 +85,37 @@ def set_field_permission(role: str, field_name: str, editable: bool):
             "ON CONFLICT (role, field_name) DO UPDATE SET editable = EXCLUDED.editable",
             (role, field_name, editable))
     _perm_cache = None  # invalidate; next read repopulates
+
+
+# ---- view access for roles with no built-in operational workflow (cashier, accounts,
+# cartage, ...): a pure admin-controlled on/off switch, defaulting to no access.
+_view_cache: "dict | None" = None
+_view_cache_at = 0.0
+
+
+def can_view_all_orders(role: str) -> bool:
+    global _view_cache, _view_cache_at
+    now = time.time()
+    if _view_cache is None or now - _view_cache_at > TTL:
+        with db.cursor() as cur:
+            cur.execute("SELECT role, can_view FROM role_view_access")
+            _view_cache = {r["role"]: r["can_view"] for r in cur.fetchall()}
+        _view_cache_at = now
+    return bool(_view_cache.get(role, False))
+
+
+def all_view_access() -> list:
+    """Every (role, can_view) row, for the admin Permissions screen."""
+    with db.cursor() as cur:
+        cur.execute("SELECT role, can_view FROM role_view_access ORDER BY role")
+        return cur.fetchall()
+
+
+def set_view_access(role: str, can_view: bool):
+    global _view_cache
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO role_view_access (role, can_view) VALUES (%s, %s) "
+            "ON CONFLICT (role) DO UPDATE SET can_view = EXCLUDED.can_view",
+            (role, can_view))
+    _view_cache = None
