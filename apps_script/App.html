@@ -624,10 +624,34 @@
       </div>
     </div>
 
-    <!-- ================= ADMIN SECTION (read-only, every order) ================= -->
+    <!-- ================= ADMIN SECTION (overview, every order) ================= -->
     <div id="adminSection" style="display:none;">
       <div id="admin_errorBanner" class="error-banner" style="display:none;"></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Overview of every order, across all roles and dates. To create or edit an order, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above - you have full access to each, exactly like that team.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Overview of every active (non-archived) order, across all roles and dates. To create or edit an order, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above - you have full access to each, exactly like that team.</div>
+
+      <div class="card" style="border-left:4px solid var(--navy);margin-bottom:16px;">
+        <div class="grid" style="align-items:end;">
+          <div class="field">
+            <label>From date</label>
+            <input type="text" class="dp-input" id="admin_dateFrom" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_dateFrom')">
+            <input type="hidden" id="admin_dateFrom_iso">
+          </div>
+          <div class="field">
+            <label>To date</label>
+            <input type="text" class="dp-input" id="admin_dateTo" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_dateTo')">
+            <input type="hidden" id="admin_dateTo_iso">
+          </div>
+          <div class="field">
+            <label>Search DC/Inv No or address</label>
+            <input type="text" id="admin_search" placeholder="e.g. 1234 or Rohini">
+          </div>
+          <div class="actions" style="margin:0;">
+            <button type="button" class="primary" onclick="adminApplyFilters()">Apply</button>
+            <button type="button" class="ghost" onclick="adminClearFilters()">Clear</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="border-left:4px solid var(--navy);">
         <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
         <div class="table-scroll" style="max-height:600px;">
@@ -636,6 +660,11 @@
             <tbody id="admin_ordersBody"></tbody>
           </table>
           <div class="empty" id="admin_emptyMsg" style="display:none;">No orders found.</div>
+        </div>
+        <div class="actions" style="justify-content:space-between;margin-top:14px;">
+          <button type="button" class="ghost" id="admin_prevBtn" onclick="adminPrevPage()">← Previous</button>
+          <span class="note" id="admin_pageLabel"></span>
+          <button type="button" class="ghost" id="admin_nextBtn" onclick="adminNextPage()">Next →</button>
         </div>
       </div>
     </div>
@@ -896,9 +925,36 @@
   }
 
   /* ================= ADMIN (READ-ONLY) ================= */
+  var ADMIN_LIMIT = 50;
+  var ADMIN_OFFSET = 0;
+  var ADMIN_FILTERS = { dateFrom: '', dateTo: '', q: '' };
+
+  function adminApplyFilters() {
+    ADMIN_FILTERS = {
+      dateFrom: document.getElementById('admin_dateFrom_iso').value,
+      dateTo: document.getElementById('admin_dateTo_iso').value,
+      q: document.getElementById('admin_search').value.trim()
+    };
+    ADMIN_OFFSET = 0;
+    initAdmin();
+  }
+
+  function adminClearFilters() {
+    setDatePickerValue('admin_dateFrom', '');
+    setDatePickerValue('admin_dateTo', '');
+    document.getElementById('admin_search').value = '';
+    ADMIN_FILTERS = { dateFrom: '', dateTo: '', q: '' };
+    ADMIN_OFFSET = 0;
+    initAdmin();
+  }
+
+  function adminNextPage() { ADMIN_OFFSET += ADMIN_LIMIT; initAdmin(); }
+  function adminPrevPage() { ADMIN_OFFSET = Math.max(0, ADMIN_OFFSET - ADMIN_LIMIT); initAdmin(); }
+
   function initAdmin() {
     var banner = document.getElementById('admin_errorBanner');
     banner.style.display = 'none';
+    var req = { dateFrom: ADMIN_FILTERS.dateFrom, dateTo: ADMIN_FILTERS.dateTo, q: ADMIN_FILTERS.q, limit: ADMIN_LIMIT, offset: ADMIN_OFFSET };
     google.script.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
@@ -921,9 +977,13 @@
             '<td>' + (o.createdBy||'') + '</td>';
           body.appendChild(tr);
         });
+        var from = orders.length ? ADMIN_OFFSET + 1 : 0;
+        document.getElementById('admin_pageLabel').textContent = 'Showing ' + from + '–' + (ADMIN_OFFSET + orders.length);
+        document.getElementById('admin_prevBtn').disabled = ADMIN_OFFSET === 0;
+        document.getElementById('admin_nextBtn').disabled = orders.length < ADMIN_LIMIT;
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
-      .getAdminOrders(CURRENT_TOKEN);
+      .getAdminOrders(CURRENT_TOKEN, req);
   }
 
   function logout() {

@@ -554,9 +554,14 @@ function getReceivingData(token) {
 /* Admin has no entry in EDITABLE_FIELDS on the API, so this is view-only by design -
    admin manages members/roles/apps from the Render portal, not order data here. */
 
-function getAdminOrders(token) {
+function getAdminOrders(token, filters) {
   try {
-    var res = apiCall_('get', '/orders?limit=200', token, null); // 200 is the API's max per request
+    filters = filters || {};
+    var qs = ['limit=' + (Math.min(Number(filters.limit) || 50, 200)), 'offset=' + (Number(filters.offset) || 0)];
+    if (filters.dateFrom) qs.push('date_from=' + filters.dateFrom);
+    if (filters.dateTo) qs.push('date_to=' + filters.dateTo);
+    if (filters.q) qs.push('q=' + encodeURIComponent(filters.q));
+    var res = apiCall_('get', '/orders?' + qs.join('&'), token, null);
     if (!res.httpOk) return { ok: false, error: apiErrorMessage_(res) };
     return { ok: true, orders: mapOrders_(res.body) };
   } catch (err) {
