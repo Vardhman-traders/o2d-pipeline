@@ -30,7 +30,7 @@ def get(key, default=None):
     return value
 
 
-def set(key, value, updated_by=None):
+def set_value(key, value, updated_by=None):
     with db.cursor() as cur:
         cur.execute(
             "INSERT INTO app_config (key, value, updated_by) VALUES (%s, %s, %s) "

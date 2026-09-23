@@ -326,7 +326,7 @@ def rotate_client_key(admin=Depends(ADMIN)):
     project's CLIENT_KEY Script Property, or every order-data call starts failing."""
     with db.cursor() as cur:
         new_key = secrets.token_urlsafe(48)
-        config.set(config.CLIENT_KEY_CONFIG_KEY, new_key, updated_by=admin["username"])
+        config.set_value(config.CLIENT_KEY_CONFIG_KEY, new_key, updated_by=admin["username"])
         audit(cur, admin, "security.rotate_client_key")
     return {"client_key": new_key}
 
