@@ -296,7 +296,7 @@
         <button type="button" onclick="topbarSearch()" style="height:24px;padding:0 10px;border:none;border-radius:5px;background:#fff;color:var(--navy);font-size:11px;font-weight:600;cursor:pointer;">Search</button>
       </div>
       <span style="color:#fff;font-size:13px;opacity:0.9;" id="userDisplayName"></span>
-      <button class="btn-home" onclick="refreshCurrent()">🔄 Refresh</button>
+      <button class="btn-home" onclick="refreshCurrent(true)">🔄 Refresh</button>
       <button class="btn-home" onclick="logout()">Logout</button>
     </div>
 
@@ -314,6 +314,12 @@
       </div>
       <div id="topbar_searchEmpty" style="display:none;font-size:12px;color:var(--muted);padding:10px 0;">No matching orders.</div>
     </div>
+  </div>
+
+  <!-- Shown the instant any data fetch starts, hidden once it lands - so switching
+       dashboards or applying a filter never looks frozen/blank while waiting. -->
+  <div id="globalLoading" style="display:none;position:sticky;top:0;z-index:20;background:var(--blue-2);color:#fff;font-size:13px;font-weight:600;padding:8px 20px;text-align:center;">
+    ⏳ Loading…
   </div>
 
   <div class="wrap">
@@ -1046,7 +1052,7 @@
     ADMIN_VIEW = document.getElementById('admin_viewSwitcher').value;
     document.getElementById('roleTitle').textContent = titleForRole(ADMIN_VIEW === 'all' ? 'admin' : ADMIN_VIEW) + ' (as admin)';
     showEffectiveSection();
-    refreshCurrent();
+    refreshCurrent(true);
   }
 
   function enterDashboard() {
@@ -1064,23 +1070,31 @@
       switcher.style.display = 'none';
       document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     }
+    showLoading_();
     google.script.run
       .withSuccessHandler(function(res) {
         MY_FIELDS = (res && res.ok) ? res.fields : [];
         showEffectiveSection();
-        refreshCurrent();
+        refreshCurrent(true);
       })
       .withFailureHandler(function() {
         MY_FIELDS = [];
         showEffectiveSection();
-        refreshCurrent();
+        refreshCurrent(true);
       })
       .getMyFields(CURRENT_TOKEN);
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
   }
 
-  function refreshCurrent() {
+  function showLoading_() { document.getElementById('globalLoading').style.display = 'block'; }
+  function hideLoading_() { document.getElementById('globalLoading').style.display = 'none'; }
+
+  // manual=true (a real click: switching dashboards, hitting Refresh, first load)
+  // shows the loading banner; the silent 20s auto-refresh (manual omitted) does not,
+  // so it doesn't flash on screen every 20 seconds.
+  function refreshCurrent(manual) {
+    if (manual) showLoading_();
     var r = effectiveRole();
     if (r === 'shop')                                initShop();
     else if (r === 'godown')                          initGodown();
@@ -1132,10 +1146,12 @@
   function initAdmin() {
     var banner = document.getElementById('admin_errorBanner');
     banner.style.display = 'none';
+    showLoading_();
     var req = { dateFrom: ADMIN_FILTERS.dateFrom, dateTo: ADMIN_FILTERS.dateTo, q: ADMIN_FILTERS.q,
                 limit: ADMIN_LIMIT, offset: ADMIN_OFFSET, archived: ADMIN_ARCHIVED };
     google.script.run
       .withSuccessHandler(function(data) {
+        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         var orders = data.orders;
@@ -1163,7 +1179,7 @@
         document.getElementById('admin_prevBtn').disabled = ADMIN_OFFSET === 0;
         document.getElementById('admin_nextBtn').disabled = orders.length < ADMIN_LIMIT;
       })
-      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getAdminOrders(CURRENT_TOKEN, req);
   }
 
@@ -1274,10 +1290,12 @@
   function initShop() {
     var banner = document.getElementById('shop_errorBanner');
     banner.style.display = 'none';
+    showLoading_();
     var shopDateIso = document.getElementById('shop_orderRcvdDate_iso');
     if (shopDateIso && !shopDateIso.value) setDatePickerValue('shop_orderRcvdDate', isoToday_());
     google.script.run
       .withSuccessHandler(function(data) {
+        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('shop_orderVia', data.dropdowns.orderVia);
@@ -1287,7 +1305,7 @@
         shopRenderOrders(data.recentOrders);
         showDateWindowNote('shop_dateWindowNote', data.dateWindow);
       })
-      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getShopData(CURRENT_TOKEN);
     initMissingNumbers('shop');
   }
@@ -1394,8 +1412,10 @@
   function initGodown() {
     var banner = document.getElementById('godown_errorBanner');
     banner.style.display = 'none';
+    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
+        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('godown_readyByWhom', data.dropdowns.readyByWhom);
@@ -1407,7 +1427,7 @@
         if (noteEl) noteEl.textContent = '📅 Pending Orders mein har order dikhta hai jab tak Godown update na kare.';
         godownRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getGodownData(CURRENT_TOKEN);
     initMissingNumbers('godown');
   }
@@ -1506,8 +1526,10 @@
   function initDispatch() {
     var banner = document.getElementById('dispatch_errorBanner');
     banner.style.display = 'none';
+    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
+        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
@@ -1518,7 +1540,7 @@
         if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
         dispatchRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getDispatchData(CURRENT_TOKEN, effectiveRole());
     initMissingNumbers('dispatch');
   }
@@ -1630,8 +1652,10 @@
   function initReceiving() {
     var banner = document.getElementById('receiving_errorBanner');
     banner.style.display = 'none';
+    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
+        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('receiving_paymentStatus', data.dropdowns.paymentStatus);
@@ -1640,7 +1664,7 @@
         if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak receive na ho, yahan dikhta rahega.';
         receivingRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getReceivingData(CURRENT_TOKEN);
   }
 
