@@ -2,6 +2,9 @@
 <html>
 <head>
 <base target="_top">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vardhman Traders - Sales Portal</title>
+<script src="gas-shim.js"></script>
 <style>
   :root {
     --navy: #10263d; --navy-2: #163a5e; --blue: #1c4f82; --blue-2: #2f6fed; --blue-light: #4d8fe0;
@@ -36,11 +39,6 @@
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
   .card h2 .count { background: var(--blue-2); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 999px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .seg button { border: 0; background: var(--panel-2); padding: 7px 16px; cursor: pointer; font-weight: 700; color: var(--muted); border-right: 1px solid var(--border); font-size: 13px; }
-  .seg button:last-child { border-right: 0; }
-  .seg button.active { background: var(--blue-2); color: #fff; }
   label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
   input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 14px; font-family: inherit; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(47,111,237,0.14); }
@@ -277,17 +275,6 @@
   <div class="topbar" style="position:relative;">
     <h1><span class="badge">VT</span> <span id="roleTitle"></span></h1>
     <div style="display:flex;align-items:center;gap:14px;">
-      <!-- Admin-only: switch which screen to view/act through. Admin has the same API
-           permissions on every one of them (see app/roles.py) - this is purely a
-           client-side choice of which dashboard to look at. -->
-      <select id="admin_viewSwitcher" style="display:none;height:30px;border-radius:6px;border:none;font-size:12.5px;padding:0 8px;" onchange="onAdminViewChange()">
-        <option value="all">All Orders (overview)</option>
-        <option value="shop">Shop</option>
-        <option value="godown">Godown</option>
-        <option value="shop_dispatch">Shop Dispatch</option>
-        <option value="godown_dispatch">Godown Dispatch</option>
-        <option value="receiving">Receiving</option>
-      </select>
       <!-- Search bar -->
       <div id="topbar_search" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 8px;">
         <input type="text" class="dp-input" id="topbar_searchDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('topbar_searchDate')" style="width:118px;height:24px;border:none;border-radius:5px;font-size:11px;padding:0 4px;">
@@ -296,7 +283,7 @@
         <button type="button" onclick="topbarSearch()" style="height:24px;padding:0 10px;border:none;border-radius:5px;background:#fff;color:var(--navy);font-size:11px;font-weight:600;cursor:pointer;">Search</button>
       </div>
       <span style="color:#fff;font-size:13px;opacity:0.9;" id="userDisplayName"></span>
-      <button class="btn-home" onclick="refreshCurrent(true)">🔄 Refresh</button>
+      <button class="btn-home" onclick="refreshCurrent()">🔄 Refresh</button>
       <button class="btn-home" onclick="logout()">Logout</button>
     </div>
 
@@ -314,12 +301,6 @@
       </div>
       <div id="topbar_searchEmpty" style="display:none;font-size:12px;color:var(--muted);padding:10px 0;">No matching orders.</div>
     </div>
-  </div>
-
-  <!-- Shown the instant any data fetch starts, hidden once it lands - so switching
-       dashboards or applying a filter never looks frozen/blank while waiting. -->
-  <div id="globalLoading" style="display:none;position:sticky;top:0;z-index:20;background:var(--blue-2);color:#fff;font-size:13px;font-weight:600;padding:8px 20px;text-align:center;">
-    ⏳ Loading…
   </div>
 
   <div class="wrap">
@@ -463,21 +444,6 @@
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--godown-color);">3</span>Delivery Status<span class="required-star">*</span></label>
               <select id="godown_deliveryStatus" required><option value="">-- select --</option></select>
-            </div>
-            <!-- Shown only if admin has granted this role the matching permission
-                 (Setup -> Permissions) - hidden otherwise, not a hardcoded assumption. -->
-            <div class="field" id="godown_dateOfReceivingField" style="display:none;">
-              <label>Date of Receiving</label>
-              <input type="text" class="dp-input" id="godown_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('godown_dateOfReceiving')">
-              <input type="hidden" id="godown_dateOfReceiving_iso">
-            </div>
-            <div class="field" id="godown_paymentStatusField" style="display:none;">
-              <label>Mat. Payment Status</label>
-              <select id="godown_paymentStatus"><option value="">-- select --</option></select>
-            </div>
-            <div class="field" id="godown_amountReceivedField" style="display:none;">
-              <label>Amount Received (Rs)</label>
-              <input type="number" id="godown_amountReceived" min="0" step="1" placeholder="0">
             </div>
           </div>
           <div class="actions">
@@ -650,158 +616,6 @@
       </div>
     </div>
 
-    <!-- ================= ADMIN SECTION (overview, every order) ================= -->
-    <div id="adminSection" style="display:none;">
-      <div id="admin_errorBanner" class="error-banner" style="display:none;"></div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">👁️ Every order, across all roles and dates - you can edit any of them directly below. To use a specific team's own workflow instead, switch to Shop / Godown / Shop Dispatch / Godown Dispatch / Receiving using the dropdown above.</div>
-
-      <div class="card" style="border-left:4px solid var(--navy);margin-bottom:16px;">
-        <div class="row" style="margin-bottom:14px;">
-          <div class="seg" id="admin_archiveToggle">
-            <button type="button" class="active" data-archived="false" onclick="adminSetArchived(false)">Current</button>
-            <button type="button" data-archived="true" onclick="adminSetArchived(true)">Archive</button>
-          </div>
-        </div>
-        <div class="grid" style="align-items:end;">
-          <div class="field">
-            <label>From date</label>
-            <input type="text" class="dp-input" id="admin_dateFrom" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_dateFrom')">
-            <input type="hidden" id="admin_dateFrom_iso">
-          </div>
-          <div class="field">
-            <label>To date</label>
-            <input type="text" class="dp-input" id="admin_dateTo" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_dateTo')">
-            <input type="hidden" id="admin_dateTo_iso">
-          </div>
-          <div class="field">
-            <label>Search DC/Inv No or address</label>
-            <input type="text" id="admin_search" placeholder="e.g. 1234 or Rohini">
-          </div>
-          <div class="actions" style="margin:0;">
-            <button type="button" class="primary" onclick="adminApplyFilters()">Apply</button>
-            <button type="button" class="ghost" onclick="adminClearFilters()">Clear</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card" style="border-left:4px solid var(--navy);margin-bottom:16px;">
-        <h2>🔍 Missing Numbers - pick any date</h2>
-        <div class="row" style="gap:10px;align-items:end;margin-bottom:10px;">
-          <div class="field" style="margin-bottom:0;">
-            <label>Date</label>
-            <input type="text" class="dp-input" id="admin_missingDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_missingDate')">
-            <input type="hidden" id="admin_missingDate_iso">
-          </div>
-          <button type="button" class="primary" onclick="adminCheckMissingNumbers()">Check</button>
-        </div>
-        <div id="admin_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
-        <div id="admin_missingWrapper" style="display:none;">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
-          <div id="admin_missingContainer"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
-            <div id="admin_missingInvoiceContainer"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Comprehensive edit form: admin may set any field on any order, active or archived. -->
-      <div class="card" id="admin_editCard" style="display:none;border-left:4px solid var(--navy);margin-bottom:16px;">
-        <h2>✏️ Edit Order <span id="admin_editingSlNo"></span></h2>
-        <form id="adminEditForm">
-          <div class="grid">
-            <div class="field">
-              <label>Order Received Date</label>
-              <input type="text" class="dp-input" id="admin_edit_orderRcvdDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_orderRcvdDate')">
-              <input type="hidden" id="admin_edit_orderRcvdDate_iso">
-            </div>
-            <div class="field">
-              <label>Order Received Thru</label>
-              <select id="admin_edit_orderVia"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Type of Submission</label>
-              <select id="admin_edit_typeOfSubmission"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>DC / Invoice No.</label>
-              <input type="text" id="admin_edit_dcNo">
-            </div>
-            <div class="field">
-              <label>Address</label>
-              <input type="text" id="admin_edit_shippingLocation">
-            </div>
-            <div class="field" style="grid-column:span 2;">
-              <label>Detailed Remarks</label>
-              <textarea id="admin_edit_detailedRemarks"></textarea>
-            </div>
-            <div class="field">
-              <label>Ready By Whom</label>
-              <select id="admin_edit_readyByWhom"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Colour Making By Whom</label>
-              <select id="admin_edit_colourMakingBy"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Delivery Status</label>
-              <select id="admin_edit_deliveryStatus"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Material Delivery Date &amp; Time</label>
-              <div style="display:flex;gap:6px;">
-                <input type="text" class="dp-input" id="admin_edit_materialDeliveryDateTime" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_materialDeliveryDateTime')" style="flex:1;">
-                <input type="time" id="admin_edit_materialDeliveryDateTime_time" style="width:110px;">
-              </div>
-              <input type="hidden" id="admin_edit_materialDeliveryDateTime_iso">
-            </div>
-            <div class="field">
-              <label>Delivered By Whom</label>
-              <select id="admin_edit_deliveredByWhom"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Cartage (Rs)</label>
-              <input type="number" id="admin_edit_cartage" min="0" step="1">
-            </div>
-            <div class="field">
-              <label>Date of Receiving</label>
-              <input type="text" class="dp-input" id="admin_edit_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('admin_edit_dateOfReceiving')">
-              <input type="hidden" id="admin_edit_dateOfReceiving_iso">
-            </div>
-            <div class="field">
-              <label>Mat. Payment Status</label>
-              <select id="admin_edit_paymentStatus"><option value="">-- no change --</option></select>
-            </div>
-            <div class="field">
-              <label>Amount Received (Rs)</label>
-              <input type="number" id="admin_edit_amountReceived" min="0" step="1">
-            </div>
-          </div>
-          <div class="actions">
-            <button type="submit" class="primary" id="admin_editSaveBtn">Save</button>
-            <button type="button" class="ghost" onclick="adminCloseEdit()">Cancel</button>
-            <span id="admin_editStatusMsg" class="status-msg"></span>
-          </div>
-        </form>
-      </div>
-
-      <div class="card" style="border-left:4px solid var(--navy);">
-        <h2>📋 All Orders <span class="count" id="admin_ordersCount">0</span></h2>
-        <div class="table-scroll" style="max-height:600px;">
-          <table>
-            <thead><tr><th>Sl No</th><th>Date</th><th>DC No</th><th>Via</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Delivered By</th><th>Payment</th><th>Amount</th><th>Cartage</th><th>Address</th><th>Created By</th><th></th></tr></thead>
-            <tbody id="admin_ordersBody"></tbody>
-          </table>
-          <div class="empty" id="admin_emptyMsg" style="display:none;">No orders found.</div>
-        </div>
-        <div class="actions" style="justify-content:space-between;margin-top:14px;">
-          <button type="button" class="ghost" id="admin_prevBtn" onclick="adminPrevPage()">← Previous</button>
-          <span class="note" id="admin_pageLabel"></span>
-          <button type="button" class="ghost" id="admin_nextBtn" onclick="adminNextPage()">Next →</button>
-        </div>
-      </div>
-    </div>
-
     <div style="text-align:center;margin-top:10px;">
       <a href="#" onclick="loadDebugInfo();return false;" style="font-size:12px;color:var(--muted);">🔧 Debug info</a>
       <pre id="debugOutput" style="display:none;text-align:left;background:#111;color:#9fdc9f;font-size:11px;padding:14px;border-radius:8px;margin-top:10px;overflow:auto;max-height:300px;"></pre>
@@ -811,27 +625,10 @@
 
 <script>
   var CURRENT_TOKEN = null;
-  var CURRENT_ROLE = null; // the real, logged-in role (from the JWT) - never changes
+  var CURRENT_ROLE = null;
   var CURRENT_USER_NAME = null;
-  var MY_FIELDS = []; // which order fields this role may set, per Setup -> Permissions
-  function canSet_(field) { return MY_FIELDS.indexOf(field) !== -1; }
   var PENDING_LOGIN_PASSWORD = null; // held only in memory during the forced-change flow
   var AUTO_REFRESH_TIMER = null;
-  // Admin is a super-user (same API permissions as every operating role, on every
-  // screen - see app/roles.py). ADMIN_VIEW is purely a client-side choice of which
-  // screen to look at; it never affects what the API will let the request do.
-  var ADMIN_VIEW = 'all';
-  // cashier/accounts/cartage get the same read-only "All Orders" overview as admin's
-  // default view - no operating screen exists for these roles (they never create or
-  // edit orders), but whichever roles an admin ticks on an app link should still get
-  // something useful to look at, not a blank page.
-  var VIEW_ONLY_ROLES = ['cashier', 'accounts', 'cartage'];
-  function effectiveRole() {
-    if (CURRENT_ROLE === 'admin') return ADMIN_VIEW;
-    if (VIEW_ONLY_ROLES.indexOf(CURRENT_ROLE) !== -1) return 'all';
-    return CURRENT_ROLE;
-  }
-  var SSO_TICKET = <?!= JSON.stringify(ssoTicket || '') ?>; // set by the Render portal's "Open" button
 
   function titleForRole(role) {
     if (role === 'shop')             return 'Shop Dashboard';
@@ -839,14 +636,11 @@
     if (role === 'shop_dispatch')    return 'Shop Dispatch Dashboard';
     if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
     if (role === 'receiving')        return 'Receiving Dashboard';
-    if (role === 'admin')           return 'All Orders';
-    if (VIEW_ONLY_ROLES.indexOf(role) !== -1) return 'All Orders (view only)';
     return 'Dashboard';
   }
 
   function sectionIdForRole(role) {
     if (role === 'shop_dispatch' || role === 'godown_dispatch') return 'dispatchSection';
-    if (role === 'all') return 'adminSection';
     return role + 'Section';
   }
 
@@ -898,8 +692,7 @@
     var sel = document.getElementById(selectId);
     if (!sel) return;
     var current = sel.value;
-    var firstLabel = keepFirst && sel.options.length ? sel.options[0].textContent : '-- select --';
-    sel.innerHTML = '<option value="">' + firstLabel + '</option>';
+    sel.innerHTML = '<option value="">-- select --</option>';
     (names || []).forEach(function(name) {
       var opt = document.createElement('option');
       opt.value = name; opt.textContent = name;
@@ -927,50 +720,35 @@
       buildMissingGroupHtml_(challan) + '</div></div>';
   }
 
-  function renderMissingNumbers_(prefix, data) {
-    if (!data || !data.ok) return;
-    var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
-    var challanContainer = document.getElementById(prefix + '_missingContainer');
-    if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
-      return buildMissingChallanDayBlockHtml_(r.date, r.challan);
-    }).join('');
-
-    var invoiceBlocks = [];
-    if (data.invoiceByDate) {
-      invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
-    }
-    var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
-    if (invoiceContainer) {
-      invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
-        return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
-      }).join('');
-    }
-
-    var invoiceHasMissing = invoiceBlocks.length > 0;
-    var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
-    var wrapper = document.getElementById(prefix + '_missingWrapper');
-    var allClear = document.getElementById(prefix + '_missingAllClear');
-    if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
-    if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
-  }
-
   function initMissingNumbers(prefix) {
     google.script.run
-      .withSuccessHandler(function(data) { renderMissingNumbers_(prefix, data); })
-      .getMissingNumbersForWindow(CURRENT_TOKEN);
-  }
-
-  // Admin only: check missing numbers for any date they pick, not just today.
-  function adminCheckMissingNumbers() {
-    var date = document.getElementById('admin_missingDate_iso').value;
-    if (!date) { alert('Pick a date first.'); return; }
-    google.script.run
       .withSuccessHandler(function(data) {
-        if (!data || !data.ok) { alert('Error: ' + (data ? data.error : 'no response')); return; }
-        renderMissingNumbers_('admin', data);
+        if (!data || !data.ok) return;
+        var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
+        var challanContainer = document.getElementById(prefix + '_missingContainer');
+        if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
+          return buildMissingChallanDayBlockHtml_(r.date, r.challan);
+        }).join('');
+
+        var invoiceBlocks = [];
+        if (data.invoiceByDate) {
+          invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
+        }
+        var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
+        if (invoiceContainer) {
+          invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
+            return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
+          }).join('');
+        }
+
+        var invoiceHasMissing = invoiceBlocks.length > 0;
+        var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
+        var wrapper = document.getElementById(prefix + '_missingWrapper');
+        var allClear = document.getElementById(prefix + '_missingAllClear');
+        if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
+        if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
       })
-      .withFailureHandler(function(err) { alert('Call failed: ' + err.message); })
-      .getMissingNumbersForDate(CURRENT_TOKEN, date);
+      .getMissingNumbersForWindow(CURRENT_TOKEN);
   }
 
   /* ---- Login ---- */
@@ -1038,242 +816,32 @@
       .changePassword(CURRENT_TOKEN, PENDING_LOGIN_PASSWORD, newPwd);
   });
 
-  var ALL_SECTION_IDS = ['shopSection', 'godownSection', 'dispatchSection', 'receivingSection', 'adminSection'];
-
-  function showEffectiveSection() {
-    ALL_SECTION_IDS.forEach(function(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
-    var section = document.getElementById(sectionIdForRole(effectiveRole()));
-    if (section) section.style.display = 'block';
-    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
-    document.getElementById('topbar_search').style.display = searchRoles.indexOf(effectiveRole()) !== -1 ? 'flex' : 'none';
-  }
-
-  function onAdminViewChange() {
-    ADMIN_VIEW = document.getElementById('admin_viewSwitcher').value;
-    document.getElementById('roleTitle').textContent = titleForRole(ADMIN_VIEW === 'all' ? 'admin' : ADMIN_VIEW) + ' (as admin)';
-    showEffectiveSection();
-    refreshCurrent(true);
-  }
-
   function enterDashboard() {
     document.getElementById('dpPopup').style.display = 'none';
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('changePasswordScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = 'block';
+    document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     document.getElementById('userDisplayName').textContent = CURRENT_USER_NAME;
-    var switcher = document.getElementById('admin_viewSwitcher');
-    if (CURRENT_ROLE === 'admin') {
-      switcher.style.display = 'inline-block';
-      switcher.value = ADMIN_VIEW;
-      document.getElementById('roleTitle').textContent = 'All Orders (as admin)';
-    } else {
-      switcher.style.display = 'none';
-      document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
-    }
-    showLoading_();
-    google.script.run
-      .withSuccessHandler(function(res) {
-        MY_FIELDS = (res && res.ok) ? res.fields : [];
-        showEffectiveSection();
-        refreshCurrent(true);
-      })
-      .withFailureHandler(function() {
-        MY_FIELDS = [];
-        showEffectiveSection();
-        refreshCurrent(true);
-      })
-      .getMyFields(CURRENT_TOKEN);
+    var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
+    if (section) section.style.display = 'block';
+    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
+    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    refreshCurrent();
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
   }
 
-  function showLoading_() { document.getElementById('globalLoading').style.display = 'block'; }
-  function hideLoading_() { document.getElementById('globalLoading').style.display = 'none'; }
-
-  // manual=true (a real click: switching dashboards, hitting Refresh, first load)
-  // shows the loading banner; the silent 20s auto-refresh (manual omitted) does not,
-  // so it doesn't flash on screen every 20 seconds.
-  function refreshCurrent(manual) {
-    if (manual) showLoading_();
-    var r = effectiveRole();
-    if (r === 'shop')                                initShop();
-    else if (r === 'godown')                          initGodown();
-    else if (r === 'shop_dispatch' || r === 'godown_dispatch') initDispatch();
-    else if (r === 'receiving')                       initReceiving();
-    else if (r === 'all')                             initAdmin();
+  function refreshCurrent() {
+    if (CURRENT_ROLE === 'shop')                                        initShop();
+    else if (CURRENT_ROLE === 'godown')                                  initGodown();
+    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
+    else if (CURRENT_ROLE === 'receiving')                               initReceiving();
   }
-
-  /* ================= ADMIN (READ-ONLY) ================= */
-  var ADMIN_LIMIT = 50;
-  var ADMIN_OFFSET = 0;
-  var ADMIN_FILTERS = { dateFrom: '', dateTo: '', q: '' };
-  var ADMIN_ARCHIVED = false; // Current vs Archive toggle
-  var ADMIN_ORDERS = {}; // slNo -> order, for the edit form
-  var ADMIN_OPTIONS_LOADED = false;
-
-  function adminSetArchived(archived) {
-    ADMIN_ARCHIVED = archived;
-    ADMIN_OFFSET = 0;
-    document.querySelectorAll('#admin_archiveToggle button').forEach(function(b) {
-      b.classList.toggle('active', (b.getAttribute('data-archived') === 'true') === archived);
-    });
-    adminCloseEdit();
-    initAdmin();
-  }
-
-  function adminApplyFilters() {
-    ADMIN_FILTERS = {
-      dateFrom: document.getElementById('admin_dateFrom_iso').value,
-      dateTo: document.getElementById('admin_dateTo_iso').value,
-      q: document.getElementById('admin_search').value.trim()
-    };
-    ADMIN_OFFSET = 0;
-    initAdmin();
-  }
-
-  function adminClearFilters() {
-    setDatePickerValue('admin_dateFrom', '');
-    setDatePickerValue('admin_dateTo', '');
-    document.getElementById('admin_search').value = '';
-    ADMIN_FILTERS = { dateFrom: '', dateTo: '', q: '' };
-    ADMIN_OFFSET = 0;
-    initAdmin();
-  }
-
-  function adminNextPage() { ADMIN_OFFSET += ADMIN_LIMIT; initAdmin(); }
-  function adminPrevPage() { ADMIN_OFFSET = Math.max(0, ADMIN_OFFSET - ADMIN_LIMIT); initAdmin(); }
-
-  function initAdmin() {
-    var banner = document.getElementById('admin_errorBanner');
-    banner.style.display = 'none';
-    showLoading_();
-    var req = { dateFrom: ADMIN_FILTERS.dateFrom, dateTo: ADMIN_FILTERS.dateTo, q: ADMIN_FILTERS.q,
-                limit: ADMIN_LIMIT, offset: ADMIN_OFFSET, archived: ADMIN_ARCHIVED };
-    google.script.run
-      .withSuccessHandler(function(data) {
-        hideLoading_();
-        if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
-        if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
-        var orders = data.orders;
-        document.getElementById('admin_ordersCount').textContent = orders.length;
-        var body = document.getElementById('admin_ordersBody');
-        body.innerHTML = '';
-        document.getElementById('admin_emptyMsg').style.display = orders.length ? 'none' : 'block';
-        orders.forEach(function(o) {
-          ADMIN_ORDERS[o.slNo] = o;
-          var tr = document.createElement('tr');
-          tr.innerHTML = '<td>' + o.slNo + '</td>' +
-            '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-            '<td>' + (o.dcNo||'') + '</td><td>' + (o.orderVia||'') + '</td>' +
-            '<td>' + (o.typeOfSubmission||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
-            '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + (o.deliveredByWhom||'') + '</td>' +
-            '<td>' + (o.paymentStatus||'') + '</td><td>' + formatAmount_(o.amountReceived) + '</td>' +
-            '<td>' + formatAmount_(o.cartage) + '</td>' +
-            '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
-            '<td>' + (o.createdBy||'') + '</td>' +
-            '<td><button type="button" class="small" onclick="adminOpenEdit(' + o.slNo + ')">Edit</button></td>';
-          body.appendChild(tr);
-        });
-        var from = orders.length ? ADMIN_OFFSET + 1 : 0;
-        document.getElementById('admin_pageLabel').textContent = 'Showing ' + from + '–' + (ADMIN_OFFSET + orders.length) + (ADMIN_ARCHIVED ? ' (Archive)' : ' (Current)');
-        document.getElementById('admin_prevBtn').disabled = ADMIN_OFFSET === 0;
-        document.getElementById('admin_nextBtn').disabled = orders.length < ADMIN_LIMIT;
-      })
-      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
-      .getAdminOrders(CURRENT_TOKEN, req);
-  }
-
-  function adminEnsureFormOptions_(callback) {
-    if (ADMIN_OPTIONS_LOADED) { callback(); return; }
-    google.script.run
-      .withSuccessHandler(function(data) {
-        if (data && data.ok) {
-          fillSelect_('admin_edit_orderVia', data.dropdowns.orderVia, true);
-          fillSelect_('admin_edit_typeOfSubmission', data.dropdowns.typeOfSubmission, true);
-          fillSelect_('admin_edit_deliveryStatus', data.dropdowns.deliveryStatus, true);
-          fillSelect_('admin_edit_paymentStatus', data.dropdowns.paymentStatus, true);
-          fillSelect_('admin_edit_readyByWhom', data.dropdowns.readyByWhom, true);
-          fillSelect_('admin_edit_colourMakingBy', data.dropdowns.colourMakingBy, true);
-          fillSelect_('admin_edit_deliveredByWhom', data.dropdowns.deliveredByWhom, true);
-          ADMIN_OPTIONS_LOADED = true;
-        }
-        callback();
-      })
-      .withFailureHandler(callback)
-      .getAdminFormOptions(CURRENT_TOKEN);
-  }
-
-  function adminOpenEdit(slNo) {
-    adminEnsureFormOptions_(function() {
-      var o = ADMIN_ORDERS[slNo];
-      document.getElementById('admin_editCard').style.display = 'block';
-      document.getElementById('admin_editingSlNo').textContent = '- ' + (o.shippingLocation || '') + ' (DC ' + o.dcNo + ')';
-      document.getElementById('adminEditForm').dataset.slNo = slNo;
-      document.getElementById('adminEditForm').dataset.archived = ADMIN_ARCHIVED ? 'true' : 'false';
-      setDatePickerValue('admin_edit_orderRcvdDate', o.orderRcvdDate || '');
-      document.getElementById('admin_edit_orderVia').value = o.orderVia || '';
-      document.getElementById('admin_edit_typeOfSubmission').value = o.typeOfSubmission || '';
-      document.getElementById('admin_edit_dcNo').value = o.dcNo || '';
-      document.getElementById('admin_edit_shippingLocation').value = o.shippingLocation || '';
-      document.getElementById('admin_edit_detailedRemarks').value = o.detailedRemarks || '';
-      document.getElementById('admin_edit_readyByWhom').value = o.readyByWhom || '';
-      document.getElementById('admin_edit_colourMakingBy').value = o.colourMakingBy || '';
-      document.getElementById('admin_edit_deliveryStatus').value = o.deliveryStatus || '';
-      setDateTimeValue('admin_edit_materialDeliveryDateTime', o.materialDeliveryDateTime || '');
-      document.getElementById('admin_edit_deliveredByWhom').value = o.deliveredByWhom || '';
-      document.getElementById('admin_edit_cartage').value = o.cartage || '';
-      setDatePickerValue('admin_edit_dateOfReceiving', o.dateOfReceiving || '');
-      document.getElementById('admin_edit_paymentStatus').value = o.paymentStatus || '';
-      document.getElementById('admin_edit_amountReceived').value = o.amountReceived || '';
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  }
-
-  function adminCloseEdit() {
-    document.getElementById('admin_editCard').style.display = 'none';
-    document.getElementById('admin_editStatusMsg').textContent = '';
-  }
-
-  document.getElementById('adminEditForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    var saveBtn = document.getElementById('admin_editSaveBtn');
-    if (saveBtn.disabled) return;
-    saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
-    var slNo = Number(this.dataset.slNo);
-    var archived = this.dataset.archived === 'true';
-    var msg = document.getElementById('admin_editStatusMsg');
-    msg.className = 'status-msg'; msg.textContent = 'Saving...';
-    var form = {
-      orderRcvdDate: document.getElementById('admin_edit_orderRcvdDate_iso').value,
-      orderVia: document.getElementById('admin_edit_orderVia').value,
-      typeOfSubmission: document.getElementById('admin_edit_typeOfSubmission').value,
-      dcNo: document.getElementById('admin_edit_dcNo').value,
-      shippingLocation: document.getElementById('admin_edit_shippingLocation').value,
-      detailedRemarks: document.getElementById('admin_edit_detailedRemarks').value,
-      readyByWhom: document.getElementById('admin_edit_readyByWhom').value,
-      colourMakingBy: document.getElementById('admin_edit_colourMakingBy').value,
-      deliveryStatus: document.getElementById('admin_edit_deliveryStatus').value,
-      materialDeliveryDateTime: getDateTimeValue('admin_edit_materialDeliveryDateTime'),
-      deliveredByWhom: document.getElementById('admin_edit_deliveredByWhom').value,
-      cartage: document.getElementById('admin_edit_cartage').value,
-      dateOfReceiving: document.getElementById('admin_edit_dateOfReceiving_iso').value,
-      paymentStatus: document.getElementById('admin_edit_paymentStatus').value,
-      amountReceived: document.getElementById('admin_edit_amountReceived').value
-    };
-    google.script.run
-      .withSuccessHandler(function(res) {
-        saveBtn.disabled = false; saveBtn.textContent = 'Save';
-        if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
-        if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
-        msg.textContent = 'Saved.'; adminCloseEdit(); initAdmin();
-      })
-      .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
-      .updateAdminOrder(CURRENT_TOKEN, slNo, form, archived);
-  });
 
   function logout() {
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
-    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null; ADMIN_VIEW = 'all';
+    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null;
     document.getElementById('dpPopup').style.display = 'none';
     document.getElementById('appScreen').style.display = 'none';
     document.getElementById('changePasswordScreen').style.display = 'none';
@@ -1290,12 +858,10 @@
   function initShop() {
     var banner = document.getElementById('shop_errorBanner');
     banner.style.display = 'none';
-    showLoading_();
     var shopDateIso = document.getElementById('shop_orderRcvdDate_iso');
     if (shopDateIso && !shopDateIso.value) setDatePickerValue('shop_orderRcvdDate', isoToday_());
     google.script.run
       .withSuccessHandler(function(data) {
-        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('shop_orderVia', data.dropdowns.orderVia);
@@ -1305,7 +871,7 @@
         shopRenderOrders(data.recentOrders);
         showDateWindowNote('shop_dateWindowNote', data.dateWindow);
       })
-      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getShopData(CURRENT_TOKEN);
     initMissingNumbers('shop');
   }
@@ -1412,22 +978,19 @@
   function initGodown() {
     var banner = document.getElementById('godown_errorBanner');
     banner.style.display = 'none';
-    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
-        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('godown_readyByWhom', data.dropdowns.readyByWhom);
         fillSelect_('godown_colourMakingBy', data.dropdowns.colourMakingBy);
         fillSelect_('godown_deliveryStatus', data.dropdowns.deliveryStatus);
-        fillSelect_('godown_paymentStatus', data.dropdowns.paymentStatus);
         godownRenderPending(data.pending);
         var noteEl = document.getElementById('godown_dateWindowNote');
         if (noteEl) noteEl.textContent = '📅 Pending Orders mein har order dikhta hai jab tak Godown update na kare.';
         godownRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getGodownData(CURRENT_TOKEN);
     initMissingNumbers('godown');
   }
@@ -1473,16 +1036,6 @@
     document.getElementById('godown_readyByWhom').value = o.readyByWhom || '';
     document.getElementById('godown_colourMakingBy').value = o.colourMakingBy || '';
     document.getElementById('godown_deliveryStatus').value = o.deliveryStatus || '';
-    // These only show if admin has granted godown this field in Setup -> Permissions.
-    var showPayments = canSet_('payment_status_key') || canSet_('date_of_receiving') || canSet_('amount_received');
-    ['godown_dateOfReceivingField', 'godown_paymentStatusField', 'godown_amountReceivedField'].forEach(function(id) {
-      document.getElementById(id).style.display = showPayments ? 'block' : 'none';
-    });
-    if (showPayments) {
-      setDatePickerValue('godown_dateOfReceiving', o.dateOfReceiving || '');
-      document.getElementById('godown_paymentStatus').value = o.paymentStatus || '';
-      document.getElementById('godown_amountReceived').value = o.amountReceived || '';
-    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1504,11 +1057,6 @@
       colourMakingBy: document.getElementById('godown_colourMakingBy').value,
       deliveryStatus: document.getElementById('godown_deliveryStatus').value
     };
-    if (document.getElementById('godown_paymentStatusField').style.display !== 'none') {
-      form.dateOfReceiving = document.getElementById('godown_dateOfReceiving_iso').value;
-      form.paymentStatus = document.getElementById('godown_paymentStatus').value;
-      form.amountReceived = document.getElementById('godown_amountReceived').value;
-    }
     google.script.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
@@ -1526,10 +1074,8 @@
   function initDispatch() {
     var banner = document.getElementById('dispatch_errorBanner');
     banner.style.display = 'none';
-    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
-        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
@@ -1540,8 +1086,8 @@
         if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
         dispatchRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
-      .getDispatchData(CURRENT_TOKEN, effectiveRole());
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getDispatchData(CURRENT_TOKEN, CURRENT_ROLE);
     initMissingNumbers('dispatch');
   }
 
@@ -1593,10 +1139,7 @@
     var receivingField = document.getElementById('dispatch_dateOfReceivingField');
     var paymentField = document.getElementById('dispatch_paymentStatusField');
     var amountField = document.getElementById('dispatch_amountReceivedField');
-    // Shown only if admin has granted this role (shop_dispatch by default, but
-    // godown_dispatch too if toggled on in Setup -> Permissions) these fields.
-    var showPayments = canSet_('date_of_receiving') || canSet_('payment_status_key') || canSet_('amount_received');
-    if (showPayments) {
+    if (CURRENT_ROLE === 'shop_dispatch') {
       receivingField.style.display = 'block';
       paymentField.style.display = 'block';
       amountField.style.display = 'block';
@@ -1628,13 +1171,11 @@
       materialDeliveryDateTime: getDateTimeValue('dispatch_materialDeliveryDateTime'),
       deliveryStatus: document.getElementById('dispatch_deliveryStatus').value,
       deliveredByWhom: document.getElementById('dispatch_deliveredByWhom').value,
-      cartage: document.getElementById('dispatch_cartage').value
+      cartage: document.getElementById('dispatch_cartage').value,
+      dateOfReceiving: document.getElementById('dispatch_dateOfReceiving_iso').value,
+      paymentStatus: document.getElementById('dispatch_paymentStatus').value,
+      amountReceived: document.getElementById('dispatch_amountReceived').value
     };
-    if (document.getElementById('dispatch_paymentStatusField').style.display !== 'none') {
-      form.dateOfReceiving = document.getElementById('dispatch_dateOfReceiving_iso').value;
-      form.paymentStatus = document.getElementById('dispatch_paymentStatus').value;
-      form.amountReceived = document.getElementById('dispatch_amountReceived').value;
-    }
     google.script.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
@@ -1643,7 +1184,7 @@
         msg.textContent = 'Saved.'; dispatchCloseEdit(); initDispatch();
       })
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
-      .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, effectiveRole());
+      .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, CURRENT_ROLE);
   });
 
   /* ================= RECEIVING ================= */
@@ -1652,10 +1193,8 @@
   function initReceiving() {
     var banner = document.getElementById('receiving_errorBanner');
     banner.style.display = 'none';
-    showLoading_();
     google.script.run
       .withSuccessHandler(function(data) {
-        hideLoading_();
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         fillSelect_('receiving_paymentStatus', data.dropdowns.paymentStatus);
@@ -1664,7 +1203,7 @@
         if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak receive na ho, yahan dikhta rahega.';
         receivingRenderCompleted(data.completed);
       })
-      .withFailureHandler(function(err) { hideLoading_(); banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getReceivingData(CURRENT_TOKEN);
   }
 
@@ -1760,10 +1299,9 @@
         empty.style.display = data.results.length ? 'none' : 'block';
         data.results.forEach(function(o) {
           var editCell = '';
-          var er = effectiveRole();
-          if (er === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (er === 'shop_dispatch' || er === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (er === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (CURRENT_ROLE === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
+          if (CURRENT_ROLE === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
           var tr = document.createElement('tr');
           tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
             '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
@@ -1778,10 +1316,9 @@
 
   function topbarEditFromSearch(slNo) {
     closeTopbarSearch();
-    var er = effectiveRole();
-    if (er === 'godown') godownOpenEdit(slNo);
-    else if (er === 'shop_dispatch' || er === 'godown_dispatch') dispatchOpenEdit(slNo);
-    else if (er === 'receiving') receivingOpenEdit(slNo);
+    if (CURRENT_ROLE === 'godown') godownOpenEdit(slNo);
+    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') dispatchOpenEdit(slNo);
+    else if (CURRENT_ROLE === 'receiving') receivingOpenEdit(slNo);
   }
 
   function closeTopbarSearch() { document.getElementById('topbar_searchResults').style.display = 'none'; }
@@ -1796,42 +1333,10 @@
       .debugInfo(CURRENT_TOKEN);
   }
 
-  /* ================= SINGLE SIGN-ON (from the Render portal) ================= */
-  function attemptSsoLogin() {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('loginError').textContent = '';
-    google.script.run
-      .withSuccessHandler(function(res) {
-        if (!res || !res.ok || !res.success) {
-          // Ticket expired / already used / link opened twice: fall back to a normal login.
-          document.getElementById('loginScreen').style.display = 'block';
-          if (res && res.message) document.getElementById('loginError').textContent = res.message;
-          return;
-        }
-        CURRENT_TOKEN = res.token;
-        CURRENT_ROLE = res.role;
-        CURRENT_USER_NAME = res.displayName;
-        if (res.mustChangePassword) {
-          // No password was typed here, so there is nothing to confirm against for a
-          // change; send them to the dashboard and let "Change password" (if you add
-          // one) or the portal handle it. In practice the portal already forces this
-          // before the ticket is ever minted.
-          enterDashboard();
-        } else {
-          enterDashboard();
-        }
-      })
-      .withFailureHandler(function(err) {
-        document.getElementById('loginScreen').style.display = 'block';
-        document.getElementById('loginError').textContent = 'Sign-in link failed: ' + err.message;
-      })
-      .ssoLogin(SSO_TICKET);
-  }
-
   window.addEventListener('load', function() {
     document.getElementById('dpPopup').style.display = 'none';
-    if (SSO_TICKET) attemptSsoLogin();
   });
 </script>
+<script src="autologin.js"></script>
 </body>
 </html>

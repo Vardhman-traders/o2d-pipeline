@@ -5,6 +5,7 @@ services:
     runtime: python
     plan: starter         # paid plan: no idle sleep, more headroom for concurrent connections
     buildCommand: pip install -r requirements.txt
+    preDeployCommand: python migrate.py   # applies new migrations before each release; a failure stops the deploy
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -14,9 +15,5 @@ services:
         sync: false       # paste the Postgres *Internal* Database URL
       - key: JWT_SECRET
         sync: false       # paste a long random string
-      - key: APPS_SCRIPT_CLIENT_KEY
-        sync: false       # paste a long random string; must exactly match the Apps Script
-                          # project's "CLIENT_KEY" Script Property. Only the one deployment
-                          # holding this value can read/write orders - see app/auth.py.
       - key: DB_POOL_MAX
         value: "15"   # raised now that both services are on paid plans with more connection headroom

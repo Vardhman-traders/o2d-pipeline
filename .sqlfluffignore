@@ -1,0 +1,7 @@
+migrations/001_*.sql
+migrations/002_*.sql
+migrations/003_*.sql
+migrations/004_*.sql
+migrations/005_*.sql
+migrations/006_*.sql
+migrations/007_*.sql

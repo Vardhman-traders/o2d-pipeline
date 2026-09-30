@@ -1,0 +1,9 @@
+[sqlfluff]
+dialect = postgres
+max_line_length = 120
+# Legacy migrations 001-007 are already applied and must never be edited (migrate.py checksums them),
+# so they are excluded. Every new migration (008+) is linted.
+exclude_rules = LT05, AM04, RF04, CV12, ST06, ST07
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper

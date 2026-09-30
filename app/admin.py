@@ -1,9 +1,7 @@
 """Admin-only routes: members, dashboard numbers, Excel export, app links, audit log.
 Also the /links route every logged-in user calls to see which apps they may open."""
 import io
-import os
 import re
-import secrets
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
@@ -332,29 +330,6 @@ def get_audit(limit: int = Query(default=100, ge=1, le=500), admin=Depends(ADMIN
         return cur.fetchall()
 
 
-# ------------------------------------------------------------------ security (client key)
-@router.get("/security")
-def get_security(admin=Depends(ADMIN)):
-    has_db_value = bool(config.get(config.CLIENT_KEY_CONFIG_KEY))
-    has_env_value = bool(os.environ.get("APPS_SCRIPT_CLIENT_KEY"))
-    return {
-        "client_key_configured": has_db_value or has_env_value,
-        "client_key_source": "database" if has_db_value else ("environment" if has_env_value else "none"),
-    }
-
-
-@router.post("/security/client-key/rotate")
-def rotate_client_key(admin=Depends(ADMIN)):
-    """Generates a new secret and stores it in the database, replacing any env-var
-    value. Returned once; admin must copy it into the one authorized Apps Script
-    project's CLIENT_KEY Script Property, or every order-data call starts failing."""
-    with db.cursor() as cur:
-        new_key = secrets.token_urlsafe(48)
-        config.set_value(config.CLIENT_KEY_CONFIG_KEY, new_key, updated_by=admin["username"])
-        audit(cur, admin, "security.rotate_client_key")
-    return {"client_key": new_key}
-
-
 # ------------------------------------------------------------------ permissions (field access per role)
 FIELD_NAMES = sorted(config.ALL_ORDER_FIELDS)
 
@@ -448,8 +423,9 @@ class LinkIn(BaseModel):
     @classmethod
     def _https(cls, v):
         v = v.strip()
-        if not v.startswith("https://"):
-            raise ValueError("url must start with https://")
+        own_page = v.startswith("/") and not v.startswith("//")
+        if not (v.startswith("https://") or own_page):
+            raise ValueError("url must start with https:// or be a page of this app, like /sales/")
         return v
 
     @field_validator("roles")

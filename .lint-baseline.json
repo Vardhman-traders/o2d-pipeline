@@ -1,0 +1,17 @@
+{
+ "mypy|app/admin.py|error": 4,
+ "ruff|app/admin.py|B007": 1,
+ "ruff|app/admin.py|E501": 2,
+ "ruff|app/admin.py|E702": 5,
+ "ruff|app/admin.py|I001": 1,
+ "ruff|app/admin.py|UP006": 1,
+ "ruff|app/admin.py|UP035": 1,
+ "ruff|app/admin.py|UP045": 10,
+ "ruff|app/auth.py|UP017": 1,
+ "ruff|app/config.py|E501": 1,
+ "ruff|app/dashboard.py|E501": 1,
+ "ruff|app/main.py|E501": 1,
+ "ruff|app/main.py|E702": 3,
+ "ruff|app/main.py|UP045": 24,
+ "ruff|manage_users.py|UP031": 1
+}

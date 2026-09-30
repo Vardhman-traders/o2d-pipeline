@@ -1,0 +1,24 @@
+# Local dev database. Start:  docker compose up -d db
+# Then in PowerShell:
+#   $env:DATABASE_URL = "postgresql://vt:vt@localhost:5433/vt_dev"
+#   python migrate.py
+# Tests create and drop their own throwaway databases on this server; your dev data is never touched.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vt
+      POSTGRES_PASSWORD: vt
+      POSTGRES_DB: vt_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - vt_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vt -d vt_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  vt_dev_data:

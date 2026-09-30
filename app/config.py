@@ -1,6 +1,5 @@
-"""DB-backed settings the admin portal manages at runtime: the Apps Script client
-key and which order fields each role may write. Both used to be hardcoded (an env
-var, and a dict in roles.py); this makes them editable without a redeploy.
+"""DB-backed settings the admin portal manages at runtime: which order fields each
+role may write, and which roles may view orders. Editable without a redeploy.
 
 A short in-process cache keeps this off the hot path (checked on every order
 read/write) - it's per-process, so on a multi-instance deploy a change can take up
@@ -11,7 +10,6 @@ import time
 from . import db
 
 TTL = 30
-CLIENT_KEY_CONFIG_KEY = "apps_script_client_key"
 
 # Shared between main.py (the operating API) and admin.py (admin CRUD over the same
 # tables) - name -> (table, key column, name column); static, safe to interpolate.

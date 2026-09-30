@@ -306,3 +306,18 @@ tbody tr:hover { background: var(--wash); }
   .center-card { padding: 26px 20px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---- admin tools: orders filters + bulk import ---- */
+.filters { margin-bottom: 16px; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0 12px; }
+.fgroups { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.fgroup { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface-2); }
+.fgroup summary { cursor: pointer; font-size: 13px; font-weight: 650; }
+.fgroup .checks { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 220px; overflow: auto; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.linklike { background: none; border: 0; padding: 0; font: inherit; font-weight: 650; color: inherit; cursor: pointer; }
+.steps { margin: 6px 0 14px 18px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+#errorTable input { min-width: 120px; padding: 4px 6px; font-size: 12.5px; }
+.err-text { color: var(--bad); min-width: 220px; font-size: 12.5px; }
+.secret-cell { font-family: ui-monospace, monospace; font-weight: 700; }

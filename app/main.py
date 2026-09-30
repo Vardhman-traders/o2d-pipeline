@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import admin, auth, config, db, roles
+from . import admin, admin_tools, auth, config, db, o2d_screens, roles
 
 
 @asynccontextmanager
@@ -31,6 +31,9 @@ app = FastAPI(title="Vardhman Traders API", lifespan=lifespan,
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
+CSP_INLINE = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'").replace(
+    "style-src 'self'", "style-src 'self' 'unsafe-inline'")
+
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -38,8 +41,10 @@ async def security_headers(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = CSP
-    if request.url.path.startswith(("/auth", "/admin", "/orders", "/lookups", "/people", "/links")):
+    # The O2D screens (static/sales) ship their own inline script/style, carried over unchanged from the
+    # Sheet-era HTML; only that path gets the relaxed policy. TODO: move to external files, then drop this.
+    response.headers["Content-Security-Policy"] = CSP_INLINE if request.url.path.startswith("/sales") else CSP
+    if request.url.path.startswith(("/auth", "/admin", "/orders", "/lookups", "/people", "/links", "/o2d", "/sales")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -100,34 +105,6 @@ def me(user=Depends(auth.current_user)):
     return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"]))}
 
 
-class SsoExchangeIn(BaseModel):
-    ticket: str = Field(max_length=100)
-
-
-@app.post("/auth/sso-ticket")
-def sso_ticket(user=Depends(auth.current_user)):
-    """Mints a 90-second, one-time ticket so the portal can hand this session off to an
-    Apps Script app without putting the real (12-hour) bearer token in a URL."""
-    return {"ticket": auth.create_sso_ticket(user["user_key"])}
-
-
-@app.post("/auth/sso-exchange")
-def sso_exchange(body: SsoExchangeIn, _ck=Depends(auth.require_client_key)):
-    user_key = auth.redeem_sso_ticket(body.ticket)
-    if not user_key:
-        raise HTTPException(401, "This link has expired or was already used. Please sign in again.")
-    with db.cursor() as cur:
-        cur.execute("SELECT user_key, username, role, display_name, must_change_password, password_hash "
-                    "FROM dim_user WHERE user_key = %s", (user_key,))
-        user = cur.fetchone()
-    if not user or user["password_hash"] == auth.DISABLED_HASH:
-        raise HTTPException(401, "Unknown or disabled user")
-    return {"access_token": auth.make_token(user), "token_type": "bearer",
-            "must_change_password": user["must_change_password"],
-            "user": {"username": user["username"], "role": user["role"],
-                     "display_name": user["display_name"]}}
-
-
 @app.post("/auth/change-password")
 def change_password(body: ChangePasswordIn, user=Depends(auth.current_user)):
     if body.new_password == body.current_password:
@@ -162,7 +139,7 @@ def _lookup(kind, user):
 
 
 @app.get("/lookups/{kind}")
-def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
         cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
@@ -170,7 +147,7 @@ def list_lookup(kind: str, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(au
 
 
 @app.post("/lookups/{kind}")
-def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def get_or_create_lookup(kind: str, body: NameIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     """Return the existing value (matched ignoring case/spacing) or create it."""
     table, key, name = _lookup(kind, user)
     with db.cursor() as cur:
@@ -207,7 +184,7 @@ def _check_people_role(person_role, user):
 
 
 @app.get("/people")
-def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     _check_people_role(role, user)
     with db.cursor() as cur:
         cur.execute("SELECT person_key AS key, full_name, phone_number, person_role FROM dim_person "
@@ -216,7 +193,7 @@ def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=D
 
 
 @app.post("/people")
-def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def get_or_create_person(body: PersonIn, user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     _check_people_role(body.person_role, user)
     with db.cursor() as cur:
         cur.execute(
@@ -349,7 +326,6 @@ def list_orders(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user=Depends(ANY_ORDER_ROLE_OR_ADMIN),
-    _ck=Depends(auth.require_client_key),
 ):
     vis_sql, vis_params = roles.visibility(user, archived=archived)
     where, params = [vis_sql], list(vis_params)
@@ -372,7 +348,7 @@ def list_orders(
 
 
 @app.get("/orders/{sl_no}")
-def get_order(sl_no: int, archived: Optional[bool] = Query(default=None), user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+def get_order(sl_no: int, archived: Optional[bool] = Query(default=None), user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     vis_sql, vis_params = roles.visibility(user, archived=archived)
     with db.cursor() as cur:
         cur.execute(ORDER_SELECT + f" WHERE o.sl_no = %s AND {vis_sql}", [sl_no] + vis_params)
@@ -383,7 +359,7 @@ def get_order(sl_no: int, archived: Optional[bool] = Query(default=None), user=D
 
 
 @app.post("/orders", status_code=201)
-def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES)), _ck=Depends(auth.require_client_key)):
+def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc({"dc_inv_no": fields.get("dc_inv_no")} if roles.is_test_user(user) else {}, user)
@@ -408,7 +384,7 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
 
 @app.patch("/orders/{sl_no}")
 def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(default=None),
-                  user=Depends(ANY_ORDER_ROLE_OR_ADMIN), _ck=Depends(auth.require_client_key)):
+                  user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc(fields, user)
@@ -445,7 +421,9 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
 
 
 # ---------------------------------------------------------------- admin routes + portal pages
+app.include_router(o2d_screens.router)
 app.include_router(admin.router)
+app.include_router(admin_tools.router)
 app.include_router(admin.public_router)
 # Must be last: serves the login/portal pages for any path not matched above.
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="portal")

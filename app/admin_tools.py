@@ -1,0 +1,382 @@
+"""Admin portal tools for the order tracker: custom order filters (with saved filters and Excel export) and bulk upload
+(orders and members) with template, validation, inline fixes, one-transaction import and undo. Admin only."""
+import io
+import json
+from datetime import date, datetime
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from . import bulk, bulk_entities, db
+from .admin import ADMIN, EXPORT_COLUMNS, IST_COLS, audit
+
+router = APIRouter(prefix="/admin", tags=["admin-tools"])
+IST = ZoneInfo("Asia/Kolkata")
+NONE_TOKEN = "__none__"      # "no value" in a multi-select filter, e.g. orders with no payment status yet
+
+# ------------------------------------------------------------------ filters
+MULTI = {"stage": "v.stage", "channel": "v.channel", "submission_type": "v.submission_type",
+         "delivery_status": "v.delivery_status", "payment_status": "v.payment_status", "ready_by": "v.ready_by",
+         "colour_making_by": "v.colour_making_by", "delivered_by": "v.delivered_by", "created_by": "v.created_by"}
+NUMBERS = {"min_amount": ("v.amount_received", ">="), "max_amount": ("v.amount_received", "<="),
+           "min_cartage": ("v.cartage", ">="), "max_cartage": ("v.cartage", "<="),
+           "min_hours": ("v.hours_to_deliver", ">="), "max_hours": ("v.hours_to_deliver", "<=")}
+SORTS = {"sl_no": "v.sl_no", "order_date": "v.order_date", "dc_inv_no": "v.dc_inv_no", "stage": "v.stage",
+         "delivery_status": "v.delivery_status", "payment_status": "v.payment_status",
+         "amount_received": "v.amount_received", "cartage": "v.cartage", "hours_to_deliver": "v.hours_to_deliver"}
+FILTER_KEYS = ({"date_from", "date_to", "q", "cancelled", "include_archived", "batch_id"} | set(MULTI) | set(NUMBERS))
+
+
+def normalise_filter(raw: dict[str, Any]) -> dict[str, Any]:
+    """Validate and clean a filter (from the query string or a saved definition). Unknown keys are dropped."""
+    out: dict[str, Any] = {}
+    try:
+        for k in ("date_from", "date_to"):
+            if raw.get(k):
+                out[k] = date.fromisoformat(str(raw[k])).isoformat()
+        if raw.get("q"):
+            out["q"] = str(raw["q"]).strip()[:100]
+        for k in MULTI:
+            vals = raw.get(k)
+            if isinstance(vals, str):
+                vals = [vals]
+            vals = [str(v)[:100] for v in (vals or []) if str(v).strip()][:50]
+            if vals:
+                out[k] = vals
+        for k in NUMBERS:
+            if raw.get(k) not in (None, ""):
+                out[k] = float(raw[k])
+        if raw.get("cancelled") in ("exclude", "only"):
+            out["cancelled"] = raw["cancelled"]
+        if str(raw.get("include_archived", "")).lower() in ("1", "true", "yes"):
+            out["include_archived"] = True
+        if raw.get("batch_id") not in (None, ""):
+            out["batch_id"] = int(raw["batch_id"])
+    except (ValueError, TypeError) as e:
+        raise HTTPException(422, f"Invalid filter value: {e}")
+    return out
+
+
+def filter_from_query(request: Request) -> dict[str, Any]:
+    qp = request.query_params
+    raw: dict[str, Any] = {k: qp.get(k) for k in FILTER_KEYS if k not in MULTI}
+    for k in MULTI:
+        raw[k] = qp.getlist(k)
+    return normalise_filter(raw)
+
+
+def build_where(f: dict[str, Any]) -> tuple[str, list]:
+    where, params = [], []
+    if not f.get("include_archived"):
+        where.append("v.archived_at IS NULL")
+    if f.get("date_from"):
+        where.append("v.order_date >= %s")
+        params.append(f["date_from"])
+    if f.get("date_to"):
+        where.append("v.order_date <= %s")
+        params.append(f["date_to"])
+    if f.get("q"):
+        where.append("(v.dc_inv_no ILIKE %s OR v.shipping_location ILIKE %s OR v.detailed_remarks ILIKE %s)")
+        params += [f"%{f['q']}%"] * 3
+    for key, col in MULTI.items():
+        vals = f.get(key)
+        if not vals:
+            continue
+        real = [x for x in vals if x != NONE_TOKEN]
+        parts, sub = [], []
+        if real:
+            parts.append(f"{col} = ANY(%s)")
+            sub.append(real)
+        if NONE_TOKEN in vals:
+            parts.append(f"{col} IS NULL")
+        where.append("(" + " OR ".join(parts) + ")")
+        params += sub
+    for key, (col, op) in NUMBERS.items():
+        if key in f:
+            where.append(f"{col} {op} %s")
+            params.append(f[key])
+    if f.get("cancelled") == "exclude":
+        where.append("NOT v.is_cancelled")
+    elif f.get("cancelled") == "only":
+        where.append("v.is_cancelled")
+    if "batch_id" in f:
+        where.append("f.import_batch_id = %s")
+        params.append(f["batch_id"])
+    return (" AND ".join(where) or "TRUE"), params
+
+
+ORDERS_FROM = "FROM v_orders_archive v LEFT JOIN fact_orders f ON f.order_key = v.order_key"
+RESULT_COLUMNS = ("v.sl_no, v.dc_inv_no, v.order_date, v.stage, v.channel, v.submission_type, v.delivery_status, "
+                  "v.payment_status, v.ready_by, v.colour_making_by, v.delivered_by, v.shipping_location, "
+                  "v.detailed_remarks, v.material_delivery_datetime, v.date_of_receiving, v.amount_received, "
+                  "v.cartage, v.hours_to_deliver, v.created_by, v.is_cancelled, "
+                  "(v.archived_at IS NOT NULL) AS archived, f.import_batch_id")
+
+
+@router.get("/orders/filter-options")
+def filter_options(admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        def col(sql):
+            cur.execute(sql)
+            return [next(iter(r.values())) for r in cur.fetchall()]
+        return {
+            "stage": ["Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled"],
+            "channel": col("SELECT channel_name FROM dim_order_channel ORDER BY lower(channel_name)"),
+            "submission_type": col("SELECT type_name FROM dim_submission_type ORDER BY lower(type_name)"),
+            "delivery_status": col("SELECT status_name FROM dim_delivery_status ORDER BY lower(status_name)"),
+            "payment_status": col("SELECT status_name FROM dim_payment_status ORDER BY lower(status_name)"),
+            "ready_by": col("SELECT full_name FROM dim_person WHERE person_role = 'ready_by' "
+                            "ORDER BY lower(full_name)"),
+            "colour_making_by": col("SELECT full_name FROM dim_person WHERE person_role = 'colour_making' "
+                                    "ORDER BY lower(full_name)"),
+            "delivered_by": col("SELECT full_name FROM dim_person WHERE person_role = 'delivery' "
+                                "ORDER BY lower(full_name)"),
+            "created_by": col("SELECT display_name FROM dim_user ORDER BY lower(display_name)"),
+        }
+
+
+@router.get("/orders/search")
+def search_orders(request: Request, sort: str = "order_date", direction: str = Query(default="desc", alias="dir"),
+                  limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
+                  admin=Depends(ADMIN)):
+    f = filter_from_query(request)
+    where, params = build_where(f)
+    order_col = SORTS.get(sort, "v.order_date")
+    order_dir = "ASC" if direction.lower() == "asc" else "DESC"
+    with db.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n {ORDERS_FROM} WHERE {where}", params)
+        total = cur.fetchone()["n"]
+        cur.execute(f"SELECT {RESULT_COLUMNS} {ORDERS_FROM} WHERE {where} "
+                    f"ORDER BY {order_col} {order_dir} NULLS LAST, v.sl_no DESC LIMIT %s OFFSET %s",
+                    params + [limit, offset])
+        rows = cur.fetchall()
+    return {"total": total, "rows": rows, "filter": f}
+
+
+EXPORT_CAP = 20000
+
+
+@router.get("/orders/search.xlsx")
+def export_search(request: Request, admin=Depends(ADMIN)):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    f = filter_from_query(request)
+    where, params = build_where(f)
+    cols = ", ".join("v." + c for _, c, _ in EXPORT_COLUMNS)
+    with db.cursor() as cur:
+        cur.execute(f"SELECT {cols} {ORDERS_FROM} WHERE {where} ORDER BY v.order_date, v.sl_no LIMIT %s",
+                    params + [EXPORT_CAP + 1])
+        rows = cur.fetchall()
+        if len(rows) > EXPORT_CAP:
+            raise HTTPException(400, f"More than {EXPORT_CAP} orders match - narrow the filter (for example by date).")
+        audit(cur, admin, "export.filtered", None, {"rows": len(rows), "filter": f})
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Orders"
+    ws.append([h for h, _, _ in EXPORT_COLUMNS])
+    fill = PatternFill("solid", fgColor="10263D")
+    for i, (_, _, w) in enumerate(EXPORT_COLUMNS, 1):
+        c = ws.cell(row=1, column=i)
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), fill
+        c.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(i)].width = w
+    for r in rows:
+        line = []
+        for _, col, _ in EXPORT_COLUMNS:
+            v = r[col]
+            if col in IST_COLS and isinstance(v, datetime):
+                v = v.astimezone(IST).replace(tzinfo=None)
+            elif col == "hours_to_deliver" and v is not None:
+                v = round(float(v), 1)
+            elif col in ("amount_received", "cartage") and v is not None:
+                v = float(v)
+            elif col == "is_cancelled":
+                v = "Yes" if v else "No"
+            line.append(v)
+        ws.append(line)
+        for c in ws[ws.max_row]:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                c.data_type = "s"           # text that starts with "=" must stay text, never a formula
+    ws.freeze_panes = "C2"
+    ws.auto_filter.ref = ws.dimensions
+    info = wb.create_sheet("Filter")
+    info.append(["Rows", len(rows)])
+    info.append(["Generated (IST)", datetime.now(IST).strftime("%d-%b-%Y %H:%M")])
+    for k, v in f.items():
+        info.append([k, ", ".join(v) if isinstance(v, list) else str(v)])
+    info.column_dimensions["A"].width, info.column_dimensions["B"].width = 22, 60
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="vardhman_orders_filtered.xlsx"'})
+
+
+# ------------------------------------------------------------------ saved filters
+class SavedFilterIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    shared: bool = False
+    definition: dict[str, Any]
+
+
+@router.get("/saved-filters")
+def list_saved_filters(admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        cur.execute("SELECT s.filter_key, s.name, s.shared, s.definition, (s.owner_user_key = %s) AS mine, "
+                    "u.display_name AS owner FROM saved_filter s JOIN dim_user u ON u.user_key = s.owner_user_key "
+                    "WHERE s.owner_user_key = %s OR s.shared ORDER BY lower(s.name)",
+                    (admin["user_key"], admin["user_key"]))
+        return cur.fetchall()
+
+
+@router.post("/saved-filters", status_code=201)
+def save_filter(body: SavedFilterIn, admin=Depends(ADMIN)):
+    definition = normalise_filter(body.definition)
+    if not definition:
+        raise HTTPException(422, "Nothing to save - set at least one filter first.")
+    name = " ".join(body.name.split())
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO saved_filter (owner_user_key, name, shared, definition) VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (owner_user_key, name) DO UPDATE SET shared = EXCLUDED.shared, "
+                    "definition = EXCLUDED.definition RETURNING filter_key",
+                    (admin["user_key"], name, body.shared, json.dumps(definition)))
+        key = cur.fetchone()["filter_key"]
+    return {"filter_key": key, "definition": definition}
+
+
+@router.delete("/saved-filters/{filter_key}")
+def delete_saved_filter(filter_key: int, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM saved_filter WHERE filter_key = %s AND owner_user_key = %s RETURNING name",
+                    (filter_key, admin["user_key"]))
+        if not cur.fetchone():
+            raise HTTPException(404, "Saved filter not found (you can only delete your own)")
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ bulk upload
+def _entity(name: str) -> dict:
+    ent = bulk_entities.ENTITIES.get(name)
+    if not ent:
+        raise HTTPException(404, "Unknown upload type")
+    return ent
+
+
+def _public(report: dict, ent: dict) -> dict:
+    return {**{k: v for k, v in report.items() if not k.startswith("_")},
+            "columns": ent["columns"], "help": ent["help"], "label": ent["label"]}
+
+
+class RowsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rows: list[dict[str, Any]]
+    filename: str | None = Field(default=None, max_length=255)
+
+
+def _clean_rows(rows: list[dict], ent: dict) -> list[dict]:
+    bulk.check_row_cap(len(rows))
+    return bulk.canonical_rows([{k: ("" if v is None else str(v).strip()) if k != "_row" else v
+                                 for k, v in r.items()} for r in rows], ent["columns"])
+
+
+@router.get("/bulk/batches")
+def list_batches(admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        cur.execute("SELECT b.batch_id, b.entity, b.filename, b.row_count, b.created_at, b.undone_at, "
+                    "u.display_name AS created_by FROM import_batch b LEFT JOIN dim_user u "
+                    "ON u.user_key = b.created_by_user_key ORDER BY b.batch_id DESC LIMIT 30")
+        return cur.fetchall()
+
+
+@router.get("/bulk/{entity}/template.csv")
+def template(entity: str, admin=Depends(ADMIN)):
+    ent = _entity(entity)
+    body = bulk.template_csv(ent["columns"], ent["examples"])
+    return Response(body, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{entity}_upload_template.csv"'})
+
+
+@router.post("/bulk/{entity}/validate")
+async def validate_upload(entity: str, request: Request, filename: str = "", admin=Depends(ADMIN)):
+    ent = _entity(entity)
+    raw = await request.body()
+    rows, names = bulk.read_table(raw)
+    problem = bulk.header_problem(names, ent["required"], ent["columns"])
+    if problem:
+        return {"format_error": problem, "columns": ent["columns"], "help": ent["help"], "label": ent["label"]}
+    if not rows:
+        return {"format_error": "No data rows found. Fill in the template below its header row (rows marked EXAMPLE "
+                                "are ignored).", "columns": ent["columns"], "help": ent["help"], "label": ent["label"]}
+    bulk.check_row_cap(len(rows))
+    return _public(ent["validate"](bulk.canonical_rows(rows, ent["columns"])), ent)
+
+
+@router.post("/bulk/{entity}/revalidate")
+def revalidate(entity: str, body: RowsIn, admin=Depends(ADMIN)):
+    ent = _entity(entity)
+    return _public(ent["validate"](_clean_rows(body.rows, ent)), ent)
+
+
+@router.post("/bulk/{entity}/confirm")
+def confirm(entity: str, body: RowsIn, admin=Depends(ADMIN)):
+    ent = _entity(entity)
+    rows = _clean_rows(body.rows, ent)
+    if not rows:
+        raise HTTPException(400, "Nothing to import.")
+    report = ent["validate"](rows)           # never trust the client: check everything again right now
+    if report["errors"]:
+        return {"created": 0, "errors": report["errors"],
+                "message": "Some rows no longer pass validation (for example someone else added the same order). "
+                           "Nothing was imported."}
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO import_batch (entity, filename, row_count, created_by_user_key) "
+                    "VALUES (%s, %s, %s, %s) RETURNING batch_id", (entity, body.filename, len(rows), admin["user_key"]))
+        batch_id = cur.fetchone()["batch_id"]
+        result: dict[str, Any] = {"created": len(rows), "batch_id": batch_id}
+        if entity == "orders":
+            bulk_entities.insert_orders(cur, report["_normalised"], batch_id, admin)
+        else:
+            result["credentials"] = bulk_entities.insert_users(cur, report["_normalised"], batch_id, admin)
+        audit(cur, admin, f"bulk.import.{entity}", f"batch {batch_id}", {"rows": len(rows), "file": body.filename})
+    return result
+
+
+@router.post("/bulk/batches/{batch_id}/undo")
+def undo_batch(batch_id: int, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        cur.execute("SELECT entity, created_at, undone_at FROM import_batch WHERE batch_id = %s FOR UPDATE",
+                    (batch_id,))
+        b = cur.fetchone()
+        if not b:
+            raise HTTPException(404, "Import not found")
+        if b["undone_at"]:
+            raise HTTPException(409, "This import was already undone")
+        if b["entity"] == "orders":
+            cur.execute("SELECT count(*) AS n FROM fact_orders WHERE import_batch_id = %s "
+                        "AND (last_updated_at > %s OR archived_at IS NOT NULL)", (batch_id, b["created_at"]))
+            edited = cur.fetchone()["n"]
+            if edited:
+                raise HTTPException(409, f"{edited} imported order(s) have been edited or archived since the import, "
+                                         "so undoing would lose that work. Nothing was changed.")
+            cur.execute("DELETE FROM fact_orders WHERE import_batch_id = %s", (batch_id,))
+        else:
+            cur.execute("SELECT count(*) AS n FROM dim_user u WHERE u.import_batch_id = %s "
+                        "AND (NOT u.must_change_password OR EXISTS (SELECT 1 FROM fact_orders o "
+                        "WHERE o.created_by_user_key = u.user_key OR o.last_updated_by_user_key = u.user_key))",
+                        (batch_id,))
+            if cur.fetchone()["n"]:
+                raise HTTPException(409, "Some of these members have already signed in or logged orders, so the import "
+                                         "can't be undone. Disable them under Members instead. Nothing was changed.")
+            cur.execute("DELETE FROM dim_user WHERE import_batch_id = %s", (batch_id,))
+        removed = cur.rowcount
+        cur.execute("UPDATE import_batch SET undone_at = now() WHERE batch_id = %s", (batch_id,))
+        audit(cur, admin, f"bulk.undo.{b['entity']}", f"batch {batch_id}", {"removed": removed})
+    return {"removed": removed}

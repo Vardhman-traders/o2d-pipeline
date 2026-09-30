@@ -58,7 +58,9 @@ function shiftDate(iso, days) {
 // ------------------------------------------------------------------ state + API
 const S = { token: sessionStorage.getItem('vt_token'), user: null, tab: 'dashboard', timer: null, tableView: {} };
 
+// A link may be an external https address or one of this app's own pages (a path such as /sales/).
 function safeHttps(url) {
+  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) return url;
   try { return new URL(url).protocol === 'https:' ? url : null; } catch { return null; }
 }
 
@@ -293,23 +295,13 @@ async function route() {
   showPortal();
 }
 
-// Opens an app link already signed in: mints a 90-second one-time ticket and appends it
-// to the URL, instead of sending the real (12-hour) bearer token anywhere. The tab is
-// opened synchronously (on the click) so browsers don't treat it as a blocked popup;
-// its location is filled in once the ticket comes back.
-async function openAppLink(url) {
-  // No intermediate blank tab: navigate straight there. Simpler and no popup-blocker
-  // risk (it's not a new window), at the cost of leaving the portal page.
-  try {
-    const { ticket } = await api('/auth/sso-ticket', { method: 'POST' });
-    const joined = url + (url.includes('?') ? '&' : '?') + 'ssoTicket=' + encodeURIComponent(ticket);
-    window.location.href = joined;
-  } catch (ex) {
-    alert('Could not open this app: ' + ex.message);
-  }
+// Own pages share this browser session (the sign-in lives in sessionStorage), so opening one is a plain
+// navigation: no hand-off ticket, and the page picks the sign-in up by itself.
+function openAppLink(url) {
+  window.location.href = url;
 }
 
-const TAB_ICON = { dashboard: '📊', members: '👥', setup: '⚙️' };
+const TAB_ICON = { dashboard: '📊', orders: '🧾', import: '⬆️', members: '👥', setup: '⚙️' };
 
 function topbar(links) {
   return h('header', { class: 'topbar' },
@@ -330,7 +322,7 @@ async function showPortal() {
   if (!isAdmin) return renderHome(body, links);
 
   const holder = h('div');
-  const tabs = [['dashboard', 'Dashboard'], ['members', 'Members'], ['setup', 'Setup']];
+  const tabs = [['dashboard', 'Dashboard'], ['orders', 'Orders'], ['import', 'Import'], ['members', 'Members'], ['setup', 'Setup']];
   const bar = h('div', { class: 'tabs', role: 'tablist' });
   const draw = () => {
     bar.replaceChildren(...tabs.map(([id, label]) => h('button', {
@@ -342,7 +334,7 @@ async function showPortal() {
     // A fresh panel per visit: a slow response from a tab you already left writes into a detached node.
     const panel = h('div', { id: 'panel' });
     holder.replaceChildren(panel);
-    ({ dashboard: renderDashboard, members: renderMembers, setup: renderSetup })[S.tab](panel);
+    ({ dashboard: renderDashboard, orders: renderOrders, import: renderImport, members: renderMembers, setup: renderSetup })[S.tab](panel);
   };
   body.append(bar, holder);
   draw(); openTab();
@@ -376,8 +368,8 @@ function renderHome(body, links) {
 
 // ------------------------------------------------------------------ setup (apps + activity)
 async function renderSetup(panel) {
-  const sub = [['apps', 'Apps'], ['lists', 'Dropdown values'], ['permissions', 'Permissions'], ['security', 'Security'], ['activity', 'Activity log']];
-  const renderers = { apps: renderApps, lists: renderLists, permissions: renderPermissions, security: renderSecurity, activity: renderActivity };
+  const sub = [['apps', 'Apps'], ['lists', 'Dropdown values'], ['permissions', 'Permissions'], ['activity', 'Activity log']];
+  const renderers = { apps: renderApps, lists: renderLists, permissions: renderPermissions, activity: renderActivity };
   if (!S.setupTab) S.setupTab = 'apps';
   const bar = h('div', { class: 'subtabs', role: 'tablist' });
   const inner = h('div');
@@ -747,10 +739,10 @@ async function renderMembers(panel) {
       reload(); secretDialog('Member created', `Give ${v.display_name} the username “${v.username}” and this temporary password. They must change it at first sign-in.`, v.password); } });
 
   panel.replaceChildren(
-    h('div', { class: 'row', style: 'margin-bottom:14px' }, search, h('span', { class: 'grow' }), h('button', { class: 'btn primary', text: '+ Add member', onclick: add })),
+    h('div', { class: 'row', style: 'margin-bottom:14px' }, search, h('span', { class: 'grow' }), h('button', { class: 'btn', id: 'bulkMembersBtn', text: 'Add many (upload)', onclick: () => { S.tab = 'import'; S.importKind = 'users'; showPortal(); } }), h('button', { class: 'btn primary', text: '+ Add member', onclick: add })),
     h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Name', 'Username', 'Role', 'Status'].map((t) => h('th', { text: t })), h('th', { class: 'num', text: 'Orders logged' }), h('th', { text: '' }))), rowsBody)),
-    h('p', { class: 'note', style: 'margin-top:10px', text: 'Cashier, accounts and cartage roles currently have no order access. Only the four operating roles can use the order tracker.' }));
+    h('p', { class: 'note', style: 'margin-top:10px', text: 'Operating roles (shop, godown, dispatch, receiving) work in the order tracker. Cashier, accounts and cartage can view all orders only if switched on under Setup.' }));
   draw();
 }
 
@@ -764,7 +756,7 @@ async function renderApps(panel) {
   const roleChoices = meta.roles.filter((r) => r !== 'admin').map((r) => [r, roleLabel(r)]);
   const fields = (l) => [
     { name: 'name', label: 'Name shown on the button', value: l?.name || '', required: true, maxlength: 100 },
-    { name: 'url', label: 'Web address (must start with https://)', type: 'url', value: l?.url || '', required: true },
+    { name: 'url', label: 'Web address (https://… or a page of this app, like /sales/)', value: l?.url || '', required: true },
     { name: 'roles', label: 'Who can open it', type: 'checks', options: roleChoices, value: l?.roles || [], hint: 'Admins always see every app.' },
     { name: 'sort_order', label: 'Sort order', type: 'number', value: l?.sort_order ?? 0 },
     { name: 'active', label: 'Active', type: 'bool', value: l ? l.active : true }];
@@ -773,7 +765,7 @@ async function renderApps(panel) {
   const del = async (l) => { if (await confirmDialog('Delete “' + l.name + '”?', 'It will disappear from everyone’s home page.', 'Delete', true)) { try { await api('/admin/links/' + l.link_key, { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); } } };
 
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Apps appear as buttons after sign-in. Add each Apps Script web app here and choose which roles may open it.' }),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Apps appear as buttons after sign-in. Add a page of this app (like /sales/) or any https address, and choose which roles may open it.' }),
     h('div', { class: 'row', style: 'margin-bottom:14px' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', text: '+ Add app', onclick: add })),
     links.length ? h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Name', 'Address', 'Roles', 'Status', ''].map((t) => h('th', { text: t })))),
@@ -781,29 +773,7 @@ async function renderApps(panel) {
         h('td', { text: l.roles.map(roleLabel).join(', ') || 'Admins only' }),
         h('td', {}, h('span', { class: 'pill' + (l.active ? '' : ' off'), text: l.active ? 'Active' : 'Hidden' })),
         h('td', {}, h('div', { class: 'row' }, h('button', { class: 'btn small', text: 'Edit', onclick: () => edit(l) }), h('button', { class: 'btn small danger', text: 'Delete', onclick: () => del(l) }))))))))
-      : h('div', { class: 'card empty', text: 'No apps yet. Click “Add app” and paste your Apps Script web address.' }));
-}
-
-// ------------------------------------------------------------------ security (client key)
-async function renderSecurity(panel) {
-  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let sec;
-  try { sec = await api('/admin/security'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  const sourceLabel = { database: 'Set from this dashboard', environment: 'Set via Render environment variable (not yet rotated here)', none: 'Not configured - order endpoints are currently open to any caller' }[sec.client_key_source];
-  const rotate = async () => {
-    if (!(await confirmDialog('Rotate the client key?', 'Every Apps Script deployment using the old key will immediately stop being able to read or write orders, until you update its CLIENT_KEY Script Property with the new value.', 'Rotate', true))) return;
-    try {
-      const res = await api('/admin/security/client-key/rotate', { method: 'POST' });
-      secretDialog('New client key', 'Copy this into the ONE authorized Apps Script project: Project Settings → Script Properties → CLIENT_KEY. It will not be shown again.', res.client_key);
-      renderSecurity(panel);
-    } catch (ex) { alert(ex.message); }
-  };
-  panel.replaceChildren(
-    h('div', { class: 'card' },
-      h('h2', { style: 'font-size:15px;margin-bottom:10px', text: 'Apps Script client key' }),
-      h('p', { class: 'note', style: 'margin-bottom:14px', text: 'Only the Apps Script deployment holding the current key may read or write orders through the API. Rotating it invalidates any other copy - including any extra Google Sheet you don’t want connected.' }),
-      h('p', {}, h('span', { class: 'pill' + (sec.client_key_configured ? '' : ' off'), text: sec.client_key_configured ? 'Configured' : 'Not configured' }), ' ', h('span', { class: 'note', text: sourceLabel })),
-      h('div', { class: 'actions', style: 'justify-content:flex-start;margin-top:14px' }, h('button', { class: 'btn primary', text: sec.client_key_configured ? 'Rotate key' : 'Generate key', onclick: rotate }))));
+      : h('div', { class: 'card empty', text: 'No apps yet. Click “Add app” to add one.' }));
 }
 
 // ------------------------------------------------------------------ permissions (field access per role)

@@ -1,0 +1,46 @@
+name: Test-change report
+# Blocks the merge when an EXISTING test is edited, deleted or renamed, until you add the
+# `tests-change-approved` label. Adding new tests never triggers it.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build report
+        id: report
+        run: |
+          set +e
+          python3 scripts/test_change_report.py "origin/${{ github.base_ref }}" > report.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Post report on the PR
+        if: steps.report.outputs.code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('report.md', 'utf8') + '\n<!-- test-change-report -->';
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number });
+            const mine = comments.find(c => c.body.includes('<!-- test-change-report -->'));
+            if (mine) await github.rest.issues.updateComment({ ...context.repo, comment_id: mine.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+      - name: Require approval label
+        if: steps.report.outputs.code != '0'
+        run: |
+          if echo '${{ toJson(github.event.pull_request.labels.*.name) }}' | grep -q 'tests-change-approved'; then
+            echo "Existing tests changed, and the tests-change-approved label is present. OK."
+          else
+            echo "::error::Existing tests were changed. Review the report and add the 'tests-change-approved' label to proceed."
+            exit 1
+          fi

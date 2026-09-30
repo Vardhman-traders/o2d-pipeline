@@ -58,7 +58,8 @@ All routes except `/health` and `/auth/login` need `Authorization: Bearer <token
 | `godown_dispatch` | non-"Shop" orders not yet fully closed + ones they last updated | delivery status, delivery time, delivered-by, cartage |
 | `shop_dispatch` | "Shop" orders not yet fully closed + ones they last updated | dispatch fields + date of receiving, payment status, amount received |
 | `receiving` | delivered non-"Shop" orders missing receiving details + ones they last updated | date of receiving, payment status, amount received |
-| `admin`, `cashier`, `accounts`, `cartage` | nothing (no order access) | - |
+| `admin` | every order (active and archived) | any field |
+| `cashier`, `accounts`, `cartage` | nothing by default; admin can switch on read-only viewing (Setup -> Permissions) | - |
 
 An order you may not see returns 404 (same as missing). Fields outside your role return 403.
 `is_cancelled` follows the delivery status and cannot be set directly.
@@ -67,24 +68,30 @@ An order you may not see returns 404 (same as missing). Fields outside your role
 - Everyone logs in as themselves; new/reset users must change their password on first login
   (`POST /auth/change-password`) before any other call works.
 - 5 failed logins lock that username/IP for 15 minutes (in-memory, per process).
-- Manage users from your machine with `python manage_users.py` (list / add / set-password / set-role /
-  disable). There is deliberately no user-admin API.
+- Admins add, edit, disable and delete members (one at a time or many via bulk upload) in the portal's
+  **Members** and **Import** tabs. `python manage_users.py` remains for creating the very first admin on a new
+  database (list / add / set-password / set-role / disable).
 The DB pool is capped at 5 connections (`DB_POOL_MAX`) for Render's connection limit.
 
-### Calling from Apps Script
-```javascript
-function apiLogin_() {
-  const r = UrlFetchApp.fetch(API + '/auth/login', {method: 'post', contentType: 'application/json',
-    payload: JSON.stringify({username: USER, password: PASS})});
-  return JSON.parse(r.getContentText()).access_token;
-}
-function createOrder(order, token) {
-  const r = UrlFetchApp.fetch(API + '/orders', {method: 'post', contentType: 'application/json',
-    headers: {Authorization: 'Bearer ' + token}, payload: JSON.stringify(order), muteHttpExceptions: true});
-  return JSON.parse(r.getContentText());
-}
-```
+### Order screens
+The screens for each role (shop, godown, dispatch, receiving) are served by this app at `/sales/`. The portal opens
+them with one click and signs you in automatically; they can also be opened directly and signed into there.
+Their data routes live in `app/o2d_screens.py` (`/o2d/...`). There is no Apps Script and no Google Sheets anywhere.
+WhatsApp dispatch alerts use `WHATSAPP_API_USERNAME` / `WHATSAPP_API_PASSWORD` (and optionally `WHATSAPP_GROUP_ID`);
+without them the alert is simply skipped.
 
 ### Deploy on Render (Web Service)
 Build: `pip install -r requirements.txt` - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 Set `DATABASE_URL` (use the *Internal* URL there) and `JWT_SECRET` in the service's environment.
+
+
+### Admin tools (`/admin/*`, admin only)
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/admin/orders/filter-options` | values for every filter drop-down |
+| GET | `/admin/orders/search` | filtered, sorted, paged orders (`stage`, `channel`, `q`, `date_from`, `min_amount` ... `batch_id`) |
+| GET | `/admin/orders/search.xlsx` | the same filter as an Excel file (cap 20,000 rows) |
+| GET/POST/DELETE | `/admin/saved-filters` | personal or shared saved filters |
+| GET | `/admin/bulk/{orders\|users}/template.csv` | upload template with EXAMPLE rows |
+| POST | `/admin/bulk/{entity}/validate` `/revalidate` `/confirm` | check a file, re-check fixed rows, import (all-or-nothing) |
+| GET / POST | `/admin/bulk/batches`, `/admin/bulk/batches/{id}/undo` | import history and undo |

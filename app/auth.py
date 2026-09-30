@@ -1,17 +1,15 @@
 """Username/password login (bcrypt hashes in dim_user) issuing short-lived JWTs."""
-import hmac
 import os
-import secrets
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from . import config, db
+from . import db
 
 _bearer = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
@@ -110,58 +108,6 @@ def current_user(creds: HTTPAuthorizationCredentials = Depends(_bearer)):
         raise HTTPException(401, "Unknown or disabled user")
     user.pop("password_hash")
     return user
-
-
-# ---- single sign-on tickets (portal -> Apps Script hand-off, no token in browser history)
-# A ticket only gets minted for someone who already holds a valid JWT, is good for one
-# exchange, and expires fast — it is not a second, longer-lived credential.
-SSO_TICKET_SECONDS = 90
-_tickets: dict = {}
-_tickets_lock = threading.Lock()
-
-
-def _prune_tickets(now):
-    for t, (_, expires) in list(_tickets.items()):
-        if now >= expires:
-            _tickets.pop(t, None)
-
-
-def create_sso_ticket(user_key: int) -> str:
-    ticket = secrets.token_urlsafe(32)
-    now = time.time()
-    with _tickets_lock:
-        _prune_tickets(now)
-        _tickets[ticket] = (user_key, now + SSO_TICKET_SECONDS)
-    return ticket
-
-
-def redeem_sso_ticket(ticket: str):
-    """Single use: valid once, then gone, regardless of outcome."""
-    now = time.time()
-    with _tickets_lock:
-        _prune_tickets(now)
-        entry = _tickets.pop(ticket, None)
-    if not entry:
-        return None
-    user_key, expires = entry
-    if now >= expires:
-        return None
-    return user_key
-
-
-# ---- Apps Script client key: proves the caller is the one authorized Apps Script
-# deployment, not a copy-pasted duplicate. A copy of Code.gs's *text* does not carry
-# this over - Script Properties live per Apps Script project, so a duplicate has to be
-# deliberately configured with the real secret before it can touch order data.
-def require_client_key(request: Request):
-    # DB value (set from the admin dashboard) wins once someone rotates it there;
-    # the env var only matters before that first rotation.
-    expected = config.get(config.CLIENT_KEY_CONFIG_KEY) or os.environ.get("APPS_SCRIPT_CLIENT_KEY")
-    if not expected:
-        return  # not configured: leave order endpoints open (e.g. local dev)
-    got = request.headers.get("X-Client-Key", "")
-    if not hmac.compare_digest(got, expected):
-        raise HTTPException(401, "Invalid or missing client key")
 
 
 def require_roles(*roles):

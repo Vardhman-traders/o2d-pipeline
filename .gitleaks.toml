@@ -1,0 +1,7 @@
+title = "VT Traders"
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders in documented example files"
+paths = ['''\.env\.example$''', '''docker-compose\.yml$''']
