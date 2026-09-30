@@ -91,7 +91,7 @@ function stopTimer() { if (S.timer) { clearInterval(S.timer); S.timer = null; } 
 
 function signOut(message) {
   stopTimer();
-  S.token = null; S.user = null;
+  S.token = null; S.user = null; S.view = null;
   sessionStorage.removeItem('vt_token');
   showLogin(message);
 }
@@ -301,43 +301,66 @@ function openAppLink(url) {
   window.location.href = url;
 }
 
-const TAB_ICON = { dashboard: '📊', orders: '🧾', import: '⬆️', members: '👥', setup: '⚙️' };
 
-function topbar(links) {
+function topbar(onHome) {
+  const brand = h('div', { class: 'brand' }, h('div', { class: 'brand-mark', text: 'VT' }),
+    h('div', { class: 'brand-text' }, h('span', { class: 'name', text: 'Vardhman Traders' }), h('span', { class: 'tag', text: 'Sales & Operations Portal' })));
   return h('header', { class: 'topbar' },
-    h('div', { class: 'brand' }, h('div', { class: 'brand-mark', text: 'VT' }),
-      h('div', { class: 'brand-text' }, h('span', { class: 'name', text: 'Vardhman Traders' }), h('span', { class: 'tag', text: 'Sales & Operations Portal' }))),
-    ...links.map((l) => safeHttps(l.url) && h('button', { class: 'btn open-app', text: 'Open ' + l.name + ' ↗', onclick: () => openAppLink(l.url) })),
+    onHome ? h('button', { class: 'brand brand-btn', title: 'Back to home', 'aria-label': 'Back to home', onclick: onHome }, ...brand.childNodes) : brand,
+    onHome ? h('button', { class: 'btn', id: 'homeBtn', text: '⌂ Home', onclick: onHome }) : null,
     h('span', { class: 'who' }, S.user.display_name, h('span', { class: 'role-chip', text: S.user.role.replace('_', ' ') })),
     h('button', { class: 'btn', text: 'Change password', onclick: () => showChangePassword(false) }),
     h('button', { class: 'btn', text: 'Sign out', onclick: () => signOut() }));
 }
 
+// Admin area: a home screen of big tiles, then two modules, each with its own sub-tabs.
+const MODULES = {
+  dashboard: { title: 'Dashboard', icon: '📊', stateKey: 'dashTab', first: 'overview',
+    sections: [['overview', 'Dashboard', (p) => renderDashboard(p)], ['orders', 'All orders', (p) => renderOrders(p)]] },
+  setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab', first: 'members',
+    sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
+      ['reconcile', 'Reconciliation', (p) => renderReconcile(p)], ['lists', 'Dropdown values', (p) => renderLists(p)],
+      ['permissions', 'Permissions', (p) => renderPermissions(p)], ['apps', 'Apps', (p) => renderApps(p)]] },
+};
+
+function renderModule(body, key) {
+  const mod = MODULES[key];
+  if (!mod.sections.some(([id]) => id === S[mod.stateKey])) S[mod.stateKey] = mod.first;
+  const bar = h('div', { class: 'subtabs module-tabs', role: 'tablist' });
+  const inner = h('div');
+  const openInner = () => {
+    stopTimer(); hideTip();
+    // A fresh panel per visit: a slow response from a section you already left writes into a detached node.
+    const panel = h('div', { id: 'panel' });
+    inner.replaceChildren(panel);
+    mod.sections.find(([id]) => id === S[mod.stateKey])[2](panel);
+  };
+  const drawBar = () => bar.replaceChildren(...mod.sections.map(([id, label]) => h('button', {
+    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label,
+    onclick: () => { S[mod.stateKey] = id; drawBar(); openInner(); } })));
+  body.append(h('h1', { class: 'module-title', text: mod.icon + ' ' + mod.title }), bar, inner);
+  drawBar(); openInner();
+}
+
 async function showPortal() {
   let links = [];
   try { links = await api('/links'); } catch { /* shown as empty */ }
-  const isAdmin = S.user.role === 'admin';
   const body = h('main', { class: 'wrap' });
-  mount(topbar(isAdmin ? links : []), body);
-  if (!isAdmin) return renderHome(body, links);
+  if (S.user.role !== 'admin') { mount(topbar(null), body); return renderHome(body, links); }
 
-  const holder = h('div');
-  const tabs = [['dashboard', 'Dashboard'], ['orders', 'Orders'], ['import', 'Import'], ['members', 'Members'], ['setup', 'Setup']];
-  const bar = h('div', { class: 'tabs', role: 'tablist' });
+  const go = (view) => { S.view = view; draw(); };
   const draw = () => {
-    bar.replaceChildren(...tabs.map(([id, label]) => h('button', {
-      class: 'tab', role: 'tab', 'aria-selected': String(S.tab === id),
-      onclick: () => { S.tab = id; draw(); openTab(); } }, TAB_ICON[id] + ' ' + label)));
-  };
-  const openTab = () => {
     stopTimer(); hideTip();
-    // A fresh panel per visit: a slow response from a tab you already left writes into a detached node.
-    const panel = h('div', { id: 'panel' });
-    holder.replaceChildren(panel);
-    ({ dashboard: renderDashboard, orders: renderOrders, import: renderImport, members: renderMembers, setup: renderSetup })[S.tab](panel);
+    if (S.view !== 'dashboard' && S.view !== 'setup') S.view = 'home';
+    const main = h('main', { class: 'wrap' });
+    mount(topbar(S.view === 'home' ? null : () => go('home')), main);
+    if (S.view !== 'home') return renderModule(main, S.view);
+    renderHome(main, links, (linkTiles) => [
+      appTile(MODULES.dashboard.icon, 'Dashboard', 'Open', () => go('dashboard'), 'tileDashboard'),
+      ...linkTiles,
+      appTile(MODULES.setup.icon, 'Setup', 'Open', () => go('setup'), 'tileSetup')]);
   };
-  body.append(bar, holder);
-  draw(); openTab();
+  draw();
 }
 
 // Emoji chosen by keyword in the app's name, so a shop/godown/dispatch/receiving
@@ -348,43 +371,25 @@ function iconForApp(name) {
   if (n.includes('receiv')) return '📥';
   if (n.includes('godown') || n.includes('warehouse') || n.includes('stock')) return '📦';
   if (n.includes('shop')) return '🧾';
-  if (n.includes('order') || n.includes('track')) return '📋';
+  if (n.includes('o2d') || n.includes('sales') || n.includes('order') || n.includes('track')) return '📋';
   if (n.includes('report') || n.includes('dashboard')) return '📊';
   return '🔗';
 }
 
-function renderHome(body, links) {
-  const tiles = links.map((l) => {
+function appTile(icon, name, hint, onclick, id) {
+  return h('button', { class: 'app-tile', id, onclick },
+    h('span', { class: 'icon-circle', text: icon }), h('strong', { text: name }), h('span', { text: hint }));
+}
+function renderHome(body, links, extra) {
+  const linkTiles = links.map((l) => {
     const url = safeHttps(l.url);
-    return url && h('button', { class: 'app-tile', onclick: () => openAppLink(url) },
-      h('span', { class: 'icon-circle', text: iconForApp(l.name) }),
-      h('strong', { text: l.name }), h('span', { text: 'Open ↗' }));
+    return url && appTile(iconForApp(l.name), l.name, 'Open ↗', () => openAppLink(url));
   });
+  const tiles = extra ? extra(linkTiles) : linkTiles;
   body.append(h('div', { class: 'home-wrap' }, h('div', { class: 'home-inner' },
     h('h1', { text: 'Welcome, ' + S.user.display_name }),
-    h('p', { class: 'note', text: links.length ? 'Choose an app to continue' : 'No apps have been assigned to you yet. Please contact the administrator.' }),
+    h('p', { class: 'note', text: tiles.filter(Boolean).length ? 'Choose where to go' : 'No apps have been assigned to you yet. Please contact the administrator.' }),
     h('div', { class: 'apps' }, ...tiles))));
-}
-
-// ------------------------------------------------------------------ setup (apps + activity)
-async function renderSetup(panel) {
-  const sub = [['apps', 'Apps'], ['lists', 'Dropdown values'], ['permissions', 'Permissions'], ['activity', 'Activity log']];
-  const renderers = { apps: renderApps, lists: renderLists, permissions: renderPermissions, activity: renderActivity };
-  if (!S.setupTab) S.setupTab = 'apps';
-  const bar = h('div', { class: 'subtabs', role: 'tablist' });
-  const inner = h('div');
-  const drawBar = () => {
-    bar.replaceChildren(...sub.map(([id, label]) => h('button', {
-      class: 'subtab', role: 'tab', 'aria-selected': String(S.setupTab === id), text: label,
-      onclick: () => { S.setupTab = id; drawBar(); openInner(); } })));
-  };
-  const openInner = () => {
-    const p = h('div');
-    inner.replaceChildren(p);
-    renderers[S.setupTab](p);
-  };
-  panel.replaceChildren(bar, inner);
-  drawBar(); openInner();
 }
 
 // ------------------------------------------------------------------ charts
@@ -739,7 +744,7 @@ async function renderMembers(panel) {
       reload(); secretDialog('Member created', `Give ${v.display_name} the username “${v.username}” and this temporary password. They must change it at first sign-in.`, v.password); } });
 
   panel.replaceChildren(
-    h('div', { class: 'row', style: 'margin-bottom:14px' }, search, h('span', { class: 'grow' }), h('button', { class: 'btn', id: 'bulkMembersBtn', text: 'Add many (upload)', onclick: () => { S.tab = 'import'; S.importKind = 'users'; showPortal(); } }), h('button', { class: 'btn primary', text: '+ Add member', onclick: add })),
+    h('div', { class: 'row', style: 'margin-bottom:14px' }, search, h('span', { class: 'grow' }), h('button', { class: 'btn', id: 'bulkMembersBtn', text: 'Add many (upload)', onclick: () => { S.setupTab = 'import'; S.importKind = 'users'; showPortal(); } }), h('button', { class: 'btn primary', text: '+ Add member', onclick: add })),
     h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Name', 'Username', 'Role', 'Status'].map((t) => h('th', { text: t })), h('th', { class: 'num', text: 'Orders logged' }), h('th', { text: '' }))), rowsBody)),
     h('p', { class: 'note', style: 'margin-top:10px', text: 'Operating roles (shop, godown, dispatch, receiving) work in the order tracker. Cashier, accounts and cartage can view all orders only if switched on under Setup.' }));
@@ -900,17 +905,6 @@ async function renderOneList(container, k) {
 }
 
 // ------------------------------------------------------------------ activity
-async function renderActivity(panel) {
-  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let rows;
-  try { rows = await api('/admin/audit?limit=200'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  const detail = (d) => { if (!d) return ''; const t = JSON.stringify(d); return t.length > 140 ? t.slice(0, 137) + '…' : t; };
-  panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Every member, app and export action taken in this portal (latest 200).' }),
-    rows.length ? tableFor([{ head: 'When', get: (r) => fmtDateTime(r.at) }, { head: 'Admin', get: (r) => r.admin_username }, { head: 'Action', get: (r) => r.action },
-      { head: 'Target', get: (r) => r.target || '' }, { head: 'Details', get: (r) => detail(r.details) }], rows)
-      : h('div', { class: 'card empty', text: 'Nothing recorded yet.' }));
-}
 
 // ------------------------------------------------------------------ start
 document.addEventListener('visibilitychange', () => { if (document.hidden) hideTip(); });

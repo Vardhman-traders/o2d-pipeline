@@ -1,6 +1,7 @@
 """Browser test of the admin portal: filters + Excel export, bulk upload of orders (with an inline fix and an undo)
 and bulk member creation. Needs Playwright + Chromium; skipped when missing."""
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -65,6 +66,14 @@ def base_url(migrated_db_url):
     proc.wait(timeout=10)
 
 
+def _section(page, module, name):
+    """Home tile -> module -> sub-tab (the admin area is Home > Dashboard | Setup)."""
+    if page.locator("#homeBtn").count():
+        page.click("#homeBtn")
+    page.click("#tileDashboard" if module == "Dashboard" else "#tileSetup")
+    page.locator(".module-tabs .subtab", has_text=re.compile(rf"^{name}$")).click()
+
+
 def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
     expect = sync_api.expect
     u = uuid.uuid4().hex[:5].upper()
@@ -89,7 +98,7 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         page.click("button[type=submit]")
 
         # ---- bulk upload: the "Phone" channel row is rejected, fixed in place, re-checked and imported
-        page.locator(".tabs > .tab", has_text="Import").click()
+        _section(page, "Setup", "Import")
         page.set_input_files("#importFile", str(csv))
         expect(page.locator("#errorTable")).to_contain_text("'Phone' not found", timeout=8000)
         page.locator("#errorTable input[aria-label^='Order Via']").fill("Walk-in")
@@ -100,7 +109,7 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         expect(page.locator("#batchTable")).to_contain_text("orders.csv", timeout=8000)
 
         # ---- orders tab: filter by text, save the filter, reload it, export
-        page.locator(".tabs > .tab", has_text="Orders").click()
+        _section(page, "Dashboard", "All orders")
         page.fill("#f_q", f"UI-{u}")
         page.click("#applyBtn")
         expect(page.locator("#ordersTable")).to_contain_text(f"UI-{u}-1", timeout=8000)
@@ -121,14 +130,14 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         assert dl.value.suggested_filename.endswith(".xlsx")
 
         # ---- undo the order import from the Import tab
-        page.locator(".tabs > .tab", has_text="Import").click()
+        _section(page, "Setup", "Import")
         page.locator("#batchTable tbody tr", has_text="orders.csv").get_by_role("button", name="Undo").click()
         page.locator("dialog").get_by_role("button", name="Undo import").click()
         undone = page.locator("#batchTable tbody tr", has_text="orders.csv").get_by_text("Undone")
         expect(undone).to_be_visible(timeout=8000)
 
         # ---- bulk members: passwords are shown once
-        page.locator(".tabs > .tab", has_text="Members").click()
+        _section(page, "Setup", "Members")
         page.click("#bulkMembersBtn")
         page.set_input_files("#importFile", str(members))
         expect(page.locator("#importBtn")).to_have_text("Import 1 members", timeout=8000)
@@ -136,4 +145,96 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         expect(page.locator("#credTable")).to_contain_text(f"ui.person.{u.lower()}", timeout=8000)
         browser.close()
 
+    assert not errors, errors
+
+
+def test_admin_cleans_up_duplicate_names(base_url, migrated_db_url):
+    expect = sync_api.expect
+    u = uuid.uuid4().hex[:4].upper()
+    conn = psycopg2.connect(migrated_db_url)
+    cur = conn.cursor()
+    keys = {}
+    for name in (f"Suresh{u}", f"Sures{u}", f"Bablu{u}"):
+        cur.execute("INSERT INTO dim_person (full_name, person_role) VALUES (%s, 'delivery') "
+                    "RETURNING person_key", (name,))
+        keys[name] = cur.fetchone()[0]
+    cur.execute("INSERT INTO fact_orders (sl_no, dc_inv_no, order_received_date_key, delivered_by_person_key) "
+                "SELECT COALESCE(max(sl_no), 0) + 1, %s, %s, %s FROM fact_orders",
+                (f"CL-{u}", int(date.today().strftime("%Y%m%d")), keys[f"Sures{u}"]))
+    conn.commit()
+    errors: list[str] = []
+
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "CSP" in m.text else None)
+        page.goto(base_url)
+        page.fill("input[autocomplete=username]", "ui_admin")
+        page.fill("input[autocomplete=current-password]", PW)
+        page.click("button[type=submit]")
+        _section(page, "Setup", "Reconciliation")
+
+        # the pair is flagged as a possible duplicate; merge it, keeping the correct spelling
+        pair = page.locator("#rc_dups tr", has_text=f"Suresh{u}")
+        expect(pair).to_have_count(1, timeout=8000)
+        pair.get_by_role("button", name="Review & merge").click()
+        page.select_option("#rc_keep", label=f"Suresh{u} — 0 orders")
+        expect(page.locator("#rc_preview")).to_contain_text("1 order(s) will be moved", timeout=8000)
+        page.click("#rc_confirm")
+        expect(page.locator("#rc_table tbody tr", has_text=f"Sures{u}")).to_have_count(0, timeout=8000)
+        expect(page.locator("#rc_table tbody tr", has_text=f"Suresh{u}")).to_have_count(1)
+        expect(page.locator("#rc_table tbody tr", has_text=f"Suresh{u}")).to_contain_text("1")
+
+        # rename a value in place
+        page.locator("#rc_table tbody tr", has_text=f"Bablu{u}").get_by_role("button", name="Rename").click()
+        page.fill("dialog input[type=text]", f"Babloo{u}")
+        page.locator("dialog button[type=submit]").click()
+        expect(page.locator("#rc_table tbody tr", has_text=f"Babloo{u}")).to_have_count(1, timeout=8000)
+        browser.close()
+
+    cur.execute("SELECT count(*) FROM dim_person WHERE full_name = %s", (f"Sures{u}",))
+    assert cur.fetchone()[0] == 0
+    cur.execute("SELECT p.full_name FROM fact_orders o JOIN dim_person p ON p.person_key = o.delivered_by_person_key "
+                "WHERE o.dc_inv_no = %s", (f"CL-{u}",))
+    assert cur.fetchone()[0] == f"Suresh{u}"
+    conn.close()
+    assert not errors, errors
+
+
+def test_admin_home_screen_and_navigation(base_url):
+    expect = sync_api.expect
+    errors: list[str] = []
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(base_url)
+        page.fill("input[autocomplete=username]", "ui_admin")
+        page.fill("input[autocomplete=current-password]", PW)
+        page.click("button[type=submit]")
+
+        # home: big tiles for Dashboard, the O2D Portal and Setup; nothing crowding the top bar
+        expect(page.locator("#tileDashboard")).to_be_visible(timeout=8000)
+        expect(page.locator(".app-tile", has_text="O2D Portal")).to_have_count(1)
+        expect(page.locator("#tileSetup")).to_be_visible()
+        expect(page.locator(".topbar .open-app")).to_have_count(0)
+        expect(page.locator(".topbar")).not_to_contain_text("Open Sales Portal")
+        assert page.locator(".app-tile").first.bounding_box()["width"] >= 180
+
+        # Dashboard module: the overview and the full order list
+        page.click("#tileDashboard")
+        expect(page.locator(".module-tabs .subtab")).to_have_text(["Dashboard", "All orders"])
+        page.locator(".module-tabs .subtab", has_text="All orders").click()
+        expect(page.locator("#orderCount")).to_be_visible(timeout=8000)
+
+        # Setup module: members, import, reconciliation and the rest; no activity log
+        page.click("#homeBtn")
+        page.click("#tileSetup")
+        expect(page.locator(".module-tabs .subtab")).to_have_text(
+            ["Members", "Import", "Reconciliation", "Dropdown values", "Permissions", "Apps"])
+        page.locator(".module-tabs .subtab", has_text="Reconciliation").click()
+        expect(page.locator("#rc_table")).to_be_visible(timeout=8000)
+        assert "Activity log" not in page.content()
+        browser.close()
     assert not errors, errors

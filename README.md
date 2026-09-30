@@ -95,3 +95,5 @@ Set `DATABASE_URL` (use the *Internal* URL there) and `JWT_SECRET` in the servic
 | GET | `/admin/bulk/{orders\|users}/template.csv` | upload template with EXAMPLE rows |
 | POST | `/admin/bulk/{entity}/validate` `/revalidate` `/confirm` | check a file, re-check fixed rows, import (all-or-nothing) |
 | GET / POST | `/admin/bulk/batches`, `/admin/bulk/batches/{id}/undo` | import history and undo |
+| GET | `/admin/reconcile`, `/admin/reconcile/{kind}` | distinct values per master list (A-Z, with order counts) and likely duplicates |
+| POST | `/admin/reconcile/{kind}/rename` `/merge` | rename in place, or merge (preview with `confirm=false`, then `confirm=true`); `kind` = channel, submission_type, delivery_status, payment_status, person |

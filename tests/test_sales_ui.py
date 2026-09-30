@@ -1,6 +1,7 @@
 """Browser test of the native O2D screens (app/static/sales): one order travels through every role's real page.
 Needs Playwright + Chromium (`pip install playwright && playwright install chromium`); skipped when missing."""
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -93,7 +94,8 @@ def test_one_order_through_every_role_screen(base_url):
 
         shop = page_for("shop")
         shop.wait_for_selector("#appScreen", state="visible")
-        expect(shop.locator("#shop_orderVia option")).to_have_count(4, timeout=8000)
+        # other tests share this database and add their own channels, so wait for the ones we need, not an exact count
+        expect(shop.locator("#shop_orderVia option", has_text=re.compile(r"^Call$"))).to_have_count(1, timeout=8000)
         shop.select_option("#shop_orderVia", label="Call")
         shop.select_option("#shop_typeOfSubmission", label="Challan")
         shop.fill("#shop_dcNo", dc)

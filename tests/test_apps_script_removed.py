@@ -62,6 +62,7 @@ def test_sales_portal_link_is_seeded_for_operating_roles(client, db_conn):
     shop = login(client, db_conn, "shop")
     links = client.get("/links", headers=shop).json()
     assert "/sales/" in [link["url"] for link in links]
+    assert "O2D Portal" in [link["name"] for link in links]              # migration 010 renamed the built-in link
     cashier = login(client, db_conn, "cashier")
     assert "/sales/" not in [link["url"] for link in client.get("/links", headers=cashier).json()]
 

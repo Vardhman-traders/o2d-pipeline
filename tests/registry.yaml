@@ -120,3 +120,17 @@ entries:
     what: Admin portal in a real browser - bulk upload with inline fix, filters, saved filter, export, undo, bulk members
     speed: slow
     tests: [tests/test_admin_ui.py::test_admin_filters_bulk_upload_and_undo]
+  - id: ADMIN-RECON-1
+    what: Master-data reconciliation - A-Z values with usage, duplicate suggestions, rename, merge with preview, protected names, audit
+    speed: fast
+    tests:
+      - tests/test_reconcile.py::test_admin_only
+      - tests/test_reconcile.py::test_values_are_alphabetical_with_usage_and_duplicates_are_suggested
+      - tests/test_reconcile.py::test_rename_reaches_every_order_and_refuses_clashes
+      - tests/test_reconcile.py::test_protected_names_cannot_be_renamed_or_merged_away
+      - tests/test_reconcile.py::test_merge_preview_then_confirm_moves_orders_and_logs
+      - tests/test_reconcile.py::test_merging_a_variant_into_cancelled_marks_those_orders_cancelled
+  - id: ADMIN-RECON-2
+    what: Clean up names screen in a real browser - duplicate flagged, merged, renamed
+    speed: slow
+    tests: [tests/test_admin_ui.py::test_admin_cleans_up_duplicate_names]

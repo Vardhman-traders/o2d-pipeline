@@ -57,3 +57,30 @@ validation and insert), `app/static/portal-tools.js` (Orders and Import screens)
 transaction under an `import_batch` id (migration 009), so it can be undone; undo is refused once an imported
 order was edited or an imported member has signed in. To add another uploadable thing, add an entry to
 `bulk_entities.ENTITIES` with its columns, `validate` and `insert`.
+
+## Master-data reconciliation
+`app/reconcile.py` and the Setup > "Clean up names" screen. Orders point at dimension rows, so renames and merges apply
+everywhere at once. A merge repoints every foreign key to the merged-away row (found from the catalog, so new
+dashboards that reference the same list are covered automatically). Values the order logic matches by name
+(delivery status Shop/Cancelled, submission type Cancelled) are protected. To add another list, add an entry to `KINDS`.
+
+## Try the app locally before pushing
+One command builds a throwaway local database with the same schema, fills it with made-up demo data, and runs the app:
+```powershell
+python scripts/run_local.py --pg-password YOUR_POSTGRES_PASSWORD     # PostgreSQL installed on your PC
+python scripts/run_local.py                                          # or, with Docker Desktop
+```
+Open http://localhost:8000. Sign in as `admin` / `Local-Admin-123`, or as a demo user for any role
+(`demo_shop`, `demo_godown`, `demo_godown_dispatch`, `demo_shop_dispatch`, `demo_receiving`, `demo_cashier`,
+password `Demo-Pass-123`). The demo data is about 160 orders in every stage, plus a few deliberate spelling mix-ups
+(for example Suresh/Sures) so the Reconciliation screen has something to fix. Nothing in it is real.
+
+Other options (add the same `--pg-password` if you use local PostgreSQL):
+```powershell
+python scripts/run_local.py --test       # tests + lint; ends with "Safe to push" when green
+python scripts/run_local.py --reset      # wipe the local database, rebuild it and re-add the demo data
+python scripts/run_local.py --no-demo    # schema and admin only
+python scripts/seed_demo.py              # add demo data by hand to an empty local database
+```
+The script refuses to run against anything but a local database and ignores `DATABASE_URL` in `.env`, so it can
+never touch Render. Edits to `app/static` show on a browser refresh; Python changes reload automatically.

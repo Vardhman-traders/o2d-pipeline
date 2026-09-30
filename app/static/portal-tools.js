@@ -128,7 +128,7 @@ async function renderOrders(panel) {
   drawSaved();
   const exportBtn = h('button', { class: 'btn', id: 'exportBtn', text: 'Export to Excel', onclick: () => exportXlsx(exportBtn) });
   panel.replaceChildren(
-    h('div', { class: 'card filters' },
+    h('div', { class: 'card order-filters' },
       h('div', { class: 'filter-grid' },
         field('Search', inputs.q), field('Order date from', inputs.date_from), field('Order date to', inputs.date_to), field('Cancelled', inputs.cancelled),
         ...NUM_FILTERS.map(([k, l]) => field(l, inputs[k]))),
@@ -285,4 +285,115 @@ async function loadHistory(box, restart) {
       h('td', { text: b.batch_id }), h('td', { text: b.entity === 'orders' ? 'Orders' : 'Members' }), h('td', { text: b.filename || '' }),
       h('td', { class: 'num', text: b.row_count }), h('td', { text: b.created_by || '' }), h('td', { text: fmtDateTime(b.created_at) }),
       h('td', {}, b.undone_at ? h('span', { class: 'pill off', text: 'Undone' }) : h('button', { class: 'btn small danger', text: 'Undo', onclick: () => undo(b) }))))))));
+}
+
+// ------------------------------------------------------------------ Setup > Clean up names (reconciliation)
+async function renderReconcile(panel, kind) {
+  kind = kind || S.reconcileKind || 'person';
+  S.reconcileKind = kind;
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let overview, data;
+  try { [overview, data] = await Promise.all([api('/admin/reconcile'), api('/admin/reconcile/' + kind)]); }
+  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const reload = () => renderReconcile(panel, kind);
+  const roleName = (r) => (data.role_labels && data.role_labels[r]) || r || '';
+  const byKey = new Map(data.values.map((v) => [v.key, v]));
+  const picked = new Set();
+  let letter = '';
+
+  const kinds = h('div', { class: 'subtabs', role: 'tablist' }, overview.map((o) => h('button', {
+    class: 'subtab', role: 'tab', 'aria-selected': String(o.kind === kind),
+    text: `${o.label} (${o.distinct})` + (o.possible_duplicates ? ` · ${o.possible_duplicates} to check` : ''),
+    onclick: () => renderReconcile(panel, o.kind) })));
+
+  const search = h('input', { type: 'text', id: 'rc_search', placeholder: 'Search values', 'aria-label': 'Search values', style: 'max-width:260px' });
+  const mergeBtn = h('button', { class: 'btn primary', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
+  const letters = h('div', { class: 'letters' });
+  const tbody = h('tbody');
+  const dupBox = h('div');
+
+  const label = (v) => v.name + (v.role ? ` (${roleName(v.role)})` : '');
+
+  function openMerge(keys) {
+    const items = keys.map((k) => byKey.get(k)).filter(Boolean);
+    if (items.length < 2) return;
+    const locked = items.filter((i) => i.protected);
+    if (locked.length > 1) return alert('Two built-in values cannot be merged into each other.');
+    const roles = new Set(items.map((i) => i.role));
+    if (roles.size > 1) return alert('People can only be merged within the same role.');
+    const keep = h('select', { id: 'rc_keep', 'aria-label': 'Value to keep' }, items.map((i) => h('option', { value: String(i.key), text: `${i.name} — ${fmtInt(i.orders)} orders`, selected: locked.length ? i.protected : false })));
+    if (locked.length) keep.disabled = true;
+    const info = h('p', { class: 'note', id: 'rc_preview', text: '' });
+    const err = h('div', { class: 'msg error' });
+    const ok = h('button', { class: 'btn primary', id: 'rc_confirm', text: 'Merge' });
+    const cancel = h('button', { class: 'btn', text: 'Cancel' });
+    const dlg = dialog('Merge ' + items.length + ' values', [
+      h('p', { text: 'Choose the correct spelling to keep. All orders using the others are moved to it, and the others are then removed everywhere. This cannot be undone with one click.' }),
+      h('div', { class: 'field' }, h('label', {}, 'Keep this value'), keep), info, err], [cancel, ok]);
+    cancel.addEventListener('click', () => dlg.close());
+    const payload = (confirm) => ({ target_key: Number(keep.value), source_keys: items.map((i) => i.key).filter((k) => k !== Number(keep.value)), confirm });
+    const refresh = async () => {
+      err.textContent = ''; ok.disabled = true;
+      try {
+        const p = await api(`/admin/reconcile/${kind}/merge`, { method: 'POST', body: payload(false) });
+        info.textContent = `${fmtInt(p.orders_moved)} order(s) will be moved to “${p.target}”, and “${p.merging.join('”, “')}” will be removed.`;
+        ok.disabled = false;
+      } catch (ex) { err.textContent = ex.message; }
+    };
+    keep.addEventListener('change', refresh);
+    ok.addEventListener('click', async () => {
+      ok.disabled = true;
+      try { await api(`/admin/reconcile/${kind}/merge`, { method: 'POST', body: payload(true) }); dlg.close(); reload(); }
+      catch (ex) { err.textContent = ex.message; ok.disabled = false; }
+    });
+    refresh();
+  }
+
+  function openRename(v) {
+    formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
+      fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
+        hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }],
+      onSubmit: async (vals) => { await api(`/admin/reconcile/${kind}/rename`, { method: 'POST', body: { key: v.key, name: vals.name } }); reload(); } });
+  }
+
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const shown = data.values.filter((v) => (!q || v.name.toLowerCase().includes(q)) && (!letter || v.name.charAt(0).toUpperCase() === letter));
+    const initials = [...new Set(data.values.map((v) => v.name.charAt(0).toUpperCase()))].sort();
+    letters.replaceChildren(h('button', { class: 'chip', 'aria-pressed': String(!letter), text: 'All', onclick: () => { letter = ''; draw(); } }),
+      ...initials.map((c) => h('button', { class: 'chip', 'aria-pressed': String(letter === c), text: c, onclick: () => { letter = c; draw(); } })));
+    const rows = [];
+    let last = '';
+    for (const v of shown) {
+      const c = v.name.charAt(0).toUpperCase();
+      if (c !== last) { last = c; rows.push(h('tr', { class: 'letter-row' }, h('td', { colspan: data.role_labels ? 5 : 4, text: c }))); }
+      const box = h('input', { type: 'checkbox', 'aria-label': 'Select ' + v.name, checked: picked.has(v.key) });
+      box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; });
+      rows.push(h('tr', { 'data-key': v.key },
+        h('td', {}, box), h('td', {}, v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null),
+        data.role_labels ? h('td', { text: roleName(v.role) }) : null,
+        h('td', { class: 'num', text: fmtInt(v.orders) }),
+        h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('button', { class: 'btn small', text: 'Rename', onclick: () => openRename(v) }))));
+    }
+    tbody.replaceChildren(...rows);
+    if (!shown.length) tbody.replaceChildren(h('tr', {}, h('td', { colspan: 5, class: 'empty', text: 'No values match.' })));
+  };
+  search.addEventListener('input', draw);
+
+  const dups = data.suggestions;
+  dupBox.replaceChildren(dups.length ? h('div', { class: 'card', style: 'margin-bottom:16px' },
+    h('h3', { text: `Possible duplicates (${dups.length})` }),
+    h('p', { class: 'note', text: 'These look like the same thing spelled differently. Review each pair, and merge it if it really is the same.' }),
+    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.map((s) => h('tr', {},
+      h('td', { text: s.names[0] }), h('td', { text: '≈' }), h('td', { text: s.names[1] }),
+      data.role_labels ? h('td', { text: roleName(s.role) }) : null,
+      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(s.keys) })))))))) : h('p', { class: 'note', text: 'No likely duplicates found in this list.' }));
+
+  panel.replaceChildren(kinds, dupBox,
+    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn),
+    letters,
+    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), data.role_labels ? h('th', { text: 'Role' }) : null, h('th', { class: 'num', text: 'Orders' }), h('th', { text: '' }))), tbody)),
+    h('p', { class: 'note', style: 'margin-top:10px', text: 'Every change is saved to the database at once, shows up on all order screens and dashboards, and is kept in the audit trail.' }));
+  draw();
 }

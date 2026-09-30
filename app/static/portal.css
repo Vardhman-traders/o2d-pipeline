@@ -308,7 +308,7 @@ tbody tr:hover { background: var(--wash); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* ---- admin tools: orders filters + bulk import ---- */
-.filters { margin-bottom: 16px; }
+.order-filters { margin-bottom: 16px; }
 .filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0 12px; }
 .fgroups { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
 .fgroup { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface-2); }
@@ -321,3 +321,15 @@ tbody tr:hover { background: var(--wash); }
 #errorTable input { min-width: 120px; padding: 4px 6px; font-size: 12.5px; }
 .err-text { color: var(--bad); min-width: 220px; font-size: 12.5px; }
 .secret-cell { font-family: ui-monospace, monospace; font-weight: 700; }
+.letters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; font-weight: 650; cursor: pointer; color: inherit; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.letter-row td { background: var(--wash); font-weight: 800; color: var(--accent); padding: 4px 12px; }
+
+/* ---------- admin home + modules ---------- */
+.apps { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.app-tile { aspect-ratio: 1 / 1; justify-content: center; }
+.app-tile .icon-circle { width: 84px; height: 84px; border-radius: 22px; font-size: 40px; }
+.app-tile strong { font-size: 18px; }
+.brand-btn { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.module-title { font-size: 22px; font-weight: 750; margin: 4px 0 14px; }

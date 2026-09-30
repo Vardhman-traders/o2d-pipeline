@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import admin, admin_tools, auth, config, db, o2d_screens, roles
+from . import admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles
 
 
 @asynccontextmanager
@@ -424,6 +424,7 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
 app.include_router(o2d_screens.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)
+app.include_router(reconcile.router)
 app.include_router(admin.public_router)
 # Must be last: serves the login/portal pages for any path not matched above.
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="portal")
