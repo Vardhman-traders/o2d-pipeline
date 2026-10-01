@@ -90,8 +90,20 @@ def test_no_access_request_approval_and_order_timeline(base_url, migrated_db_url
         expect(modal).to_contain_text(dc)
         modal.get_by_role("button", name="Close").click()
 
+        # ---- edit then delete: a plain-words summary appears at the top of the page
+        row.get_by_role("button", name="Edit").click()
+        boss.locator("dialog .field", has_text="Remarks").locator("input").fill("checked by test")
+        boss.locator("dialog button[type=submit]").click()
+        expect(boss.locator("#actionSummary")).to_contain_text("was updated", timeout=8000)
+        expect(boss.locator("#actionSummary")).to_contain_text("Remarks: empty → checked by test")
+        boss.locator("#ordersTable tbody tr", has_text=dc).get_by_role("button", name="Delete").click()
+        boss.locator("dialog").get_by_role("button", name="Delete").click()
+        expect(boss.locator("#actionSummary")).to_contain_text("was deleted", timeout=8000)
+        expect(boss.locator("#ordersTable tbody tr")).to_have_count(0, timeout=8000)
+
         # ---- one ribbon height on the portal and on the O2D page, and the Back button never wraps
         boss.click("#homeBtn")
+        boss.wait_for_selector("#tileO2d", state="visible", timeout=8000)
         portal_h = boss.locator(".topbar").bounding_box()["height"]
         boss.click("#tileO2d")
         boss.wait_for_selector("#backToPortalBtn", state="visible", timeout=8000)

@@ -354,9 +354,13 @@ function renderModule(body, key) {
     class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'requests' && S.pendingRequests ? ` (${S.pendingRequests})` : ''),
     onclick: () => { S[mod.stateKey] = id; drawBar(); openInner(); } })));
   S.redrawModuleBar = drawBar;
+  document.documentElement.style.setProperty('--filters-h', '0px'); // only the orders list stacks filters under the tabs
   // Dashboard's tabs already say where you are, so its big title is dropped (kept for Setup).
+  const head = h('div', { class: 'module-head' }, bar, actions);
   body.append(mod.hideTitle ? h('h1', { class: 'sr-only', text: mod.title }) : h('h1', { class: 'module-title', text: mod.icon + ' ' + mod.title }),
-    h('div', { class: 'module-head' }, bar, actions), inner);
+    head, inner);
+  trackSticky(head, '--head-h');
+  trackSticky(document.querySelector('.topbar'), '--topbar-h');
   drawBar(); openInner();
 }
 
@@ -592,16 +596,20 @@ function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210, onClick,
 // A compact "Label (n)" button that opens a checkbox list with a search box, instead of a long
 // always-open checkbox list. `selected` is a Set the caller owns; onChange fires after every toggle.
 function multiSelect(label, options, selected, onChange) {
-  const btn = h('button', { type: 'button', class: 'btn multiselect-btn' },
+  const btn = h('button', { type: 'button', class: 'btn multiselect-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' },
     h('span', { class: 'ms-label', text: label }), h('span', { class: 'ms-count' }), h('span', { class: 'ms-caret', 'aria-hidden': 'true', text: '▾' }));
   const search = h('input', { type: 'text', placeholder: 'Search…', class: 'ms-search', 'aria-label': `Search ${label}` });
   const list = h('div', { class: 'ms-list' });
   const panel = h('div', { class: 'ms-panel' }, options.length > 8 ? search : null, list);
   const wrap = h('div', { class: 'multiselect' }, btn, panel);
+  const setOpen = (open) => { wrap.classList.toggle('open', open); btn.setAttribute('aria-expanded', String(open)); };
 
+  // The button shows what is chosen ("Stage: Closed", or "Stage: 3 selected"), so an active filter is visible at a glance.
   const refresh = () => {
-    btn.querySelector('.ms-count').textContent = selected.size ? ` (${selected.size})` : '';
-    btn.classList.toggle('active', selected.size > 0);
+    const n = selected.size;
+    btn.querySelector('.ms-label').textContent = n ? label + ':' : label;
+    btn.querySelector('.ms-count').textContent = !n ? '' : n === 1 ? ' ' + [...selected][0] : ` ${n} selected`;
+    btn.classList.toggle('active', n > 0);
   };
   const draw = (q) => {
     const needle = (q || '').trim().toLowerCase();
@@ -610,18 +618,29 @@ function multiSelect(label, options, selected, onChange) {
       box.addEventListener('change', () => {
         if (box.checked) selected.add(v); else selected.delete(v);
         refresh(); onChange();
+        setOpen(false); // one pick = one filter applied; the list gets out of the way
       });
       return h('label', { class: 'check ms-item' }, box, v);
     }));
     if (!options.length) list.replaceChildren(h('p', { class: 'note', text: 'No values yet.' }));
+    if (selected.size) list.prepend(h('button', { type: 'button', class: 'linklike ms-clear', text: 'Clear selection',
+      onclick: () => { selected.clear(); refresh(); draw(search.value); onChange(); setOpen(false); } }));
   };
   search.addEventListener('input', () => draw(search.value));
   draw('');
   refresh();
 
-  btn.addEventListener('click', (e) => { e.stopPropagation(); const open = wrap.classList.toggle('open'); if (open) search.focus(); });
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !wrap.classList.contains('open');
+    document.querySelectorAll('.multiselect.open').forEach((m) => { if (m !== wrap) m.classList.remove('open'); }); // never two lists at once
+    if (open) draw(search.value);
+    setOpen(open);
+    if (open) search.focus();
+  });
   panel.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => wrap.classList.remove('open'));
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { setOpen(false); btn.focus(); } });
+  document.addEventListener('click', () => setOpen(false));
   wrap.refresh = refresh;
   return wrap;
 }

@@ -117,6 +117,33 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         channel_filter.locator("button.multiselect-btn").click()
         channel_filter.get_by_label("Call").check()
         expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
+        # the dropdown closes by itself after a pick and the button shows the choice
+        expect(channel_filter.locator(".ms-panel")).to_be_hidden()
+        expect(channel_filter.locator("button.multiselect-btn")).to_contain_text("Call")
+        # Find button filters the table; digits-only exact; Clear brings the rest back
+        page.fill("#f_sl", f"UI-{u}-2")
+        page.click("#f_find")
+        expect(page.locator("#ordersTable tbody tr")).to_have_count(0, timeout=8000)  # channel=Call still set
+        channel_filter.locator("button.multiselect-btn").click()
+        channel_filter.get_by_label("Call").uncheck()
+        expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
+        page.click("#f_clearfind")
+        # header sorting: click once = sorted, click again = reversed
+        sort_btn = page.locator("#ordersTable thead .sort-btn[data-sort=channel]")
+        sort_btn.click()
+        expect(sort_btn.locator(".sort-arrow")).to_have_text("▲", timeout=8000)
+        sort_btn.click()
+        expect(sort_btn.locator(".sort-arrow")).to_have_text("▼", timeout=8000)
+        # sticky: after scrolling, the filter panel and the table header stay in view
+        page.fill("#f_sl", f"UI-{u}")
+        page.click("#f_find")
+        page.set_viewport_size({"width": 1280, "height": 380})   # short window so the page must scroll
+        page.evaluate("window.scrollTo(0, 100000)")
+        assert page.evaluate("scrollY") > 0
+        assert 100 < page.locator("#orderFilters").bounding_box()["y"] < 140  # pinned under the tab row
+        head_y = page.locator("#ordersTable thead th").first.bounding_box()["y"]
+        assert head_y < 330, head_y  # header pinned under the filters
+        page.set_viewport_size({"width": 1280, "height": 900})
         with page.expect_download() as dl:
             page.click("#exportBtn")
         assert dl.value.suggested_filename.endswith(".xlsx")

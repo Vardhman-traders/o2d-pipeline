@@ -24,7 +24,7 @@ NUMBERS = {"min_amount": ("v.amount_received", ">="), "max_amount": ("v.amount_r
            "min_cartage": ("v.cartage", ">="), "max_cartage": ("v.cartage", "<="),
            "min_hours": ("v.hours_to_deliver", ">="), "max_hours": ("v.hours_to_deliver", "<=")}
 SORTS = {"sl_no": "v.sl_no", "order_date": "v.order_date", "dc_inv_no": "v.dc_inv_no", "stage": "v.stage",
-         "delivery_status": "v.delivery_status", "payment_status": "v.payment_status",
+         "delivery_status": "v.delivery_status", "payment_status": "v.payment_status", "channel": "v.channel",
          "amount_received": "v.amount_received", "cartage": "v.cartage", "hours_to_deliver": "v.hours_to_deliver"}
 FILTER_KEYS = ({"date_from", "date_to", "q", "sl_no", "cancelled", "include_archived", "batch_id"}
                | set(MULTI) | set(NUMBERS))

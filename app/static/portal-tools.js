@@ -33,9 +33,32 @@ function openOrderEdit(row, options, onSaved) {
     ],
     onSubmit: async (v) => {
       await api(`/o2d/orders/${row.sl_no}/admin?archived=${row.archived ? 'true' : 'false'}`, { method: 'PUT', body: v });
-      onSaved();
+      onSaved(editSummary(row, v));
     },
   });
+}
+
+// [form field, order-list column, label]: used to say in plain words what an edit changed.
+const EDIT_FIELDS = [['orderRcvdDate', 'order_date', 'Order date'], ['dcNo', 'dc_inv_no', 'DC / Inv no'],
+  ['orderVia', 'channel', 'Order via'], ['typeOfSubmission', 'submission_type', 'Submission type'],
+  ['deliveryStatus', 'delivery_status', 'Delivery status'], ['paymentStatus', 'payment_status', 'Payment status'],
+  ['readyByWhom', 'ready_by', 'Ready by'], ['colourMakingBy', 'colour_making_by', 'Colour making by'],
+  ['deliveredByWhom', 'delivered_by', 'Delivered by'], ['amountReceived', 'amount_received', 'Amount received'],
+  ['cartage', 'cartage', 'Cartage'], ['shippingLocation', 'shipping_location', 'Address'],
+  ['detailedRemarks', 'detailed_remarks', 'Remarks']];
+
+function editSummary(row, v) {
+  const changes = [];
+  for (const [form, col, label] of EDIT_FIELDS) {
+    if (v[form] === '' && ['orderVia', 'typeOfSubmission', 'deliveryStatus', 'paymentStatus', 'readyByWhom', 'colourMakingBy', 'deliveredByWhom'].includes(form)) continue; // "no change"
+    const before = row[col] == null ? '' : String(row[col]);
+    const after = v[form] == null ? '' : String(v[form]);
+    const numeric = form === 'amountReceived' || form === 'cartage';
+    if (numeric ? Number(before || 0) === Number(after || 0) : before === after) continue;
+    changes.push(`${label}: ${before || 'empty'} → ${after || 'empty'}`);
+  }
+  return { kind: 'edit', title: `Order ${row.dc_inv_no || row.sl_no} (Sl ${row.sl_no}) was updated`,
+    lines: changes.length ? changes : ['You saved it, but no values were different.'] };
 }
 
 async function deleteOrder(row, onDeleted) {
@@ -43,7 +66,9 @@ async function deleteOrder(row, onDeleted) {
       'This removes it from the database entirely - not the same as cancelling. It cannot be undone.', 'Delete', true))) return;
   try {
     await api(`/orders/${row.sl_no}?archived=${row.archived ? 'true' : 'false'}`, { method: 'DELETE' });
-    onDeleted();
+    onDeleted({ kind: 'delete', title: `Order ${row.dc_inv_no || row.sl_no} (Sl ${row.sl_no}) was deleted`,
+      lines: [`Order date: ${fmtDate(row.order_date)} ${String(row.order_date).slice(0, 4)}`, `Stage when deleted: ${row.stage}`,
+        'It is permanently removed from the database. A record of the deletion is kept in the audit log.'] });
   } catch (ex) { alert(ex.message); }
 }
 
@@ -72,6 +97,14 @@ async function downloadFile(path, fallbackName) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
+// Keeps a CSS variable equal to an element's height, so sticky parts can stack under each other.
+function trackSticky(el, varName) {
+  const root = document.documentElement;
+  const set = () => root.style.setProperty(varName, (el.isConnected ? el.offsetHeight : 0) + 'px');
+  if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(el);
+  set();
+}
+
 // ------------------------------------------------------------------ Orders
 async function renderOrders(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
@@ -79,7 +112,7 @@ async function renderOrders(panel) {
   try { options = await api('/admin/orders/filter-options'); }
   catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
 
-  const st = { filter: {}, sort: 'order_date', dir: 'desc', offset: 0, limit: 50 };
+  const st = { filter: {}, sort: 'order_date', dir: 'desc', offset: 0, limit: 50, seq: 0 };
   const inputs = {};
   const results = h('div');
 
@@ -112,13 +145,30 @@ async function renderOrders(panel) {
   };
 
   const run = () => { st.filter = collect(); st.offset = 0; load(); };
+
+  // What was just done (an edit or a delete), kept at the top of the page until dismissed.
+  const notice = h('div', { id: 'actionSummary', role: 'status', 'aria-live': 'polite' });
+  const showNotice = (n) => {
+    if (!n) return;
+    notice.replaceChildren(h('div', { class: 'action-summary ' + n.kind },
+      h('button', { class: 'linklike dismiss', 'aria-label': 'Dismiss', text: '✕', onclick: () => notice.replaceChildren() }),
+      h('strong', { text: (n.kind === 'delete' ? '🗑 ' : '✔ ') + n.title }),
+      h('ul', {}, n.lines.map((l) => h('li', { text: l }))),
+      h('div', { class: 'note', text: 'Done by ' + S.user.display_name + ' at ' + fmtExact(new Date().toISOString()) + ' IST' })));
+    notice.scrollIntoView({ block: 'nearest' });
+  };
+
   const load = async () => {
+    const seq = ++st.seq;  // a slow, older answer must never overwrite a newer one
     results.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
     try {
       const data = await api('/admin/orders/search?' + queryFrom(st.filter, { sort: st.sort, dir: st.dir, limit: st.limit, offset: st.offset }));
-      const head = h('tr', {}, ORDER_COLS.map(([k, l]) => h('th', { class: 'sortable', 'aria-sort': st.sort === k ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none' },
-        h('button', { class: 'linklike', text: l + (st.sort === k ? (st.dir === 'asc' ? ' ▲' : ' ▼') : ''),
-          onclick: () => { st.dir = st.sort === k && st.dir === 'desc' ? 'asc' : 'desc'; st.sort = k; st.offset = 0; load(); } }))), h('th', { text: S.user.role === 'admin' ? 'Actions' : '' }));
+      if (seq !== st.seq) return;
+      // Click a column name to sort by it; click again to flip the direction.
+      const head = h('tr', {}, ORDER_COLS.map(([k, l]) => h('th', { class: 'sortable' + (st.sort === k ? ' sorted' : ''), 'aria-sort': st.sort === k ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none' },
+        h('button', { class: 'sort-btn', title: 'Sort by ' + l, 'data-sort': k,
+          onclick: () => { st.dir = st.sort === k ? (st.dir === 'asc' ? 'desc' : 'asc') : (k === 'order_date' || k === 'sl_no' ? 'desc' : 'asc'); st.sort = k; st.offset = 0; load(); } },
+          l, h('span', { class: 'sort-arrow', 'aria-hidden': 'true', text: st.sort === k ? (st.dir === 'asc' ? ' ▲' : ' ▼') : ' ⇅' })))), h('th', { text: S.user.role === 'admin' ? 'Actions' : '' }));
       const money = (v) => (v == null ? '' : fmtInt(v));
       const admin = S.user.role === 'admin';
       const body = data.rows.map((r) => h('tr', { class: 'clickable-row', tabindex: '0', title: 'Open order details', onclick: () => openOrderDetail(r.sl_no),
@@ -130,14 +180,14 @@ async function renderOrders(panel) {
         h('td', { class: 'num', text: r.hours_to_deliver == null ? '' : fmtHours(r.hours_to_deliver) }),
         h('td', { class: 'row', style: 'gap:4px' },
           h('button', { class: 'btn small', text: 'View', onclick: (e) => { e.stopPropagation(); openOrderDetail(r.sl_no); } }),
-          admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, load); } }) : null,
-          admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, load); } }) : null)));
+          admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, (n) => { showNotice(n); load(); }); } }) : null,
+          admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, (n) => { showNotice(n); load(); }); } }) : null)));
       const last = Math.min(st.offset + st.limit, data.total);
       const prev = h('button', { class: 'btn small', text: '‹ Previous', disabled: st.offset === 0 || null, onclick: () => { st.offset = Math.max(0, st.offset - st.limit); load(); } });
       const next = h('button', { class: 'btn small', text: 'Next ›', disabled: last >= data.total || null, onclick: () => { st.offset += st.limit; load(); } });
       results.replaceChildren(
         h('p', { class: 'note', id: 'orderCount', text: data.total ? `Showing ${st.offset + 1}–${last} of ${fmtInt(data.total)} orders` : 'No orders match these filters.' }),
-        data.rows.length ? h('div', { class: 'table-wrap' }, h('table', { id: 'ordersTable' }, h('thead', {}, head), h('tbody', {}, body))) : null,
+        data.rows.length ? h('div', { class: 'table-wrap sticky-head' }, h('table', { id: 'ordersTable' }, h('thead', {}, head), h('tbody', {}, body))) : null,
         h('div', { class: 'row', style: 'margin-top:10px' }, prev, next));
     } catch (ex) { results.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   };
@@ -163,20 +213,37 @@ async function renderOrders(panel) {
   let slTimer = null;
   inputs.sl_no.addEventListener('input', () => { clearTimeout(slTimer); slTimer = setTimeout(run, 400); });
   inputs.sl_no.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(slTimer); run(); } });
-  panel.replaceChildren(
+  const findBtn = h('button', { type: 'button', class: 'btn primary', id: 'f_find', text: 'Find', onclick: () => { clearTimeout(slTimer); run(); } });
+  const clearBtn = h('button', { type: 'button', class: 'btn', id: 'f_clearfind', text: 'Clear', onclick: () => { inputs.sl_no.value = ''; clearTimeout(slTimer); run(); inputs.sl_no.focus(); } });
+
+  // The tab row, the filters and (below) the table header stay put while the list scrolls.
+  const extraRows = [
+    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Filter by' }), ...groups),
+    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Find order' }), inputs.sl_no, findBtn, clearBtn,
+      h('span', { class: 'note', text: 'Searches all dates, including archived orders.' }))];
+  const toggle = h('button', { type: 'button', class: 'btn small', id: 'f_toggle', 'aria-expanded': 'true', text: 'Hide filters ▲' });
+  const filtersBox = h('div', { class: 'sticky-filters', id: 'orderFilters' },
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Period' }),
       h('label', { class: 'date-field' }, 'From ', inputs.date_from), h('label', { class: 'date-field' }, 'To ', inputs.date_to),
       h('button', { type: 'button', class: 'btn', id: 'f_last30', text: 'Last 30 days',
         onclick: () => { const d = last30(); inputs.date_from.value = d.from; inputs.date_to.value = d.to; onDates(); } }),
-      rangeMsg),
-    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Filter by' }), ...groups),
-    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Find order' }), inputs.sl_no,
-      h('span', { class: 'note', text: 'Searches all dates, including archived orders.' })),
+      rangeMsg, h('span', { class: 'grow' }), toggle),
+    ...extraRows);
+  toggle.addEventListener('click', () => {
+    const hide = toggle.getAttribute('aria-expanded') === 'true';
+    extraRows.forEach((r) => { r.hidden = hide; });
+    toggle.setAttribute('aria-expanded', String(!hide));
+    toggle.textContent = hide ? 'Show filters ▼' : 'Hide filters ▲';
+  });
+  panel.replaceChildren(
+    notice,
+    filtersBox,
     h('div', { class: 'archive-note', id: 'archiveNote' },
       h('strong', { text: 'Archived orders are hidden by default. ' }),
       'An order is archived when it is at least 7 days old (by order date) and fully finished: either Closed (delivered, received and payment recorded) or Cancelled. ',
       h('label', { class: 'check', style: 'display:inline-flex;margin-left:6px' }, inputs.include_archived, ' Include archived orders')),
     results);
+  trackSticky(filtersBox, '--filters-h');
   if (panel.isConnected) slot.replaceChildren(exportBtn);
   run();
 }
