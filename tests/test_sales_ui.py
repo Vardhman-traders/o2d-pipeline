@@ -67,7 +67,7 @@ def base_url(migrated_db_url):
     else:
         proc.kill()
         pytest.fail("app did not start")
-    yield url + "/sales/"
+    yield url
     proc.terminate()
     proc.wait(timeout=10)
 
@@ -80,17 +80,22 @@ def test_one_order_through_every_role_screen(base_url):
     with sync_api.sync_playwright() as p:
         browser = p.chromium.launch()
 
-        def page_for(role, password=PW):
+        # There is one way in: sign in on the portal, then click its O2D Portal link - same as a
+        # real user. No role has a sign-in page of its own.
+        def page_for(role, password=PW, expect_portal_error=False):
             page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
             page.on("pageerror", lambda e: errors.append(f"{role}: {e}"))
             page.goto(base_url)
-            page.fill("#loginUsername", "ui_" + role)
-            page.fill("#loginPassword", password)
-            page.click("#loginForm button[type=submit]")
+            page.fill(".login-screen input[type=text]", "ui_" + role)
+            page.fill(".login-screen input[type=password]", password)
+            page.click(".login-screen button[type=submit]")
+            if expect_portal_error:
+                return page
+            page.click("text=O2D Portal")
             return page
 
-        bad = page_for("shop", "wrong-password-1")
-        expect(bad.locator("#loginError")).to_contain_text("Invalid")
+        bad = page_for("shop", "wrong-password-1", expect_portal_error=True)
+        expect(bad.locator(".login-screen .msg.error")).to_contain_text("Invalid")
 
         shop = page_for("shop")
         shop.wait_for_selector("#appScreen", state="visible")

@@ -42,7 +42,7 @@ def main(really):
             cur.execute("DELETE FROM app_links WHERE name LIKE 'TEST %'")
             cur.execute("DELETE FROM dim_user WHERE username LIKE 'test\\_%'")
             cur.execute("SELECT count(*), max(sl_no) FROM fact_orders")
-            print("Deleted. fact_orders now: %s rows, max sl_no %s" % cur.fetchone())
+            print("Deleted. fact_orders now: {} rows, max sl_no {}".format(*cur.fetchone()))
     finally:
         conn.close()
 

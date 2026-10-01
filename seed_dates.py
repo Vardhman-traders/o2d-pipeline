@@ -38,7 +38,7 @@ def main() -> int:
                    VALUES %s ON CONFLICT (date_key) DO NOTHING""",
                 rows, page_size=1000)
             cur.execute("SELECT count(*), min(full_date), max(full_date) FROM dim_date")
-            print("dim_date now has %s rows (%s to %s)" % cur.fetchone())
+            print("dim_date now has {} rows ({} to {})".format(*cur.fetchone()))
     finally:
         conn.close()
     return 0

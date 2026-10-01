@@ -5,9 +5,53 @@
 const FILTER_GROUPS = [['stage', 'Stage'], ['channel', 'Order via'], ['submission_type', 'Submission type'],
   ['delivery_status', 'Delivery status'], ['payment_status', 'Payment status'], ['ready_by', 'Ready by'],
   ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by']];
-const NUM_FILTERS = [['min_amount', 'Amount from'], ['max_amount', 'Amount to'], ['min_cartage', 'Cartage from'], ['max_cartage', 'Cartage to']];
+// Each pair is [min key, max key]; rendered as one "from – to" field instead of two separate boxes.
+const RANGE_FILTERS = [['min_amount', 'max_amount', 'Amount (Rs)'], ['min_cartage', 'max_cartage', 'Cartage (Rs)']];
 const ORDER_COLS = [['sl_no', 'Sl'], ['order_date', 'Order date'], ['dc_inv_no', 'DC/Inv'], ['stage', 'Stage'], ['channel', 'Via'],
   ['delivery_status', 'Delivery'], ['payment_status', 'Payment'], ['amount_received', 'Amount'], ['cartage', 'Cartage'], ['hours_to_deliver', 'Hours']];
+
+// Admin can edit or permanently delete any order here, active or archived - no need to go through
+// the O2D "view as" screens first. Edit reuses the same endpoint those screens' admin form uses.
+function openOrderEdit(row, options, onSaved) {
+  const sel = (key) => [['', '-- no change --'], ...(options[key] || []).map((v) => [v, v])];
+  formDialog({
+    title: `Edit order ${row.dc_inv_no || row.sl_no}`, submitLabel: 'Save',
+    fields: [
+      { name: 'orderRcvdDate', label: 'Order date', type: 'date', value: row.order_date },
+      { name: 'dcNo', label: 'DC / Inv No', value: row.dc_inv_no || '' },
+      { name: 'orderVia', label: 'Order via', type: 'select', options: sel('channel'), value: row.channel || '' },
+      { name: 'typeOfSubmission', label: 'Submission type', type: 'select', options: sel('submission_type'), value: row.submission_type || '' },
+      { name: 'deliveryStatus', label: 'Delivery status (set to Cancelled to cancel)', type: 'select', options: sel('delivery_status'), value: row.delivery_status || '' },
+      { name: 'paymentStatus', label: 'Payment status', type: 'select', options: sel('payment_status'), value: row.payment_status || '' },
+      { name: 'readyByWhom', label: 'Ready by', type: 'select', options: sel('ready_by'), value: row.ready_by || '' },
+      { name: 'colourMakingBy', label: 'Colour making by', type: 'select', options: sel('colour_making_by'), value: row.colour_making_by || '' },
+      { name: 'deliveredByWhom', label: 'Delivered by', type: 'select', options: sel('delivered_by'), value: row.delivered_by || '' },
+      { name: 'amountReceived', label: 'Amount received', type: 'number', value: row.amount_received ?? '' },
+      { name: 'cartage', label: 'Cartage', type: 'number', value: row.cartage ?? '' },
+      { name: 'shippingLocation', label: 'Address', value: row.shipping_location || '' },
+      { name: 'detailedRemarks', label: 'Remarks', value: row.detailed_remarks || '' },
+    ],
+    onSubmit: async (v) => {
+      await api(`/o2d/orders/${row.sl_no}/admin?archived=${row.archived ? 'true' : 'false'}`, { method: 'PUT', body: v });
+      onSaved();
+    },
+  });
+}
+
+async function deleteOrder(row, onDeleted) {
+  if (!(await confirmDialog(`Permanently delete order ${row.dc_inv_no || row.sl_no}?`,
+      'This removes it from the database entirely - not the same as cancelling. It cannot be undone.', 'Delete', true))) return;
+  try {
+    await api(`/orders/${row.sl_no}?archived=${row.archived ? 'true' : 'false'}`, { method: 'DELETE' });
+    onDeleted();
+  } catch (ex) { alert(ex.message); }
+}
+
+// A "from – to" pair of inputs sharing one label, used for amount/cartage/date ranges.
+function rangeField(label, fromEl, toEl) {
+  return h('div', { class: 'field' }, h('label', {}, label),
+    h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, fromEl, h('span', { text: '–' }), toEl));
+}
 
 function queryFrom(filter, extra) {
   const qs = new URLSearchParams();
@@ -31,59 +75,63 @@ async function downloadFile(path, fallbackName) {
 // ------------------------------------------------------------------ Orders
 async function renderOrders(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let options, saved;
-  try { [options, saved] = await Promise.all([api('/admin/orders/filter-options'), api('/admin/saved-filters')]); }
+  let options;
+  try { options = await api('/admin/orders/filter-options'); }
   catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
 
   const st = { filter: {}, sort: 'order_date', dir: 'desc', offset: 0, limit: 50 };
   const inputs = {};
   const results = h('div');
-  const savedSel = h('select', { id: 'savedFilters', 'aria-label': 'Saved filters' });
 
-  const field = (label, el) => h('div', { class: 'field' }, h('label', {}, label), el);
-  inputs.q = h('input', { type: 'text', placeholder: 'DC/Inv no, address, remarks', 'aria-label': 'Search', id: 'f_q' });
-  inputs.date_from = h('input', { type: 'date', id: 'f_from' });
-  inputs.date_to = h('input', { type: 'date', id: 'f_to' });
-  inputs.cancelled = h('select', { id: 'f_cancelled' }, [['', 'Include cancelled'], ['exclude', 'Hide cancelled'], ['only', 'Only cancelled']].map(([v, l]) => h('option', { value: v, text: l })));
+  // Same top panel as the Dashboard (Period + Filter by); the only extra is the Sl / DC number search.
+  const last30 = () => { const to = todayIST(); return { from: shiftDate(to, -29), to }; };
+  const d0 = last30();
+  inputs.date_from = h('input', { type: 'date', id: 'f_from', value: d0.from, 'aria-label': 'From date' });
+  inputs.date_to = h('input', { type: 'date', id: 'f_to', value: d0.to, 'aria-label': 'To date' });
+  inputs.sl_no = h('input', { type: 'search', id: 'f_sl', placeholder: 'Sl no. or DC/Inv no.', 'aria-label': 'Search by Sl number', autocomplete: 'off' });
   inputs.include_archived = h('input', { type: 'checkbox', id: 'f_archived' });
-  NUM_FILTERS.forEach(([k]) => { inputs[k] = h('input', { type: 'number', min: '0', step: 'any', id: 'f_' + k }); });
+  const selections = {};  // key -> Set of chosen values, owned by each multiSelect widget
   const groups = FILTER_GROUPS.map(([key, label]) => {
-    const boxes = (options[key] || []).map((v) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: v, 'data-group': key }), v));
-    inputs[key] = boxes;
-    return h('details', { class: 'fgroup', 'data-key': key }, h('summary', { text: label }), h('div', { class: 'checks' }, boxes));
+    selections[key] = new Set();
+    return multiSelect(label, options[key] || [], selections[key], () => run());
   });
 
   const collect = () => {
     const f = {};
-    for (const k of ['q', 'date_from', 'date_to', 'cancelled', ...NUM_FILTERS.map((n) => n[0])]) { const v = inputs[k].value.trim(); if (v) f[k] = v; }
-    if (inputs.include_archived.checked) f.include_archived = true;
-    for (const [key] of FILTER_GROUPS) {
-      const on = inputs[key].map((b) => b.firstChild).filter((c) => c.checked).map((c) => c.value);
-      if (on.length) f[key] = on;
+    const sl = inputs.sl_no.value.trim();
+    if (sl) {
+      // Looking up one order: search every date, archived included, so a known number is always found.
+      f.sl_no = sl; f.include_archived = true;
+    } else {
+      if (inputs.date_from.value) f.date_from = inputs.date_from.value;
+      if (inputs.date_to.value) f.date_to = inputs.date_to.value;
+      if (inputs.include_archived.checked) f.include_archived = true;
     }
+    for (const [key] of FILTER_GROUPS) { if (selections[key].size) f[key] = [...selections[key]]; }
     return f;
   };
-  const apply = (f) => {
-    for (const k of ['q', 'date_from', 'date_to', 'cancelled', ...NUM_FILTERS.map((n) => n[0])]) inputs[k].value = f[k] ?? '';
-    inputs.include_archived.checked = !!f.include_archived;
-    for (const [key] of FILTER_GROUPS) inputs[key].forEach((b) => { b.firstChild.checked = (f[key] || []).includes(b.firstChild.value); });
-    groups.forEach((g) => { g.open = !!(f[g.dataset.key] || []).length; });
-  };
 
+  const run = () => { st.filter = collect(); st.offset = 0; load(); };
   const load = async () => {
     results.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
     try {
       const data = await api('/admin/orders/search?' + queryFrom(st.filter, { sort: st.sort, dir: st.dir, limit: st.limit, offset: st.offset }));
       const head = h('tr', {}, ORDER_COLS.map(([k, l]) => h('th', { class: 'sortable', 'aria-sort': st.sort === k ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none' },
         h('button', { class: 'linklike', text: l + (st.sort === k ? (st.dir === 'asc' ? ' ▲' : ' ▼') : ''),
-          onclick: () => { st.dir = st.sort === k && st.dir === 'desc' ? 'asc' : 'desc'; st.sort = k; st.offset = 0; load(); } }))));
+          onclick: () => { st.dir = st.sort === k && st.dir === 'desc' ? 'asc' : 'desc'; st.sort = k; st.offset = 0; load(); } }))), h('th', { text: S.user.role === 'admin' ? 'Actions' : '' }));
       const money = (v) => (v == null ? '' : fmtInt(v));
-      const body = data.rows.map((r) => h('tr', {},
+      const admin = S.user.role === 'admin';
+      const body = data.rows.map((r) => h('tr', { class: 'clickable-row', tabindex: '0', title: 'Open order details', onclick: () => openOrderDetail(r.sl_no),
+        onkeydown: (e) => { if (e.key === 'Enter') openOrderDetail(r.sl_no); } },
         h('td', { text: r.sl_no }), h('td', { text: fmtDate(r.order_date) }), h('td', { text: r.dc_inv_no }),
         h('td', {}, h('span', { class: 'pill' + (r.is_cancelled ? ' off' : ''), text: r.stage }), r.archived ? h('span', { class: 'pill warn', text: 'Archived' }) : null),
         h('td', { text: r.channel || '' }), h('td', { text: r.delivery_status || '' }), h('td', { text: r.payment_status || '' }),
         h('td', { class: 'num', text: money(r.amount_received) }), h('td', { class: 'num', text: money(r.cartage) }),
-        h('td', { class: 'num', text: r.hours_to_deliver == null ? '' : fmtHours(r.hours_to_deliver) })));
+        h('td', { class: 'num', text: r.hours_to_deliver == null ? '' : fmtHours(r.hours_to_deliver) }),
+        h('td', { class: 'row', style: 'gap:4px' },
+          h('button', { class: 'btn small', text: 'View', onclick: (e) => { e.stopPropagation(); openOrderDetail(r.sl_no); } }),
+          admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, load); } }) : null,
+          admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, load); } }) : null)));
       const last = Math.min(st.offset + st.limit, data.total);
       const prev = h('button', { class: 'btn small', text: '‹ Previous', disabled: st.offset === 0 || null, onclick: () => { st.offset = Math.max(0, st.offset - st.limit); load(); } });
       const next = h('button', { class: 'btn small', text: 'Next ›', disabled: last >= data.total || null, onclick: () => { st.offset += st.limit; load(); } });
@@ -93,31 +141,7 @@ async function renderOrders(panel) {
         h('div', { class: 'row', style: 'margin-top:10px' }, prev, next));
     } catch (ex) { results.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   };
-  const run = () => { st.filter = collect(); st.offset = 0; load(); };
 
-  const drawSaved = () => {
-    savedSel.replaceChildren(h('option', { value: '', text: 'Saved filters…' }),
-      ...saved.map((s) => h('option', { value: String(s.filter_key), text: s.name + (s.shared && !s.mine ? ` (shared by ${s.owner})` : s.shared ? ' (shared)' : '') })));
-  };
-  savedSel.addEventListener('change', () => {
-    const s = saved.find((x) => String(x.filter_key) === savedSel.value);
-    if (s) { apply(s.definition); run(); }
-  });
-  const saveCurrent = () => {
-    const def = collect();
-    if (!Object.keys(def).length) return alert('Set at least one filter first.');
-    formDialog({ title: 'Save this filter', submitLabel: 'Save',
-      fields: [{ name: 'name', label: 'Name', required: true, maxlength: 80 }, { name: 'shared', label: 'Let other admins use it', type: 'bool' }],
-      onSubmit: async (v) => { await api('/admin/saved-filters', { method: 'POST', body: { name: v.name, shared: v.shared, definition: def } });
-        saved = await api('/admin/saved-filters'); drawSaved(); } });
-  };
-  const deleteSaved = async () => {
-    const s = saved.find((x) => String(x.filter_key) === savedSel.value);
-    if (!s) return;
-    if (!s.mine) return alert('You can only delete filters you saved.');
-    if (!(await confirmDialog('Delete “' + s.name + '”?', 'The saved filter is removed. Orders are not affected.', 'Delete', true))) return;
-    try { await api('/admin/saved-filters/' + s.filter_key, { method: 'DELETE' }); saved = saved.filter((x) => x !== s); drawSaved(); } catch (ex) { alert(ex.message); }
-  };
   const exportXlsx = async (btn) => {
     btn.disabled = true;
     try { await downloadFile('/admin/orders/search.xlsx?' + queryFrom(collect(), { sort: st.sort, dir: st.dir }), 'orders.xlsx'); }
@@ -125,24 +149,181 @@ async function renderOrders(panel) {
     btn.disabled = false;
   };
 
-  drawSaved();
-  const exportBtn = h('button', { class: 'btn', id: 'exportBtn', text: 'Export to Excel', onclick: () => exportXlsx(exportBtn) });
+  const slot = S.actionsSlot || h('div'); // top-right of the tab row (see renderModule)
+  const exportBtn = h('button', { class: 'btn primary', id: 'exportBtn', text: '⬇ Export to Excel', onclick: () => exportXlsx(exportBtn) });
+  const rangeMsg = h('span', { class: 'msg error', id: 'f_range_msg' });
+  const onDates = () => {
+    const bad = inputs.date_from.value && inputs.date_to.value && inputs.date_from.value > inputs.date_to.value;
+    rangeMsg.textContent = bad ? '"From" date must be on or before "To" date.' : '';
+    if (!bad) run();
+  };
+  inputs.date_from.addEventListener('change', onDates);
+  inputs.date_to.addEventListener('change', onDates);
+  inputs.include_archived.addEventListener('change', run);
+  let slTimer = null;
+  inputs.sl_no.addEventListener('input', () => { clearTimeout(slTimer); slTimer = setTimeout(run, 400); });
+  inputs.sl_no.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(slTimer); run(); } });
   panel.replaceChildren(
-    h('div', { class: 'card order-filters' },
-      h('div', { class: 'filter-grid' },
-        field('Search', inputs.q), field('Order date from', inputs.date_from), field('Order date to', inputs.date_to), field('Cancelled', inputs.cancelled),
-        ...NUM_FILTERS.map(([k, l]) => field(l, inputs[k]))),
-      h('div', { class: 'fgroups' }, groups),
-      h('label', { class: 'check' }, inputs.include_archived, ' Include archived orders'),
-      h('div', { class: 'row', style: 'margin-top:12px' },
-        h('button', { class: 'btn primary', id: 'applyBtn', text: 'Apply filters', onclick: run }),
-        h('button', { class: 'btn', text: 'Reset', onclick: () => { apply({}); run(); } }),
-        h('span', { class: 'grow' }), savedSel,
-        h('button', { class: 'btn small', text: 'Save current…', onclick: saveCurrent }),
-        h('button', { class: 'btn small danger', text: 'Delete saved', onclick: deleteSaved }), exportBtn)),
+    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Period' }),
+      h('label', { class: 'date-field' }, 'From ', inputs.date_from), h('label', { class: 'date-field' }, 'To ', inputs.date_to),
+      h('button', { type: 'button', class: 'btn', id: 'f_last30', text: 'Last 30 days',
+        onclick: () => { const d = last30(); inputs.date_from.value = d.from; inputs.date_to.value = d.to; onDates(); } }),
+      rangeMsg),
+    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Filter by' }), ...groups),
+    h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Find order' }), inputs.sl_no,
+      h('span', { class: 'note', text: 'Searches all dates, including archived orders.' })),
+    h('div', { class: 'archive-note', id: 'archiveNote' },
+      h('strong', { text: 'Archived orders are hidden by default. ' }),
+      'An order is archived when it is at least 7 days old (by order date) and fully finished: either Closed (delivered, received and payment recorded) or Cancelled. ',
+      h('label', { class: 'check', style: 'display:inline-flex;margin-left:6px' }, inputs.include_archived, ' Include archived orders')),
     results);
-  inputs.q.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  if (panel.isConnected) slot.replaceChildren(exportBtn);
   run();
+}
+
+// ------------------------------------------------------------------ order details + timeline
+const fmtExact = (iso) => new Date(iso).toLocaleString('en-IN', {
+  timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+async function openOrderDetail(slNo) {
+  const body = h('div', {}, h('p', { class: 'note', text: 'Loading…' }));
+  const close = h('button', { class: 'btn primary', text: 'Close' });
+  const dlg = dialog('Order ' + slNo, [body], [close], 'wide order-modal');
+  close.addEventListener('click', () => dlg.close());
+  try {
+    const { order: o, timeline, timeline_note: note } = await api(`/admin/orders/${slNo}/detail`);
+    dlg.querySelector('h2').textContent = `Order ${o.dc_inv_no || o.sl_no}  ·  Sl ${o.sl_no}`;
+    const money = (v) => (v == null ? '' : 'Rs ' + fmtInt(v));
+    const when = (v) => (v ? fmtExact(v) : '');
+    const fields = [
+      ['Order date', fmtDate(o.order_date) + ' ' + String(o.order_date).slice(0, 4)], ['DC / Inv no', o.dc_inv_no], ['Order via', o.channel],
+      ['Submission type', o.submission_type], ['Delivery status', o.delivery_status], ['Payment status', o.payment_status],
+      ['Ready by', o.ready_by], ['Colour making by', o.colour_making_by],
+      ['Delivered by', o.delivered_by ? o.delivered_by + (o.delivered_by_phone ? ' (' + o.delivered_by_phone + ')' : '') : ''],
+      ['Material delivered', when(o.material_delivery_datetime)], ['Date received', o.date_of_receiving ? fmtDate(o.date_of_receiving) + ' ' + String(o.date_of_receiving).slice(0, 4) : ''],
+      ['Amount received', money(o.amount_received)], ['Cartage', money(o.cartage)],
+      ['Hours to deliver', o.hours_to_deliver == null ? '' : fmtHours(Number(o.hours_to_deliver))],
+      ['Logged by', o.created_by], ['Logged at', when(o.timestamp_created)],
+      ['Last updated by', o.last_updated_by], ['Last updated at', when(o.last_updated_at)],
+      ['Address', o.shipping_location], ['Remarks', o.detailed_remarks]];
+    const events = timeline.map((e) => h('li', { class: 'tl-item tl-' + e.type + (e.reconstructed ? ' tl-rebuilt' : '') },
+      h('span', { class: 'tl-dot' }),
+      h('div', { class: 'tl-body' },
+        h('div', { class: 'tl-head' }, h('strong', { text: e.title }), e.reconstructed ? h('span', { class: 'pill warn', text: 'rebuilt' }) : null),
+        h('div', { class: 'tl-when', text: e.at ? fmtExact(e.at) + ' IST' : 'Time not recorded' }),
+        h('div', { class: 'tl-by', text: e.by ? 'By ' + e.by + (e.role ? ' (' + roleLabel(e.role) + ')' : '') : 'Person not recorded' }),
+        e.changes.length ? h('ul', { class: 'tl-changes' }, e.changes.map((c) => h('li', {},
+          h('span', { class: 'tl-field', text: c.field + ': ' }), c.from ? h('span', { class: 'tl-from', text: c.from }) : h('span', { class: 'tl-none', text: 'empty' }),
+          ' → ', h('strong', { text: c.to == null ? 'cleared' : c.to })))) : null)));
+    body.replaceChildren(
+      h('div', { class: 'row', style: 'gap:8px;margin-bottom:12px' }, h('span', { class: 'pill' + (o.is_cancelled ? ' off' : ''), text: o.stage }),
+        o.archived ? h('span', { class: 'pill warn', text: 'Archived' }) : null),
+      h('dl', { class: 'detail-grid' }, fields.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v || '–' })])),
+      h('h3', { class: 'tl-title', text: 'Order timeline' }),
+      note ? h('p', { class: 'note', text: note }) : null,
+      h('ol', { class: 'timeline', id: 'orderTimeline' }, events));
+  } catch (ex) { body.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+}
+
+// ------------------------------------------------------------------ Setup > Access (who sees which page)
+async function renderAccess(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let m, users;
+  try { [m, users] = await Promise.all([api('/admin/access/matrix'), api('/admin/users')]); }
+  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const have = new Set(m.granted.map((g) => g.page_key + '|' + g.role));
+  const toggle = async (page, role, cb) => {
+    cb.disabled = true;
+    try { await api('/admin/access/matrix', { method: 'PUT', body: { page_key: page, role, allowed: cb.checked } }); }
+    catch (ex) { cb.checked = !cb.checked; alert(ex.message); }
+    cb.disabled = false;
+  };
+  const matrix = h('div', { class: 'table-wrap' }, h('table', { id: 'accessMatrix' },
+    h('thead', {}, h('tr', {}, h('th', { text: 'Page' }), ...m.roles.map((r) => h('th', { class: 'num', text: roleLabel(r) })))),
+    h('tbody', {}, m.pages.map((p) => h('tr', {}, h('td', { text: p.label }),
+      ...m.roles.map((r) => {
+        const cb = h('input', { type: 'checkbox', 'aria-label': `${roleLabel(r)} can open ${p.label}`, 'data-page': p.key, 'data-role': r });
+        cb.checked = have.has(p.key + '|' + r);
+        cb.addEventListener('change', () => toggle(p.key, r, cb));
+        return h('td', { class: 'num' }, cb);
+      }))))));
+
+  // one person at a time: each page is "like their role", always allowed, or blocked
+  const who = h('select', { id: 'accessPerson', 'aria-label': 'Choose a member' },
+    h('option', { value: '', text: 'Choose a member…' }),
+    ...users.filter((u) => !u.disabled && u.role !== 'admin').map((u) => h('option', { value: String(u.user_key), text: `${u.display_name} (${roleLabel(u.role)})` })));
+  const personBox = h('div', { style: 'margin-top:12px' });
+  const loadPerson = async () => {
+    if (!who.value) return personBox.replaceChildren();
+    personBox.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+    try {
+      const d = await api('/admin/access/users/' + who.value);
+      const rows = d.pages.map((p) => {
+        const sel = h('select', { 'aria-label': 'Access to ' + p.label, 'data-page': p.key },
+          h('option', { value: 'default', text: 'Same as role (' + (p.role_default ? 'can open' : 'cannot open') + ')', selected: p.override == null }),
+          h('option', { value: 'allow', text: 'Always allow', selected: p.override === true }),
+          h('option', { value: 'block', text: 'Block', selected: p.override === false }));
+        sel.addEventListener('change', async () => {
+          sel.disabled = true;
+          try { await api('/admin/access/users/' + who.value, { method: 'PUT', body: { page_key: p.key, allowed: sel.value === 'default' ? null : sel.value === 'allow' } }); }
+          catch (ex) { alert(ex.message); loadPerson(); }
+          sel.disabled = false;
+        });
+        return h('tr', {}, h('td', { text: p.label }), h('td', {}, sel));
+      });
+      personBox.replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', { text: 'Page' }), h('th', { text: 'Access for ' + d.user.display_name }))), h('tbody', {}, rows))));
+    } catch (ex) { personBox.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  };
+  who.addEventListener('change', loadPerson);
+
+  panel.replaceChildren(
+    h('div', { class: 'card', style: 'margin-bottom:16px' },
+      h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Who sees which page' }),
+      h('p', { class: 'note', text: 'Tick the pages each role opens by default. Admins always open everything, and Setup is for admins only. As new modules are added, their pages appear here.' }),
+      h('p', { class: 'note', style: 'margin:6px 0 12px', text: 'Opening a page does not change what someone may do inside it: what a person can see and edit in the O2D screens still follows their role (Setup > Permissions).' }),
+      matrix),
+    h('div', { class: 'card' },
+      h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Exceptions for one person' }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Give one person a page their role does not have, or block one they would normally get. Approved access requests show up here as “Always allow”.' }),
+      who, personBox));
+}
+
+// ------------------------------------------------------------------ Setup > Access requests
+async function renderAccessRequests(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  const filter = h('select', { id: 'reqStatus', 'aria-label': 'Show requests' },
+    [['pending', 'Waiting for a decision'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['all', 'All']].map(([v, l]) => h('option', { value: v, text: l })));
+  filter.value = S.reqStatus || 'pending';
+  const holder = h('div');
+  const load = async () => {
+    S.reqStatus = filter.value;
+    holder.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+    let rows;
+    try { rows = await api('/admin/access/requests?status=' + filter.value); }
+    catch (ex) { return holder.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+    await refreshPendingRequests();
+    if (S.redrawModuleBar) S.redrawModuleBar();
+    const decide = (r, approve) => formDialog({
+      title: (approve ? 'Approve' : 'Reject') + ` ${r.display_name}'s request`, submitLabel: approve ? 'Approve' : 'Reject',
+      fields: [{ name: 'note', label: 'Note for ' + r.display_name + ' (optional)', maxlength: 300,
+        hint: approve ? `They will be able to open ${r.page_label} straight away.` : 'They will see this note and can ask again.' }],
+      onSubmit: async (v) => { await api(`/admin/access/requests/${r.request_key}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: { note: v.note || null } }); load(); } });
+    holder.replaceChildren(rows.length ? h('div', { class: 'table-wrap' }, h('table', { id: 'requestsTable' },
+      h('thead', {}, h('tr', {}, ['Person', 'Role', 'Wants', 'Reason', 'Asked on', 'Status', ''].map((t) => h('th', { text: t })))),
+      h('tbody', {}, rows.map((r) => h('tr', {},
+        h('td', {}, h('strong', { text: r.display_name }), h('div', { class: 'note', text: r.username })), h('td', { text: roleLabel(r.role) }),
+        h('td', { text: r.page_label }), h('td', { text: r.reason, style: 'max-width:300px' }), h('td', { text: fmtExact(r.created_at) }),
+        h('td', {}, statusPill(r.status), r.decided_by ? h('div', { class: 'note', text: 'by ' + r.decided_by + (r.decision_note ? ': ' + r.decision_note : '') }) : null),
+        h('td', {}, r.status === 'pending' ? h('div', { class: 'row' },
+          h('button', { class: 'btn small primary', text: 'Approve', onclick: () => decide(r, true) }),
+          h('button', { class: 'btn small danger', text: 'Reject', onclick: () => decide(r, false) })) : null))))))
+      : h('div', { class: 'card empty', text: filter.value === 'pending' ? 'No requests waiting. 🎉' : 'Nothing here.' }));
+  };
+  filter.addEventListener('change', load);
+  panel.replaceChildren(h('p', { class: 'note', style: 'margin-bottom:12px', text: 'People who opened a page they cannot see can ask for access. Approving gives that one person the page; their colleagues in the same role are not affected.' }),
+    h('div', { class: 'row', style: 'margin-bottom:12px' }, filter), holder);
+  load();
 }
 
 // ------------------------------------------------------------------ Import

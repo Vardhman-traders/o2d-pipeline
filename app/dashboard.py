@@ -5,6 +5,23 @@ from . import db
 
 IST = "Asia/Kolkata"
 
+# Attribute filters the dashboard accepts, same columns as the Orders page's filter groups.
+FILTERABLE_COLUMNS = ("stage", "channel", "submission_type", "delivery_status", "payment_status",
+                      "ready_by", "colour_making_by", "delivered_by", "created_by")
+
+
+def _filter_clause(filters: dict | None, prefix: str = "") -> tuple[str, list]:
+    """Build "AND [prefix.]col = ANY(%s) ..." for each non-empty filter (column names are fixed, not user input)."""
+    filters = filters or {}
+    clauses, params = [], []
+    for col in FILTERABLE_COLUMNS:
+        values = filters.get(col)
+        if values:
+            clauses.append(f"{prefix}{col} = ANY(%s)")
+            params.append(list(values))
+    return ("" if not clauses else " AND " + " AND ".join(clauses)), params
+
+
 HEADLINE_SQL = """
 SELECT count(*)                                                          AS orders,
        count(*) FILTER (WHERE stage = 'Cancelled')                       AS cancelled,
@@ -18,7 +35,7 @@ SELECT count(*)                                                          AS orde
        percentile_cont(0.9) WITHIN GROUP (ORDER BY hours_to_deliver)     AS p90_hours,
        (count(*) FILTER (WHERE hours_to_deliver <= 24))::float
            / NULLIF(count(hours_to_deliver), 0)                          AS within_24h
-FROM v_orders WHERE order_date BETWEEN %s AND %s
+FROM v_orders WHERE order_date BETWEEN %s AND %s{extra}
 """
 
 
@@ -34,34 +51,36 @@ def _rows(cur, sql, params=()):
 
 def headline(date_from: date, date_to: date) -> dict:
     with db.cursor() as cur:
-        cur.execute(HEADLINE_SQL, (date_from, date_to))
+        cur.execute(HEADLINE_SQL.format(extra=""), (date_from, date_to))
         return cur.fetchone()
 
 
-def build(date_from: date, date_to: date) -> dict:
+def build(date_from: date, date_to: date, filters: dict | None = None) -> dict:
     span = (date_to - date_from).days + 1
     prev_to = date_from - timedelta(days=1)
     prev_from = prev_to - timedelta(days=span - 1)
+    extra, extra_params = _filter_clause(filters)
+    extra_v, extra_v_params = _filter_clause(filters, prefix="v.")
     with db.cursor() as cur:
-        cur.execute(HEADLINE_SQL, (date_from, date_to))
+        cur.execute(HEADLINE_SQL.format(extra=extra), (date_from, date_to, *extra_params))
         current = cur.fetchone()
-        cur.execute(HEADLINE_SQL, (prev_from, prev_to))
+        cur.execute(HEADLINE_SQL.format(extra=extra), (prev_from, prev_to, *extra_params))
         previous = cur.fetchone()
-        rng = (date_from, date_to)
+        rng = (date_from, date_to, *extra_params)
         out = {
             "range": {"from": date_from, "to": date_to, "days": span,
                       "previous_from": prev_from, "previous_to": prev_to},
             "headline": current,
             "previous": previous,
-            "daily": _rows(cur, """
+            "daily": _rows(cur, f"""
                 SELECT dd.full_date AS date, dd.is_monday_holiday AS holiday,
                        count(v.order_key) AS orders,
                        count(v.order_key) FILTER (WHERE v.stage = 'Cancelled') AS cancelled,
                        avg(v.hours_to_deliver) AS avg_hours
-                FROM dim_date dd LEFT JOIN v_orders v ON v.order_date = dd.full_date
+                FROM dim_date dd LEFT JOIN v_orders v ON v.order_date = dd.full_date{extra_v}
                 WHERE dd.full_date BETWEEN %s AND %s GROUP BY dd.full_date, dd.is_monday_holiday
-                ORDER BY dd.full_date""", rng),
-            "delivery_time_buckets": _rows(cur, """
+                ORDER BY dd.full_date""", (*extra_v_params, date_from, date_to)),
+            "delivery_time_buckets": _rows(cur, f"""
                 SELECT bucket, n FROM (
                   SELECT CASE WHEN hours_to_deliver < 2 THEN 1 WHEN hours_to_deliver < 6 THEN 2
                               WHEN hours_to_deliver < 24 THEN 3 WHEN hours_to_deliver < 48 THEN 4 ELSE 5 END AS o,
@@ -73,19 +92,19 @@ def build(date_from: date, date_to: date) -> dict:
                          CASE WHEN hours_to_deliver < 2 THEN 2 WHEN hours_to_deliver < 6 THEN 6
                               WHEN hours_to_deliver < 24 THEN 24 WHEN hours_to_deliver < 48 THEN 48 END AS max_hours,
                          count(*) AS n
-                  FROM v_orders WHERE order_date BETWEEN %s AND %s AND hours_to_deliver IS NOT NULL
+                  FROM v_orders WHERE order_date BETWEEN %s AND %s AND hours_to_deliver IS NOT NULL{extra}
                   GROUP BY 1, 2, 3, 4) t ORDER BY o""", rng),
-            # Right now, regardless of the selected range:
-            "pipeline": _rows(cur, """
+            # Right now, regardless of the selected date range, but still honouring the same attribute filters:
+            "pipeline": _rows(cur, f"""
                 SELECT stage AS label, count(*) AS orders, min(timestamp_created) AS oldest
-                FROM v_orders WHERE stage NOT IN ('Closed', 'Cancelled')
+                FROM v_orders WHERE stage NOT IN ('Closed', 'Cancelled'){extra}
                 GROUP BY stage ORDER BY CASE stage WHEN 'Awaiting godown' THEN 1
-                     WHEN 'Awaiting dispatch' THEN 2 ELSE 3 END"""),
-            "oldest_open": _rows(cur, """
+                     WHEN 'Awaiting dispatch' THEN 2 ELSE 3 END""", extra_params),
+            "oldest_open": _rows(cur, f"""
                 SELECT sl_no, dc_inv_no, order_date, stage, delivery_status, shipping_location,
                        round((EXTRACT(EPOCH FROM (now() - timestamp_created)) / 3600.0)::numeric, 1) AS age_hours
-                FROM v_orders WHERE stage NOT IN ('Closed', 'Cancelled')
-                ORDER BY timestamp_created ASC LIMIT 10"""),
+                FROM v_orders WHERE stage NOT IN ('Closed', 'Cancelled'){extra}
+                ORDER BY timestamp_created ASC LIMIT 10""", extra_params),
             "today": today_ist(cur),
             "data_start": _rows(cur, "SELECT min(order_date) AS d FROM v_orders")[0]["d"],
         }

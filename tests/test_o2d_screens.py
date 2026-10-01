@@ -77,7 +77,9 @@ def add(client, h, day, dc, via="Call", typ="Challan", **extra):
     (date(2026, 9, 28), "2026-09-27"),   # Monday -> Sunday
 ])
 def test_dashboard_window_skips_monday(today, expected_prev):
-    assert o2d_screens.dashboard_window(today) == [expected_prev, today.isoformat()]
+    # off_days passed explicitly: the default (DB-backed, admin-configurable) path is covered
+    # by the admin API test instead, so this stays a pure unit test with no DB dependency.
+    assert o2d_screens.dashboard_window(today, off_days={0}) == [expected_prev, today.isoformat()]
 
 
 def test_gap_helpers():

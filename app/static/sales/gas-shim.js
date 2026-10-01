@@ -48,34 +48,20 @@
     };
   }
 
-  function sessionFrom(r) {
-    if (!r.ok) return { ok: true, success: false, message: detail(r) };
-    var b = r.data;
-    try { sessionStorage.setItem('vt_token', b.access_token); } catch (e) { /* storage blocked: still works this page */ }
-    if (['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'].indexOf(b.user.role) === -1) {
-      window.location.href = '/';   // admin and other roles use the portal, which finds the sign-in in the session
-    }
-    return { ok: true, success: true, token: b.access_token, mustChangePassword: !!b.must_change_password,
-             role: b.user.role, username: b.user.username, displayName: b.user.display_name };
-  }
-
   var fns = {
-    login: function (username, password) {
-      if (!username || !password) return Promise.resolve({ ok: true, success: false, message: 'Enter username and password.' });
-      return ask('POST', '/auth/login', null, { username: username, password: password }).then(sessionFrom);
-    },
-    changePassword: function (token, current, next) {
-      if (!next || next.length < 10) {
-        return Promise.resolve({ ok: true, success: false, message: 'New password must be at least 10 characters.' });
-      }
-      return ask('POST', '/auth/change-password', token, { current_password: current, new_password: next })
-        .then(function (r) { return r.ok ? { ok: true, success: true } : { ok: true, success: false, message: detail(r) }; });
-    },
     getShopData: read('/o2d/shop'),
     getGodownData: read('/o2d/godown'),
     getDispatchData: read('/o2d/dispatch'),          // role comes from the login token, not the argument
     getReceivingData: read('/o2d/receiving'),
+    getKanban: function (token, filters) {
+      var qs = new URLSearchParams();
+      for (var key in (filters || {})) (filters[key] || []).forEach(function (v) { qs.append(key, v); });
+      var q = qs.toString();
+      return ask('GET', '/o2d/admin/kanban' + (q ? '?' + q : ''), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
     getMissingNumbersForWindow: read('/o2d/missing-numbers'),
+    getAdminFormOptions: read('/o2d/admin/form-options'),
     searchOrders: function (token, date, dcNo) {
       var qs = [];
       if (date) qs.push('date=' + encodeURIComponent(date));

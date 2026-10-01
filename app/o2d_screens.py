@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from . import auth, config, db, roles
+from . import access, auth, config, db, roles
 
 log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
@@ -41,11 +41,13 @@ def today_ist() -> date:
     return datetime.now(IST).date()
 
 
-def dashboard_window(today: date | None = None) -> list[str]:
-    """[previous working day, today] as ISO dates. Monday is the weekly off, so 'previous day' skips it."""
+def dashboard_window(today: date | None = None, off_days: set[int] | None = None) -> list[str]:
+    """[previous working day, today] as ISO dates. 'Previous day' skips the admin-configured
+    weekly off day(s) (Setup > Weekly off) - Monday only, by default."""
     today = today or today_ist()
+    off_days = config.weekly_off_days() if off_days is None else off_days
     prev = today - timedelta(days=1)
-    while prev.weekday() == 0:  # Monday
+    while prev.weekday() in off_days:
         prev -= timedelta(days=1)
     return [prev.isoformat(), today.isoformat()]
 
@@ -161,14 +163,14 @@ def _has(v) -> bool:
 
 # ------------------------------------------------------------------ read screens
 @router.get("/shop")
-def shop_screen(user=Depends(ANY_VIEWER)):
+def shop_screen(user=Depends(access.require_page("o2d_shop"))):
     window = dashboard_window()
     return {"ok": True, "dropdowns": _dropdowns("shop"),
             "recentOrders": _orders(user, date_from=window[0], date_to=window[1]), "dateWindow": window}
 
 
 @router.get("/godown")
-def godown_screen(user=Depends(ANY_VIEWER)):
+def godown_screen(user=Depends(access.require_page("o2d_godown"))):
     orders = _orders(user)
     return {"ok": True, "dropdowns": _dropdowns("godown"),
             "pending": [o for o in orders if not o["deliveryStatus"]],
@@ -176,7 +178,7 @@ def godown_screen(user=Depends(ANY_VIEWER)):
 
 
 @router.get("/dispatch")
-def dispatch_screen(user=Depends(ANY_VIEWER)):
+def dispatch_screen(user=Depends(access.require_page("o2d_shop_dispatch", "o2d_godown_dispatch"))):
     orders = _orders(user)
     pending = [o for o in orders if not o["materialDeliveryDateTime"]]
     completed = [o for o in orders
@@ -188,7 +190,7 @@ def dispatch_screen(user=Depends(ANY_VIEWER)):
 
 
 @router.get("/receiving")
-def receiving_screen(user=Depends(ANY_VIEWER)):
+def receiving_screen(user=Depends(access.require_page("o2d_receiving"))):
     orders = _orders(user)
     return {"ok": True, "dropdowns": _dropdowns("receiving"),
             "pending": [o for o in orders if not o["dateOfReceiving"] or not o["paymentStatus"]],
@@ -203,6 +205,53 @@ def admin_orders(date_from: date | None = None, date_to: date | None = None,
                  user=Depends(ADMIN_ONLY)):
     return {"ok": True, "orders": _orders(user, date_from=date_from, date_to=date_to, q=q,
                                           archived=True if archived else None, limit=limit, offset=offset)}
+
+
+STAGES = ("Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled")
+KANBAN_FILTER_COLUMNS = ("channel", "submission_type", "payment_status", "ready_by", "colour_making_by", "delivered_by")
+
+
+def _kanban_filter_clause(filters: dict) -> tuple[str, list]:
+    clauses, params = [], []
+    for col in KANBAN_FILTER_COLUMNS:
+        values = filters.get(col)
+        if values:
+            clauses.append(f"o.{col} = ANY(%s)")
+            params.append(list(values))
+    return ("" if not clauses else " AND " + " AND ".join(clauses)), params
+
+
+@router.get("/admin/kanban")
+def admin_kanban(
+    per_stage: int = Query(default=25, ge=1, le=100),
+    channel: list[str] | None = Query(default=None), submission_type: list[str] | None = Query(default=None),
+    payment_status: list[str] | None = Query(default=None), ready_by: list[str] | None = Query(default=None),
+    colour_making_by: list[str] | None = Query(default=None), delivered_by: list[str] | None = Query(default=None),
+    user=Depends(access.require_page("o2d_overview")),
+):
+    """One card per order, grouped by stage, for the admin Overview board - plus the count for each
+    stage across every active order (not just the sampled cards)."""
+    # Having the Overview page means seeing every active order on it (v_orders is already active-only).
+    vis_sql, vis_params = "TRUE", list[Any]()
+    extra, extra_params = _kanban_filter_clause({
+        "channel": channel, "submission_type": submission_type, "payment_status": payment_status,
+        "ready_by": ready_by, "colour_making_by": colour_making_by, "delivered_by": delivered_by})
+    with db.cursor() as cur:
+        cur.execute(f"SELECT stage, count(*) AS n FROM v_orders o WHERE {vis_sql}{extra} GROUP BY stage",
+                    vis_params + extra_params)
+        counts = {row["stage"]: row["n"] for row in cur.fetchall()}
+        columns = {}
+        for stage in STAGES:
+            cur.execute(
+                f"SELECT sl_no, dc_inv_no, order_date, shipping_location, delivery_status, timestamp_created "
+                f"FROM v_orders o WHERE {vis_sql}{extra} AND stage = %s "
+                f"ORDER BY timestamp_created DESC LIMIT %s", vis_params + extra_params + [stage, per_stage])
+            columns[stage] = [{
+                "slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "orderDate": str(r["order_date"]),
+                "shippingLocation": r["shipping_location"] or "", "deliveryStatus": r["delivery_status"] or "",
+            } for r in cur.fetchall()]
+    return {"ok": True, "stages": [{"name": s, "count": counts.get(s, 0), "orders": columns[s]} for s in STAGES],
+            "total": sum(counts.values())}
 
 
 @router.get("/admin/form-options")

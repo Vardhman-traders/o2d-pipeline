@@ -89,12 +89,11 @@ entries:
       - tests/test_apps_script_removed.py::test_admin_can_add_links_to_own_pages_but_not_unsafe_ones
       - tests/test_apps_script_removed.py::test_database_rejects_unsafe_link_urls
   - id: ADMIN-FILTER-1
-    what: Order filters (multi-value, dates, amounts, text, stage), sorting/paging, injection-proof, saved filters, Excel export
+    what: Order filters (multi-value, dates, amounts, text, stage), sorting/paging, injection-proof, Sl-number lookup, Excel export
     speed: fast
     tests:
       - tests/test_admin_tools.py::test_filters_sorting_paging_and_stage_logic
       - tests/test_admin_tools.py::test_filter_options_and_sql_injection_is_inert
-      - tests/test_admin_tools.py::test_saved_filters
       - tests/test_admin_tools.py::test_filtered_excel_export
   - id: ADMIN-BULK-1
     what: Bulk upload of orders - template, every validation message, re-check, all-or-nothing import, undo rules
@@ -117,7 +116,7 @@ entries:
       - tests/test_admin_tools.py::test_bulk_members_validate_import_login_and_undo
       - tests/test_admin_tools.py::test_bulk_members_undo_when_nobody_signed_in
   - id: ADMIN-UI-1
-    what: Admin portal in a real browser - bulk upload with inline fix, filters, saved filter, export, undo, bulk members
+    what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members
     speed: slow
     tests: [tests/test_admin_ui.py::test_admin_filters_bulk_upload_and_undo]
   - id: ADMIN-RECON-1
@@ -134,3 +133,19 @@ entries:
     what: Clean up names screen in a real browser - duplicate flagged, merged, renamed
     speed: slow
     tests: [tests/test_admin_ui.py::test_admin_cleans_up_duplicate_names]
+  - id: ACCESS-1
+    what: Page access - role defaults match the old behaviour, per-person grant/block overrides the role, admin-only controls
+    speed: fast
+    tests:
+      - tests/test_access.py::test_role_defaults_keep_the_old_behaviour
+      - tests/test_access.py::test_role_matrix_and_person_exceptions
+  - id: ACCESS-2
+    what: Access requests - asked with a reason, one open request per page, an admin approves or rejects, approval grants only that person
+    speed: fast
+    tests: [tests/test_access.py::test_access_request_flow]
+  - id: TIMELINE-1
+    what: Order timeline - every real change is recorded with time, person and what changed; legacy orders are reconstructed
+    speed: fast
+    tests:
+      - tests/test_access.py::test_order_timeline_records_each_step
+      - tests/test_access.py::test_order_without_recorded_events_gets_a_reconstructed_timeline

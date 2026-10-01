@@ -11,7 +11,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import auth, config, dashboard, db, roles
+from . import access, auth, config, dashboard, db, roles
 
 ADMIN = auth.require_roles("admin")
 ANY_LOGGED_IN = auth.require_roles(*roles.ALL_ROLES)
@@ -189,9 +189,21 @@ def _range(date_from, date_to):
 
 
 @router.get("/dashboard")
-def get_dashboard(date_from: Optional[date] = None, date_to: Optional[date] = None, admin=Depends(ADMIN)):
+def get_dashboard(
+    date_from: date | None = None, date_to: date | None = None,
+    stage: list[str] | None = Query(default=None), channel: list[str] | None = Query(default=None),
+    submission_type: list[str] | None = Query(default=None),
+    delivery_status: list[str] | None = Query(default=None),
+    payment_status: list[str] | None = Query(default=None), ready_by: list[str] | None = Query(default=None),
+    colour_making_by: list[str] | None = Query(default=None),
+    delivered_by: list[str] | None = Query(default=None),
+    created_by: list[str] | None = Query(default=None), viewer=Depends(access.require_page("dashboard_overview")),
+):
     date_from, date_to = _range(date_from, date_to)
-    return dashboard.build(date_from, date_to)
+    filters = {"stage": stage, "channel": channel, "submission_type": submission_type,
+               "delivery_status": delivery_status, "payment_status": payment_status, "ready_by": ready_by,
+               "colour_making_by": colour_making_by, "delivered_by": delivered_by, "created_by": created_by}
+    return dashboard.build(date_from, date_to, filters)
 
 
 # Backs the dashboard's "click a bar to see the orders" drill-down. date_from/date_to
@@ -202,7 +214,7 @@ def admin_list_orders(
     date_from: Optional[date] = None, date_to: Optional[date] = None,
     stage: Optional[str] = Query(default=None, description="one stage, or several comma-separated"),
     min_hours: Optional[float] = None, max_hours: Optional[float] = None,
-    limit: int = Query(default=200, ge=1, le=500), admin=Depends(ADMIN),
+    limit: int = Query(default=200, ge=1, le=500), viewer=Depends(access.require_page(*access.DASHBOARD_PAGES)),
 ):
     where, params = ["1=1"], []
     if date_from:
@@ -243,7 +255,7 @@ IST_COLS = {"timestamp_created", "material_delivery_datetime", "last_updated_at"
 
 
 @router.get("/export.xlsx")
-def export_xlsx(date_from: date, date_to: date, admin=Depends(ADMIN)):
+def export_xlsx(date_from: date, date_to: date, viewer=Depends(access.require_page("dashboard_overview"))):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -255,7 +267,7 @@ def export_xlsx(date_from: date, date_to: date, admin=Depends(ADMIN)):
         cur.execute(f"SELECT {', '.join(c for _, c, _ in EXPORT_COLUMNS)} FROM v_orders "
                     "WHERE order_date BETWEEN %s AND %s ORDER BY order_date, sl_no", (date_from, date_to))
         rows = cur.fetchall()
-        audit(cur, admin, "export", f"{date_from} to {date_to}", {"rows": len(rows)})
+        audit(cur, viewer, "export", f"{date_from} to {date_to}", {"rows": len(rows)})
     summary = dashboard.headline(date_from, date_to)
 
     wb = Workbook()
@@ -407,6 +419,31 @@ def set_view_access(body: ViewAccessIn, admin=Depends(ADMIN)):
     with db.cursor() as cur:
         config.set_view_access(body.role, body.can_view)
         audit(cur, admin, "view_access.set", body.role, {"can_view": body.can_view})
+    return {"ok": True}
+
+
+@router.get("/weekly-off-days")
+def get_weekly_off_days(admin=Depends(ADMIN)):
+    return {"days": sorted(config.weekly_off_days()), "day_names": config.WEEKDAY_NAMES}
+
+
+class WeeklyOffDaysIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    days: list[int]
+
+    @field_validator("days")
+    @classmethod
+    def _days(cls, v):
+        if any(d not in range(7) for d in v):
+            raise ValueError("days must be 0 (Monday) through 6 (Sunday)")
+        return v
+
+
+@router.put("/weekly-off-days")
+def set_weekly_off_days(body: WeeklyOffDaysIn, admin=Depends(ADMIN)):
+    with db.cursor() as cur:
+        config.set_weekly_off_days(set(body.days), admin["username"])
+        audit(cur, admin, "weekly_off_days.set", None, {"days": sorted(body.days)})
     return {"ok": True}
 
 

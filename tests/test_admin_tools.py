@@ -1,4 +1,4 @@
-"""Admin tools: order filters (+ saved filters, Excel export) and bulk upload (orders, members) with undo."""
+"""Admin tools: order filters (+ Excel export) and bulk upload (orders, members) with undo."""
 import io
 import uuid
 from datetime import date, timedelta
@@ -295,6 +295,9 @@ def test_filters_sorting_paging_and_stage_logic(client, db_conn, seed):
     assert dcs("&sort=order_date&dir=asc")[0] == ["1", "2", "3", "4"]
     assert dcs("")[0] == ["4", "3", "2", "1"]                                   # newest first by default
     assert dcs("&stage=Closed")[0] == ["1"]
+    first_sl = client.get(base + "&sort=sl_no&dir=asc", headers=admin).json()["rows"][0]["sl_no"]
+    assert dcs(f"&sl_no={first_sl}")[0] == ["1"]                                # exact Sl number
+    assert dcs(f"&sl_no=F-{u}-3")[0] == ["3"]                                   # or DC/Inv number text
     assert dcs("&stage=Awaiting godown&stage=Cancelled&sort=sl_no&dir=asc")[0] == ["2", "4"]
     assert dcs("&stage=Awaiting receiving")[0] == ["3"]
     assert dcs("&channel=Call&sort=sl_no&dir=asc")[0] == ["1", "4"]
@@ -330,23 +333,6 @@ def test_filter_options_and_sql_injection_is_inert(client, db_conn, seed):
                       headers=admin)
     assert evil.status_code == 200 and evil.json()["total"] == 0
     assert client.get("/admin/orders/search?limit=5", headers=admin).status_code == 200
-
-
-def test_saved_filters(client, db_conn, seed):
-    a1, a2 = login(client, db_conn), login(client, db_conn)
-    name = "Open " + uuid.uuid4().hex[:4]
-    r = client.post("/admin/saved-filters", headers=a1,
-                    json={"name": name, "shared": False, "definition": {"stage": ["Awaiting godown"], "junk": 1}})
-    assert r.status_code == 201 and r.json()["definition"] == {"stage": ["Awaiting godown"]}
-    assert name in [s["name"] for s in client.get("/admin/saved-filters", headers=a1).json()]
-    assert name not in [s["name"] for s in client.get("/admin/saved-filters", headers=a2).json()]
-    client.post("/admin/saved-filters", headers=a1, json={"name": name, "shared": True, "definition": {"q": "x"}})
-    seen = [s for s in client.get("/admin/saved-filters", headers=a2).json() if s["name"] == name]
-    assert len(seen) == 1 and seen[0]["mine"] is False and seen[0]["definition"] == {"q": "x"}
-    assert client.delete(f"/admin/saved-filters/{seen[0]['filter_key']}", headers=a2).status_code == 404
-    assert client.delete(f"/admin/saved-filters/{seen[0]['filter_key']}", headers=a1).status_code == 200
-    assert client.post("/admin/saved-filters", headers=a1,
-                       json={"name": "empty", "definition": {"junk": 1}}).status_code == 422
 
 
 def test_filtered_excel_export(client, db_conn, seed):

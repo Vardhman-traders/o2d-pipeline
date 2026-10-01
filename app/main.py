@@ -9,9 +9,10 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from psycopg2 import errors as pgerr
+from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles
+from . import access, admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles, timeline
 
 
 @asynccontextmanager
@@ -44,8 +45,13 @@ async def security_headers(request, call_next):
     # The O2D screens (static/sales) ship their own inline script/style, carried over unchanged from the
     # Sheet-era HTML; only that path gets the relaxed policy. TODO: move to external files, then drop this.
     response.headers["Content-Security-Policy"] = CSP_INLINE if request.url.path.startswith("/sales") else CSP
-    if request.url.path.startswith(("/auth", "/admin", "/orders", "/lookups", "/people", "/links", "/o2d", "/sales")):
+    if request.url.path.startswith(("/auth", "/admin", "/access", "/orders", "/lookups", "/people", "/links",
+                                    "/o2d", "/sales")):
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.endswith((".js", ".css")):
+        # No build-time hashing on these files, so without this a browser can keep running JS/CSS from
+        # before the latest deploy. no-cache still allows a fast 304, it just forces revalidation first.
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 LOOKUPS = config.LOOKUPS  # shared with admin.py's CRUD over the same tables
@@ -102,7 +108,9 @@ def me(user=Depends(auth.current_user)):
     # editable_fields lets the front end show/hide fields based on whatever admin
     # has actually granted this role in Setup -> Permissions, instead of a
     # hardcoded assumption baked into the UI.
-    return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"]))}
+    return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"])),
+            # pages this person may open; the portal and the O2D screens build their menus from this
+            "pages": sorted(access.effective_pages(user))}
 
 
 @app.post("/auth/change-password")
@@ -377,7 +385,9 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
                 f"VALUES (%s, now(), now(), {', '.join(['%s'] * len(names))})",
                 [sl_no] + [cols[n] for n in names])
             cur.execute(ORDER_SELECT + " WHERE o.sl_no = %s", (sl_no,))
-            return cur.fetchone()
+            created = cur.fetchone()
+            timeline.record_created(cur, created["order_key"], user)
+            return created
     except pgerr.ForeignKeyViolation as e:
         raise _fk_error(e)
 
@@ -410,14 +420,43 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Order not found")
+            cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
+            before = cur.fetchone()
             cur.execute(
                 f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
                 f"last_updated_at = now() WHERE order_key = %s",
                 params + [user["user_key"], row["order_key"]])
             cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
-            return cur.fetchone()
+            after = cur.fetchone()
+            timeline.record_update(cur, row["order_key"], user, before, after)
+            return after
     except pgerr.ForeignKeyViolation as e:
         raise _fk_error(e)
+
+
+ADMIN_ONLY = auth.require_roles("admin")
+
+
+@app.delete("/orders/{sl_no}")
+def delete_order(sl_no: int, archived: bool | None = Query(default=None), admin=Depends(ADMIN_ONLY)):
+    """Permanently removes the order. Unlike cancelling (which keeps the row, just flagged), this
+    cannot be undone - the row and its history are gone. A snapshot goes to admin_audit_log first,
+    since that is the only record left of what existed."""
+    vis_sql, vis_params = roles.visibility(admin, archived=archived)
+    with db.cursor() as cur:
+        cur.execute(f"SELECT o.order_key, o.dc_inv_no, d.full_date AS order_date FROM fact_orders o "
+                    f"JOIN dim_date d ON d.date_key = o.order_received_date_key "
+                    f"WHERE o.sl_no = %s AND {vis_sql}", [sl_no] + vis_params)
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Order not found")
+        cur.execute(
+            "INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (admin["user_key"], admin["username"], "order.delete", str(sl_no),
+             Json({"dc_inv_no": row["dc_inv_no"], "order_date": str(row["order_date"])})))
+        cur.execute("DELETE FROM fact_orders WHERE order_key = %s", (row["order_key"],))
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- admin routes + portal pages
@@ -425,6 +464,8 @@ app.include_router(o2d_screens.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)
 app.include_router(reconcile.router)
+app.include_router(access.router)
+app.include_router(access.public_router)
 app.include_router(admin.public_router)
 # Must be last: serves the login/portal pages for any path not matched above.
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="portal")

@@ -108,22 +108,14 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         expect(page.locator("#importStatus")).to_contain_text("Imported 2 orders", timeout=8000)
         expect(page.locator("#batchTable")).to_contain_text("orders.csv", timeout=8000)
 
-        # ---- orders tab: filter by text, save the filter, reload it, export
+        # ---- orders tab: find orders by number (any date), narrow with a dropdown filter, export
         _section(page, "Dashboard", "All orders")
-        page.fill("#f_q", f"UI-{u}")
-        page.click("#applyBtn")
+        page.fill("#f_sl", f"UI-{u}")
         expect(page.locator("#ordersTable")).to_contain_text(f"UI-{u}-1", timeout=8000)
         expect(page.locator("#ordersTable tbody tr")).to_have_count(2)
-        page.locator("details[data-key=channel] summary").click()
-        page.locator("details[data-key=channel] input[value=Call]").check()
-        page.click("#applyBtn")
-        expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
-        page.get_by_role("button", name="Save current…").click()
-        page.fill("dialog input[type=text]", "UI test filter")
-        page.locator("dialog button[type=submit]").click()
-        expect(page.locator("#savedFilters option", has_text="UI test filter")).to_have_count(1, timeout=8000)
-        page.get_by_role("button", name="Reset").click()
-        page.select_option("#savedFilters", label="UI test filter")
+        channel_filter = page.locator(".multiselect", has=page.locator("button", has_text="Order via"))
+        channel_filter.locator("button.multiselect-btn").click()
+        channel_filter.get_by_label("Call").check()
         expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
         with page.expect_download() as dl:
             page.click("#exportBtn")
@@ -224,15 +216,41 @@ def test_admin_home_screen_and_navigation(base_url):
 
         # Dashboard module: the overview and the full order list
         page.click("#tileDashboard")
-        expect(page.locator(".module-tabs .subtab")).to_have_text(["Dashboard", "All orders"])
+        expect(page.locator(".module-tabs .subtab")).to_have_text(["Overview", "All orders"])
+        # overview: dropdown-style filters under a "Filter by" label, a From/To period, and the archive note
+        expect(page.locator(".filter-label", has_text="Filter by")).to_be_visible(timeout=8000)
+        expect(page.locator(".multiselect-btn .ms-caret").first).to_be_visible()
+        expect(page.locator("#dash_from")).to_be_visible()
+        expect(page.locator("#dash_to")).to_be_visible()
+        expect(page.locator("#archiveNote")).to_contain_text("Archived orders are not included")
+        expect(page.locator("#archiveNote")).to_contain_text("7 days")
+        # a reversed range is refused with a message instead of querying
+        page.fill("#dash_from", "2999-01-01")
+        expect(page.locator("#dash_range_msg")).to_contain_text("must be on or before")
+        page.click("#dash_reset")
+        expect(page.locator("#dash_range_msg")).to_have_text("")
+        # Download Excel sits top-right of the tab row, and the big page title is gone
+        expect(page.locator("#moduleActions")).to_contain_text("Download Excel")
+        expect(page.locator(".module-title")).to_have_count(0)
         page.locator(".module-tabs .subtab", has_text="All orders").click()
         expect(page.locator("#orderCount")).to_be_visible(timeout=8000)
+        # All orders: same Period / Filter by layout, export in the same top-right spot
+        expect(page.locator(".filter-label", has_text="Period")).to_be_visible()
+        expect(page.locator(".filter-label", has_text="Filter by")).to_be_visible()
+        expect(page.locator("#f_sl")).to_be_visible()
+        expect(page.locator("#f_from")).not_to_have_value("")  # defaults to the last 30 days, like the Overview
+        expect(page.locator("#moduleActions #exportBtn")).to_be_visible()
+        page.click("#f_last30")
+        expect(page.locator("#f_from")).not_to_have_value("")
 
         # Setup module: members, import, reconciliation and the rest; no activity log
         page.click("#homeBtn")
         page.click("#tileSetup")
         expect(page.locator(".module-tabs .subtab")).to_have_text(
-            ["Members", "Import", "Reconciliation", "Dropdown values", "Permissions", "Apps"])
+            [re.compile(p) for p in (
+                r"^Members$", r"^Import$", r"^Reconciliation$", r"^Access$",
+                r"^Access requests( \(\d+\))?$",   # carries a count while requests are waiting
+                r"^Dropdown values$", r"^Permissions$", r"^Weekly off$", r"^Apps$")])
         page.locator(".module-tabs .subtab", has_text="Reconciliation").click()
         expect(page.locator("#rc_table")).to_be_visible(timeout=8000)
         assert "Activity log" not in page.content()

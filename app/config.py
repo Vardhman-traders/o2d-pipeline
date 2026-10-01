@@ -21,6 +21,29 @@ LOOKUPS = {
 }
 PERSON_ROLES = ("ready_by", "colour_making", "delivery")
 
+WEEKLY_OFF_DAYS_KEY = "weekly_off_days"
+DEFAULT_WEEKLY_OFF_DAYS = {0}  # Monday, same default the app has always used
+WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def weekly_off_days() -> set[int]:
+    """Which weekdays (0=Monday..6=Sunday) count as the weekly off, for the dashboard's
+    'previous working day' window. Admin-configurable (Setup), not hardcoded."""
+    raw = get(WEEKLY_OFF_DAYS_KEY)
+    if not raw:
+        return set(DEFAULT_WEEKLY_OFF_DAYS)
+    try:
+        return {int(d) for d in raw.split(",") if d.strip()}
+    except ValueError:
+        return set(DEFAULT_WEEKLY_OFF_DAYS)
+
+
+def set_weekly_off_days(days: set[int], updated_by=None):
+    bad = [d for d in days if d not in range(7)]
+    if bad:
+        raise ValueError(f"Invalid weekday(s): {bad}")
+    set_value(WEEKLY_OFF_DAYS_KEY, ",".join(str(d) for d in sorted(days)), updated_by)
+
 _value_cache: dict = {}
 _value_cache_at: dict = {}
 

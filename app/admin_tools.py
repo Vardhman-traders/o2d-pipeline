@@ -1,7 +1,6 @@
 """Admin portal tools for the order tracker: custom order filters (with saved filters and Excel export) and bulk upload
 (orders and members) with template, validation, inline fixes, one-transaction import and undo. Admin only."""
 import io
-import json
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -10,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import bulk, bulk_entities, db
+from . import access, bulk, bulk_entities, db, timeline
 from .admin import ADMIN, EXPORT_COLUMNS, IST_COLS, audit
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
@@ -27,7 +26,8 @@ NUMBERS = {"min_amount": ("v.amount_received", ">="), "max_amount": ("v.amount_r
 SORTS = {"sl_no": "v.sl_no", "order_date": "v.order_date", "dc_inv_no": "v.dc_inv_no", "stage": "v.stage",
          "delivery_status": "v.delivery_status", "payment_status": "v.payment_status",
          "amount_received": "v.amount_received", "cartage": "v.cartage", "hours_to_deliver": "v.hours_to_deliver"}
-FILTER_KEYS = ({"date_from", "date_to", "q", "cancelled", "include_archived", "batch_id"} | set(MULTI) | set(NUMBERS))
+FILTER_KEYS = ({"date_from", "date_to", "q", "sl_no", "cancelled", "include_archived", "batch_id"}
+               | set(MULTI) | set(NUMBERS))
 
 
 def normalise_filter(raw: dict[str, Any]) -> dict[str, Any]:
@@ -39,6 +39,8 @@ def normalise_filter(raw: dict[str, Any]) -> dict[str, Any]:
                 out[k] = date.fromisoformat(str(raw[k])).isoformat()
         if raw.get("q"):
             out["q"] = str(raw["q"]).strip()[:100]
+        if raw.get("sl_no"):
+            out["sl_no"] = str(raw["sl_no"]).strip()[:50]
         for k in MULTI:
             vals = raw.get(k)
             if isinstance(vals, str):
@@ -78,6 +80,13 @@ def build_where(f: dict[str, Any]) -> tuple[str, list]:
     if f.get("date_to"):
         where.append("v.order_date <= %s")
         params.append(f["date_to"])
+    if f.get("sl_no"):  # one order by its Sl number, or by DC/Inv number text
+        if f["sl_no"].isdigit():  # a number is an exact Sl no. (or an exact DC/Inv no.), never a partial match
+            where.append("(v.sl_no::text = %s OR v.dc_inv_no = %s)")
+            params += [f["sl_no"], f["sl_no"]]
+        else:
+            where.append("v.dc_inv_no ILIKE %s")
+            params.append(f"%{f['sl_no']}%")
     if f.get("q"):
         where.append("(v.dc_inv_no ILIKE %s OR v.shipping_location ILIKE %s OR v.detailed_remarks ILIKE %s)")
         params += [f"%{f['q']}%"] * 3
@@ -117,7 +126,7 @@ RESULT_COLUMNS = ("v.sl_no, v.dc_inv_no, v.order_date, v.stage, v.channel, v.sub
 
 
 @router.get("/orders/filter-options")
-def filter_options(admin=Depends(ADMIN)):
+def filter_options(viewer=Depends(access.require_page(*access.DASHBOARD_PAGES))):
     with db.cursor() as cur:
         def col(sql):
             cur.execute(sql)
@@ -141,7 +150,7 @@ def filter_options(admin=Depends(ADMIN)):
 @router.get("/orders/search")
 def search_orders(request: Request, sort: str = "order_date", direction: str = Query(default="desc", alias="dir"),
                   limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
-                  admin=Depends(ADMIN)):
+                  viewer=Depends(access.require_page(*access.DASHBOARD_PAGES))):
     f = filter_from_query(request)
     where, params = build_where(f)
     order_col = SORTS.get(sort, "v.order_date")
@@ -156,11 +165,25 @@ def search_orders(request: Request, sort: str = "order_date", direction: str = Q
     return {"total": total, "rows": rows, "filter": f}
 
 
+@router.get("/orders/{sl_no}/detail")
+def order_detail(sl_no: int, viewer=Depends(access.require_page(*access.DASHBOARD_PAGES))):
+    """Everything on one order (active or archived) plus its timeline, for the order-details popup."""
+    with db.cursor() as cur:
+        cur.execute("SELECT * FROM v_orders_archive WHERE sl_no = %s", (sl_no,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Order not found")
+        tl = timeline.timeline_for(cur, row["order_key"], row)
+    order = {k: v for k, v in row.items() if k != "order_key"}
+    order["archived"] = order.pop("archived_at") is not None
+    return {"order": order, "timeline": tl["events"], "timeline_note": tl["note"]}
+
+
 EXPORT_CAP = 20000
 
 
 @router.get("/orders/search.xlsx")
-def export_search(request: Request, admin=Depends(ADMIN)):
+def export_search(request: Request, viewer=Depends(access.require_page("dashboard_orders"))):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -174,7 +197,7 @@ def export_search(request: Request, admin=Depends(ADMIN)):
         rows = cur.fetchall()
         if len(rows) > EXPORT_CAP:
             raise HTTPException(400, f"More than {EXPORT_CAP} orders match - narrow the filter (for example by date).")
-        audit(cur, admin, "export.filtered", None, {"rows": len(rows), "filter": f})
+        audit(cur, viewer, "export.filtered", None, {"rows": len(rows), "filter": f})
 
     wb = Workbook()
     ws = wb.active
@@ -217,49 +240,6 @@ def export_search(request: Request, admin=Depends(ADMIN)):
     return StreamingResponse(
         buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="vardhman_orders_filtered.xlsx"'})
-
-
-# ------------------------------------------------------------------ saved filters
-class SavedFilterIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=80)
-    shared: bool = False
-    definition: dict[str, Any]
-
-
-@router.get("/saved-filters")
-def list_saved_filters(admin=Depends(ADMIN)):
-    with db.cursor() as cur:
-        cur.execute("SELECT s.filter_key, s.name, s.shared, s.definition, (s.owner_user_key = %s) AS mine, "
-                    "u.display_name AS owner FROM saved_filter s JOIN dim_user u ON u.user_key = s.owner_user_key "
-                    "WHERE s.owner_user_key = %s OR s.shared ORDER BY lower(s.name)",
-                    (admin["user_key"], admin["user_key"]))
-        return cur.fetchall()
-
-
-@router.post("/saved-filters", status_code=201)
-def save_filter(body: SavedFilterIn, admin=Depends(ADMIN)):
-    definition = normalise_filter(body.definition)
-    if not definition:
-        raise HTTPException(422, "Nothing to save - set at least one filter first.")
-    name = " ".join(body.name.split())
-    with db.cursor() as cur:
-        cur.execute("INSERT INTO saved_filter (owner_user_key, name, shared, definition) VALUES (%s, %s, %s, %s) "
-                    "ON CONFLICT (owner_user_key, name) DO UPDATE SET shared = EXCLUDED.shared, "
-                    "definition = EXCLUDED.definition RETURNING filter_key",
-                    (admin["user_key"], name, body.shared, json.dumps(definition)))
-        key = cur.fetchone()["filter_key"]
-    return {"filter_key": key, "definition": definition}
-
-
-@router.delete("/saved-filters/{filter_key}")
-def delete_saved_filter(filter_key: int, admin=Depends(ADMIN)):
-    with db.cursor() as cur:
-        cur.execute("DELETE FROM saved_filter WHERE filter_key = %s AND owner_user_key = %s RETURNING name",
-                    (filter_key, admin["user_key"]))
-        if not cur.fetchone():
-            raise HTTPException(404, "Saved filter not found (you can only delete your own)")
-    return {"ok": True}
 
 
 # ------------------------------------------------------------------ bulk upload

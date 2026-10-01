@@ -30,6 +30,11 @@
   .badge { background: #fff; color: var(--navy); font-weight: 800; font-size: 12px; padding: 4px 9px; border-radius: 7px; }
   .btn-home { font-size: 13px; padding: 7px 14px; border-radius: 8px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.35); text-decoration: none; color: #fff; cursor: pointer; }
   .btn-home:hover { background: rgba(255,255,255,0.28); }
+  /* One ribbon height on every screen; nothing in it ever wraps onto a second line. */
+  .topbar { min-height: 64px; padding-top: 8px; padding-bottom: 8px; gap: 16px; }
+  .topbar h1, .topbar .btn-home, .topbar select, .topbar span { white-space: nowrap; }
+  .topbar .btn-home, .topbar select { flex-shrink: 0; }
+  .topbar > div:not(#topbar_searchResults) { flex-wrap: nowrap; min-width: 0; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 22px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 22px; box-shadow: 0 1px 4px rgba(22,50,74,0.05); }
   .card.accent-shop     { border-left: 4px solid var(--shop-color); }
@@ -219,53 +224,13 @@
 </script>
 
 <!-- ==================== LOGIN SCREEN ==================== -->
+<!-- Sign-in happens only on the portal ("/"); this page always has a session already, or sends you there.
+     This placeholder is only ever visible for the instant it takes autologin.js to check and redirect. -->
 <div id="loginScreen">
   <div class="topbar"><h1><span class="badge">VT</span> Vardhman Traders - Sales Portal</h1></div>
   <div class="wrap" style="max-width:400px;">
-    <div class="card" style="margin-top:50px;">
-      <div style="width:60px;height:60px;margin:0 auto 16px;border-radius:50%;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;font-size:26px;">🔒</div>
-      <h2 style="justify-content:center;text-align:center;">Sign in to your dashboard</h2>
-      <form id="loginForm">
-        <div class="field">
-          <label>Username</label>
-          <input type="text" id="loginUsername" autocomplete="username" autofocus required>
-        </div>
-        <div class="field" style="margin-top:14px;position:relative;">
-          <label>Password</label>
-          <input type="password" id="loginPassword" autocomplete="current-password" required style="padding-right:42px;">
-          <button type="button" id="togglePasswordBtn" onclick="togglePasswordVisibility()" style="position:absolute;right:6px;top:31px;background:none;border:none;cursor:pointer;font-size:17px;padding:6px;">👁</button>
-        </div>
-        <div class="actions" style="margin-top:20px;justify-content:center;">
-          <button type="submit" class="primary" style="width:100%;">Login</button>
-        </div>
-        <div id="loginError" class="status-msg error" style="text-align:center;margin-top:10px;"></div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- ==================== FORCED CHANGE-PASSWORD SCREEN ==================== -->
-<div id="changePasswordScreen" style="display:none;">
-  <div class="topbar"><h1><span class="badge">VT</span> Vardhman Traders - Sales Portal</h1></div>
-  <div class="wrap" style="max-width:400px;">
-    <div class="card" style="margin-top:50px;">
-      <div style="width:60px;height:60px;margin:0 auto 16px;border-radius:50%;background:var(--brand-gradient);display:flex;align-items:center;justify-content:center;font-size:26px;">🔑</div>
-      <h2 style="justify-content:center;text-align:center;">Set a new password</h2>
-      <p style="font-size:12.5px;color:var(--muted);text-align:center;">First-time login: please choose a new password (at least 10 characters) before continuing.</p>
-      <form id="changePasswordForm">
-        <div class="field">
-          <label>New Password</label>
-          <input type="password" id="newPassword" autocomplete="new-password" required minlength="10">
-        </div>
-        <div class="field" style="margin-top:14px;">
-          <label>Confirm New Password</label>
-          <input type="password" id="confirmPassword" autocomplete="new-password" required minlength="10">
-        </div>
-        <div class="actions" style="margin-top:20px;justify-content:center;">
-          <button type="submit" class="primary" style="width:100%;">Save &amp; Continue</button>
-        </div>
-        <div id="changePasswordError" class="status-msg error" style="text-align:center;margin-top:10px;"></div>
-      </form>
+    <div class="card" style="margin-top:50px;text-align:center;">
+      <p style="color:var(--muted);">Redirecting to sign in…</p>
     </div>
   </div>
 </div>
@@ -275,6 +240,16 @@
   <div class="topbar" style="position:relative;">
     <h1><span class="badge">VT</span> <span id="roleTitle"></span></h1>
     <div style="display:flex;align-items:center;gap:14px;">
+      <!-- Admin only: back to the main portal, and view as the overview or any of the 5 operating screens -->
+      <button id="backToPortalBtn" class="btn-home" style="display:none;" onclick="window.location.href='/'">⌂ Back to Portal</button>
+      <select id="adminViewSwitcher" style="display:none;height:28px;border-radius:6px;border:none;font-size:12px;font-weight:600;padding:0 6px;" onchange="adminSwitchView(this.value)">
+        <option value="overview">View as: Overview</option>
+        <option value="shop">View as: Shop</option>
+        <option value="godown">View as: Godown</option>
+        <option value="shop_dispatch">View as: Shop Dispatch</option>
+        <option value="godown_dispatch">View as: Godown Dispatch</option>
+        <option value="receiving">View as: Receiving</option>
+      </select>
       <!-- Search bar -->
       <div id="topbar_search" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 8px;">
         <input type="text" class="dp-input" id="topbar_searchDate" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('topbar_searchDate')" style="width:118px;height:24px;border:none;border-radius:5px;font-size:11px;padding:0 4px;">
@@ -304,6 +279,22 @@
   </div>
 
   <div class="wrap">
+
+    <!-- ================= OVERVIEW SECTION (admin only) ================= -->
+    <div id="overviewSection" style="display:none;">
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <strong style="font-size:13px;color:var(--navy);">Filters</strong>
+          <div>
+            <button type="button" class="small" onclick="initOverview()">Apply</button>
+            <button type="button" class="small" onclick="overviewResetFilters()">Reset</button>
+          </div>
+        </div>
+        <div id="overview_filters" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;"></div>
+      </div>
+      <div id="overview_summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px;"></div>
+      <div id="overview_board" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;"></div>
+    </div>
 
     <!-- ================= SHOP SECTION ================= -->
     <div id="shopSection" style="display:none;">
@@ -626,17 +617,35 @@
 <script>
   var CURRENT_TOKEN = null;
   var CURRENT_ROLE = null;
+  var IS_ADMIN = false;  // true sign-in role is 'admin'; CURRENT_ROLE is then whichever screen admin is viewing
   var CURRENT_USER_NAME = null;
-  var PENDING_LOGIN_PASSWORD = null; // held only in memory during the forced-change flow
   var AUTO_REFRESH_TIMER = null;
 
   function titleForRole(role) {
-    if (role === 'shop')             return 'Shop Dashboard';
-    if (role === 'godown')           return 'Godown Dashboard';
-    if (role === 'shop_dispatch')    return 'Shop Dispatch Dashboard';
-    if (role === 'godown_dispatch')  return 'Godown Dispatch Dashboard';
-    if (role === 'receiving')        return 'Receiving Dashboard';
-    return 'Dashboard';
+    var prefix = IS_ADMIN ? 'Admin · ' : '';
+    if (role === 'overview')         return prefix + 'Overview';
+    if (role === 'shop')             return prefix + 'Shop Dashboard';
+    if (role === 'godown')           return prefix + 'Godown Dashboard';
+    if (role === 'shop_dispatch')    return prefix + 'Shop Dispatch Dashboard';
+    if (role === 'godown_dispatch')  return prefix + 'Godown Dispatch Dashboard';
+    if (role === 'receiving')        return prefix + 'Receiving Dashboard';
+    return prefix + 'Dashboard';
+  }
+
+  // Admin has no operating screen of its own - it views (and can act on) any of the six, switchable here.
+  function adminSwitchView(role) {
+    CURRENT_ROLE = role;
+    ['overviewSection', 'shopSection', 'godownSection', 'dispatchSection', 'receivingSection'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
+    if (section) section.style.display = 'block';
+    document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
+    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
+    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    document.getElementById('adminViewSwitcher').value = CURRENT_ROLE;
+    refreshCurrent();
   }
 
   function sectionIdForRole(role) {
@@ -751,105 +760,159 @@
       .getMissingNumbersForWindow(CURRENT_TOKEN);
   }
 
-  /* ---- Login ---- */
-  function togglePasswordVisibility() {
-    var pwd = document.getElementById('loginPassword');
-    var btn = document.getElementById('togglePasswordBtn');
-    if (pwd.type === 'password') { pwd.type = 'text'; btn.textContent = '🙈'; }
-    else { pwd.type = 'password'; btn.textContent = '👁'; }
-  }
-
-  document.getElementById('loginUsername').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('loginPassword').focus(); }
-  });
-
-  document.getElementById('loginForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    var u = document.getElementById('loginUsername').value.trim();
-    var p = document.getElementById('loginPassword').value;
-    var errEl = document.getElementById('loginError');
-    errEl.textContent = '';
-    google.script.run
-      .withSuccessHandler(function(res) {
-        if (!res) { errEl.textContent = 'Server se koi jawab nahi mila.'; return; }
-        if (!res.ok) { errEl.textContent = 'Server error: ' + res.error; return; }
-        if (!res.success) { errEl.textContent = res.message || 'Login failed.'; return; }
-        CURRENT_TOKEN = res.token;
-        CURRENT_ROLE = res.role;
-        CURRENT_USER_NAME = res.displayName;
-        if (res.mustChangePassword) {
-          PENDING_LOGIN_PASSWORD = p;
-          showChangePasswordScreen();
-        } else {
-          enterDashboard();
-        }
-      })
-      .withFailureHandler(function(err) { errEl.textContent = 'Error: ' + err.message; })
-      .login(u, p);
-  });
-
-  function showChangePasswordScreen() {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('changePasswordScreen').style.display = 'block';
-    document.getElementById('newPassword').value = '';
-    document.getElementById('confirmPassword').value = '';
-    document.getElementById('changePasswordError').textContent = '';
-  }
-
-  document.getElementById('changePasswordForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    var newPwd = document.getElementById('newPassword').value;
-    var confirmPwd = document.getElementById('confirmPassword').value;
-    var errEl = document.getElementById('changePasswordError');
-    errEl.textContent = '';
-    if (newPwd !== confirmPwd) { errEl.textContent = 'Passwords do not match.'; return; }
-    google.script.run
-      .withSuccessHandler(function(res) {
-        if (!res) { errEl.textContent = 'Server se koi jawab nahi mila.'; return; }
-        if (!res.ok) { errEl.textContent = 'Server error: ' + res.error; return; }
-        if (!res.success) { errEl.textContent = res.message || 'Could not change password.'; return; }
-        PENDING_LOGIN_PASSWORD = null;
-        document.getElementById('changePasswordScreen').style.display = 'none';
-        enterDashboard();
-      })
-      .withFailureHandler(function(err) { errEl.textContent = 'Error: ' + err.message; })
-      .changePassword(CURRENT_TOKEN, PENDING_LOGIN_PASSWORD, newPwd);
-  });
-
   function enterDashboard() {
     document.getElementById('dpPopup').style.display = 'none';
     document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('changePasswordScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = 'block';
+    IS_ADMIN = CURRENT_ROLE === 'admin';
+    var switcher = document.getElementById('adminViewSwitcher');
+    if (IS_ADMIN) {
+      switcher.style.display = 'inline-block';
+      document.getElementById('backToPortalBtn').style.display = 'inline-block';
+      CURRENT_ROLE = 'overview';  // a screen to land on; admin can switch to any of the six above
+    } else {
+      // Everyone else sees only the screens they have been given (window.O2D_VIEWS, set by autologin.js from
+      // their page access): their own role's screen by default, with a switcher when they have more than one.
+      var views = window.O2D_VIEWS || [];
+      document.getElementById('backToPortalBtn').style.display = 'inline-block';
+      if (views.length) {
+        if (views.indexOf(CURRENT_ROLE) === -1) CURRENT_ROLE = views[0];
+        Array.prototype.slice.call(switcher.options).forEach(function(o) { if (views.indexOf(o.value) === -1) switcher.removeChild(o); });
+        if (views.length > 1) switcher.style.display = 'inline-block';
+      }
+    }
     document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     document.getElementById('userDisplayName').textContent = CURRENT_USER_NAME;
     var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
     if (section) section.style.display = 'block';
     var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
     document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    if (switcher.style.display !== 'none') switcher.value = CURRENT_ROLE;
     refreshCurrent();
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
   }
 
   function refreshCurrent() {
-    if (CURRENT_ROLE === 'shop')                                        initShop();
+    if (CURRENT_ROLE === 'overview')                                    initOverview();
+    else if (CURRENT_ROLE === 'shop')                                   initShop();
     else if (CURRENT_ROLE === 'godown')                                  initGodown();
     else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
     else if (CURRENT_ROLE === 'receiving')                               initReceiving();
   }
 
+  // logout() itself is defined in autologin.js (it needs to send the user back to the portal,
+  // the only place that signs anyone in); this just stops the auto-refresh timer first.
   function logout() {
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
-    CURRENT_TOKEN = null; CURRENT_ROLE = null; CURRENT_USER_NAME = null; PENDING_LOGIN_PASSWORD = null;
-    document.getElementById('dpPopup').style.display = 'none';
-    document.getElementById('appScreen').style.display = 'none';
-    document.getElementById('changePasswordScreen').style.display = 'none';
-    document.getElementById('loginScreen').style.display = 'block';
-    document.getElementById('loginUsername').value = '';
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('loginError').textContent = '';
-    document.getElementById('loginUsername').focus();
+  }
+
+  /* ================= OVERVIEW (admin) ================= */
+  var STAGE_COLORS = {
+    'Awaiting godown': '#c98a12', 'Awaiting dispatch': '#2563eb', 'Awaiting receiving': '#7c3aed',
+    'Closed': '#1f9d55', 'Cancelled': '#d8433f'
+  };
+
+  function el_(tag, props, text) {
+    var e = document.createElement(tag);
+    if (props) for (var k in props) e.setAttribute(k, props[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  var OVERVIEW_FILTER_FIELDS = [
+    ['channel', 'orderVia', 'Order via'], ['submission_type', 'typeOfSubmission', 'Submission type'],
+    ['payment_status', 'paymentStatus', 'Payment status'], ['ready_by', 'readyByWhom', 'Ready by'],
+    ['colour_making_by', 'colourMakingBy', 'Colour making by'], ['delivered_by', 'deliveredByWhom', 'Delivered by']
+  ];
+  var overviewFiltersBuilt = false;
+
+  function overviewFilterValues() {
+    var out = {};
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
+      var sel = document.getElementById('overview_f_' + f[0]);
+      if (!sel) return;
+      var chosen = Array.prototype.filter.call(sel.options, function (o) { return o.selected; }).map(function (o) { return o.value; });
+      if (chosen.length) out[f[0]] = chosen;
+    });
+    return out;
+  }
+
+  function overviewResetFilters() {
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
+      var sel = document.getElementById('overview_f_' + f[0]);
+      if (sel) Array.prototype.forEach.call(sel.options, function (o) { o.selected = false; });
+    });
+    initOverview();
+  }
+
+  function buildOverviewFilters(dropdowns) {
+    var host = document.getElementById('overview_filters');
+    host.replaceChildren();
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
+      var wrap = el_('div');
+      wrap.appendChild(el_('label', { style: 'display:block;font-size:12px;font-weight:650;color:var(--muted);margin-bottom:4px;' }, f[2]));
+      var sel = el_('select', { id: 'overview_f_' + f[0], multiple: 'multiple', size: '4', style: 'width:100%;font-size:12px;' });
+      (dropdowns[f[1]] || []).forEach(function (name) { sel.appendChild(el_('option', { value: name }, name)); });
+      wrap.appendChild(sel);
+      host.appendChild(wrap);
+    });
+    overviewFiltersBuilt = true;
+  }
+
+  function initOverview() {
+    var summaryEl = document.getElementById('overview_summary');
+    var boardEl = document.getElementById('overview_board');
+    if (!overviewFiltersBuilt) {
+      google.script.run.withSuccessHandler(function (d) { if (d && d.ok) buildOverviewFilters(d.dropdowns); }).getAdminFormOptions(CURRENT_TOKEN);
+    }
+    google.script.run
+      .withSuccessHandler(function (data) {
+        if (!data || !data.ok) {
+          summaryEl.replaceChildren();
+          boardEl.replaceChildren(el_('p', { style: 'color:var(--muted)' }, (data && data.error) || 'Could not load the overview.'));
+          return;
+        }
+        summaryEl.replaceChildren();
+        var totalCard = el_('div', { style: 'background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;' });
+        totalCard.appendChild(el_('div', { style: 'font-size:26px;font-weight:800;' }, String(data.total)));
+        totalCard.appendChild(el_('div', { style: 'font-size:12px;opacity:0.85;' }, 'Total open + closed (active orders)'));
+        summaryEl.appendChild(totalCard);
+        data.stages.forEach(function (s) {
+          var card = el_('div', { style: 'background:var(--panel);border:1px solid var(--border);border-left:4px solid ' + (STAGE_COLORS[s.name] || '#999') + ';border-radius:12px;padding:14px 16px;' });
+          card.appendChild(el_('div', { style: 'font-size:26px;font-weight:800;color:var(--navy);' }, String(s.count)));
+          card.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted);' }, s.name));
+          summaryEl.appendChild(card);
+        });
+
+        boardEl.replaceChildren();
+        data.stages.forEach(function (s) {
+          var col = el_('div', { style: 'background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;' });
+          var head = el_('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid ' + (STAGE_COLORS[s.name] || '#999') + ';' });
+          head.appendChild(el_('strong', { style: 'font-size:13px;' }, s.name));
+          head.appendChild(el_('span', { style: 'background:' + (STAGE_COLORS[s.name] || '#999') + ';color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;' }, String(s.count)));
+          col.appendChild(head);
+          if (!s.orders.length) {
+            col.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted);padding:8px 0;' }, 'Nothing here.'));
+          }
+          s.orders.forEach(function (o) {
+            var card = el_('div', { style: 'background:var(--bg,#f7f8fa);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;cursor:pointer;' });
+            card.appendChild(el_('div', { style: 'font-weight:700;color:var(--navy);' }, o.dcNo || ('Sl ' + o.slNo)));
+            card.appendChild(el_('div', { style: 'color:var(--muted);' }, formatDateDisplay(o.orderDate) + (o.shippingLocation ? ' · ' + o.shippingLocation : '')));
+            if (o.deliveryStatus) card.appendChild(el_('div', { style: 'color:var(--muted);' }, o.deliveryStatus));
+            col.appendChild(card);
+          });
+          if (s.count > s.orders.length) {
+            col.appendChild(el_('div', { style: 'font-size:11px;color:var(--muted);text-align:center;padding-top:4px;' },
+              '+ ' + (s.count - s.orders.length) + ' more'));
+          }
+          boardEl.appendChild(col);
+        });
+      })
+      .withFailureHandler(function (err) {
+        boardEl.replaceChildren(el_('p', { style: 'color:var(--bad,#d8433f)' }, 'Error: ' + err.message));
+      })
+      .getKanban(CURRENT_TOKEN, overviewFilterValues());
   }
 
   /* ================= SHOP ================= */

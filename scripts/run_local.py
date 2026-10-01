@@ -113,6 +113,7 @@ def main():
     ap.add_argument("--pg-port", type=int, default=5432, help="its port (default: 5432)")
     ap.add_argument("--copy-from", metavar="URL", help="copy all data from this database (read only) first")
     ap.add_argument("--reset", action="store_true", help="wipe the local database before starting")
+    ap.add_argument("--no-demo", action="store_true", help="skip adding demo data (schema and admin only)")
     ap.add_argument("--test", action="store_true", help="run tests and lint instead of starting the app")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--no-browser", action="store_true")
@@ -142,6 +143,11 @@ def main():
     if a.copy_from:
         say("Copying data from the source (it is only read, never changed)")
         run([sys.executable, "scripts/copy_database.py", a.copy_from, a.db_url, "--commit"], env)
+
+    if not a.test and not a.copy_from and not a.no_demo:
+        from scripts.seed_demo import seed
+        say("Adding demo data")
+        print("Added demo data." if seed(a.db_url) else "The database already has orders; left it alone.")
 
     if a.test:
         say("Running tests and lint")

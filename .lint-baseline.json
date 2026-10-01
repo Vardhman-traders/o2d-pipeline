@@ -6,7 +6,7 @@
  "ruff|app/admin.py|I001": 1,
  "ruff|app/admin.py|UP006": 1,
  "ruff|app/admin.py|UP035": 1,
- "ruff|app/admin.py|UP045": 10,
+ "ruff|app/admin.py|UP045": 8,
  "ruff|app/auth.py|UP017": 1,
  "ruff|app/config.py|E501": 1,
  "ruff|app/dashboard.py|E501": 1,

@@ -147,7 +147,7 @@ async function openDrilldown(title, params) {
     ];
     body.replaceChildren(
       h('p', { class: 'note', style: 'margin-bottom:10px', text: rows.length + ' matching order' + (rows.length === 1 ? '' : 's') + (rows.length === 200 ? ' (showing first 200)' : '') }),
-      rows.length ? tableFor(cols, rows) : h('div', { class: 'empty', text: 'No matching orders.' }));
+      rows.length ? tableFor(cols, rows, (r) => openOrderDetail(r.sl_no)) : h('div', { class: 'empty', text: 'No matching orders.' }));
   } catch (ex) {
     body.replaceChildren(h('div', { class: 'msg error', text: ex.message }));
   }
@@ -313,53 +313,86 @@ function topbar(onHome) {
     h('button', { class: 'btn', text: 'Sign out', onclick: () => signOut() }));
 }
 
-// Admin area: a home screen of big tiles, then two modules, each with its own sub-tabs.
+// Home screen of big tiles, then modules, each with its own sub-tabs. A section may name the page that
+// switches it on (4th item); admins have every page, everyone else only the pages they were given.
+const can = (page) => !!S.user && (S.user.role === 'admin' || (S.user.pages || []).includes(page));
+const canAny = (pages) => pages.some(can);
+const DASHBOARD_PAGE_KEYS = ['dashboard_overview', 'dashboard_orders'];
+const O2D_PAGE_KEYS = ['o2d_overview', 'o2d_shop', 'o2d_godown', 'o2d_shop_dispatch', 'o2d_godown_dispatch', 'o2d_receiving'];
+
 const MODULES = {
-  dashboard: { title: 'Dashboard', icon: '📊', stateKey: 'dashTab', first: 'overview',
-    sections: [['overview', 'Dashboard', (p) => renderDashboard(p)], ['orders', 'All orders', (p) => renderOrders(p)]] },
-  setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab', first: 'members',
+  dashboard: { title: 'Dashboard', icon: '📊', stateKey: 'dashTab', hideTitle: true,
+    sections: [['overview', 'Overview', (p) => renderDashboard(p), 'dashboard_overview'],
+      ['orders', 'All orders', (p) => renderOrders(p), 'dashboard_orders']] },
+  setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab',
     sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
-      ['reconcile', 'Reconciliation', (p) => renderReconcile(p)], ['lists', 'Dropdown values', (p) => renderLists(p)],
-      ['permissions', 'Permissions', (p) => renderPermissions(p)], ['apps', 'Apps', (p) => renderApps(p)]] },
+      ['reconcile', 'Reconciliation', (p) => renderReconcile(p)], ['access', 'Access', (p) => renderAccess(p)],
+      ['requests', 'Access requests', (p) => renderAccessRequests(p)], ['lists', 'Dropdown values', (p) => renderLists(p)],
+      ['permissions', 'Permissions', (p) => renderPermissions(p)], ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)],
+      ['apps', 'Apps', (p) => renderApps(p)]] },
 };
+const sectionsOf = (mod) => mod.sections.filter((sec) => !sec[3] || can(sec[3]));
 
 function renderModule(body, key) {
   const mod = MODULES[key];
-  if (!mod.sections.some(([id]) => id === S[mod.stateKey])) S[mod.stateKey] = mod.first;
+  const secs = sectionsOf(mod);
+  if (!secs.length) return body.append(noAccessCard(mod.title));
+  if (!secs.some(([id]) => id === S[mod.stateKey])) S[mod.stateKey] = secs[0][0];
   const bar = h('div', { class: 'subtabs module-tabs', role: 'tablist' });
   const inner = h('div');
+  // Top-right of the tab row: each section may park its main action (Download / Export) here.
+  const actions = h('div', { class: 'module-actions', id: 'moduleActions' });
   const openInner = () => {
     stopTimer(); hideTip();
+    actions.replaceChildren(); S.actionsSlot = actions;
     // A fresh panel per visit: a slow response from a section you already left writes into a detached node.
     const panel = h('div', { id: 'panel' });
     inner.replaceChildren(panel);
-    mod.sections.find(([id]) => id === S[mod.stateKey])[2](panel);
+    secs.find(([id]) => id === S[mod.stateKey])[2](panel);
   };
-  const drawBar = () => bar.replaceChildren(...mod.sections.map(([id, label]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label,
+  const drawBar = () => bar.replaceChildren(...secs.map(([id, label]) => h('button', {
+    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'requests' && S.pendingRequests ? ` (${S.pendingRequests})` : ''),
     onclick: () => { S[mod.stateKey] = id; drawBar(); openInner(); } })));
-  body.append(h('h1', { class: 'module-title', text: mod.icon + ' ' + mod.title }), bar, inner);
+  S.redrawModuleBar = drawBar;
+  // Dashboard's tabs already say where you are, so its big title is dropped (kept for Setup).
+  body.append(mod.hideTitle ? h('h1', { class: 'sr-only', text: mod.title }) : h('h1', { class: 'module-title', text: mod.icon + ' ' + mod.title }),
+    h('div', { class: 'module-head' }, bar, actions), inner);
   drawBar(); openInner();
+}
+
+async function refreshPendingRequests() {
+  if (S.user?.role !== 'admin') return 0;
+  try { S.pendingRequests = (await api('/admin/access/requests/count')).pending; } catch { /* badge just stays as it was */ }
+  return S.pendingRequests || 0;
 }
 
 async function showPortal() {
   let links = [];
   try { links = await api('/links'); } catch { /* shown as empty */ }
-  const body = h('main', { class: 'wrap' });
-  if (S.user.role !== 'admin') { mount(topbar(null), body); return renderHome(body, links); }
-
-  const go = (view) => { S.view = view; draw(); };
+  const admin = S.user.role === 'admin';
+  const go = async (view) => {
+    S.view = view;
+    if (view === 'home') { // pick up access granted (or taken away) since sign-in
+      try { S.user = await api('/auth/me'); } catch { /* keep what we have */ }
+      await refreshPendingRequests();
+    }
+    draw();
+  };
   const draw = () => {
     stopTimer(); hideTip();
-    if (S.view !== 'dashboard' && S.view !== 'setup') S.view = 'home';
+    const modules = { dashboard: canAny(DASHBOARD_PAGE_KEYS), setup: admin };
+    if (!modules[S.view]) S.view = 'home';
     const main = h('main', { class: 'wrap' });
     mount(topbar(S.view === 'home' ? null : () => go('home')), main);
     if (S.view !== 'home') return renderModule(main, S.view);
-    renderHome(main, links, (linkTiles) => [
-      appTile(MODULES.dashboard.icon, 'Dashboard', 'Open', () => go('dashboard'), 'tileDashboard'),
+    const pending = S.pendingRequests || 0;
+    renderHome(main, links.filter((l) => l.url !== '/sales/'), (linkTiles) => [
+      modules.dashboard && appTile(MODULES.dashboard.icon, 'Dashboard', 'Open', () => go('dashboard'), 'tileDashboard'),
+      canAny(O2D_PAGE_KEYS) && appTile('📋', 'O2D Portal', 'Open ↗', () => openAppLink('/sales/'), 'tileO2d'),
       ...linkTiles,
-      appTile(MODULES.setup.icon, 'Setup', 'Open', () => go('setup'), 'tileSetup')]);
+      admin && appTile(MODULES.setup.icon, 'Setup', pending ? `${pending} access request${pending === 1 ? '' : 's'} waiting` : 'Open', () => go('setup'), 'tileSetup')]);
   };
+  if (admin) await refreshPendingRequests();
   draw();
 }
 
@@ -385,18 +418,67 @@ function renderHome(body, links, extra) {
     const url = safeHttps(l.url);
     return url && appTile(iconForApp(l.name), l.name, 'Open ↗', () => openAppLink(url));
   });
-  const tiles = extra ? extra(linkTiles) : linkTiles;
+  const tiles = (extra ? extra(linkTiles) : linkTiles).filter(Boolean);
+  if (!tiles.length) return body.append(h('div', { class: 'home-wrap' }, h('div', { class: 'home-inner' }, noAccessCard())));
   body.append(h('div', { class: 'home-wrap' }, h('div', { class: 'home-inner' },
     h('h1', { text: 'Welcome, ' + S.user.display_name }),
-    h('p', { class: 'note', text: tiles.filter(Boolean).length ? 'Choose where to go' : 'No apps have been assigned to you yet. Please contact the administrator.' }),
-    h('div', { class: 'apps' }, ...tiles))));
+    h('p', { class: 'note', text: 'Choose where to go' }),
+    h('div', { class: 'apps' }, ...tiles),
+    S.user.role === 'admin' ? null : h('p', { class: 'note', style: 'margin-top:18px' },
+      'Need something that is not here? ', h('button', { class: 'linklike', id: 'requestMoreBtn', text: 'Request access', onclick: () => openAccessRequest() })))));
+}
+
+// ------------------------------------------------------------------ no access / request access
+const statusPill = (st) => h('span', { class: 'pill' + (st === 'rejected' ? ' off' : st === 'pending' ? ' warn' : ''), text: st });
+
+// The message a person sees instead of a blank page, with the way to ask an admin for access.
+function noAccessCard(what) {
+  const list = h('div', { id: 'myRequests' });
+  const draw = async () => {
+    try {
+      const d = await api('/access/pages');
+      list.replaceChildren(d.requests.length ? h('div', { class: 'table-wrap', style: 'margin-top:16px;text-align:left' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['Page', 'Asked on', 'Status', 'Admin note'].map((t) => h('th', { text: t })))),
+        h('tbody', {}, d.requests.map((r) => h('tr', {}, h('td', { text: (d.all_pages.find((p) => p.key === r.page_key) || {}).label || r.page_key }),
+          h('td', { text: fmtDateTime(r.created_at) }), h('td', {}, statusPill(r.status)), h('td', { text: r.decision_note || '' })))))) : null);
+    } catch { /* the card still works without the history */ }
+  };
+  draw();
+  return h('div', { class: 'card no-access', id: 'noAccess' },
+    h('div', { class: 'big-icon', text: '🔒' }),
+    h('h1', { text: what ? `Access not provided: ${what}` : 'Access not provided yet' }),
+    h('p', { text: what ? 'You do not have access to this page.' : 'You have not been given access to any page yet.' }),
+    h('p', { class: 'note', text: 'Ask the administrator for access. They will see your request, with the reason you give, and can approve it.' }),
+    h('div', { class: 'row', style: 'justify-content:center;margin-top:14px' },
+      h('button', { class: 'btn primary', id: 'requestAccessBtn', text: 'Request access', onclick: () => openAccessRequest(draw) }),
+      h('button', { class: 'btn', text: 'Check again', onclick: async () => { try { S.user = await api('/auth/me'); } catch { /* ignore */ } showPortal(); } })),
+    list);
+}
+
+async function openAccessRequest(after) {
+  let d;
+  try { d = await api('/access/pages'); } catch (ex) { return alert(ex.message); }
+  const open = new Set(d.requests.filter((r) => r.status === 'pending').map((r) => r.page_key));
+  const options = d.all_pages.filter((p) => !d.pages.includes(p.key) && !open.has(p.key)).map((p) => [p.key, p.label]);
+  if (!options.length) return alert(open.size ? 'Your requests are with the administrator already.' : 'You already have every page.');
+  formDialog({
+    title: 'Request access', submitLabel: 'Send request',
+    fields: [
+      { name: 'page_key', label: 'Which page do you need?', type: 'select', options, value: options[0][0] },
+      { name: 'reason', label: 'Why do you need it?', required: true, maxlength: 500, hint: 'A line or two is enough. The administrator sees this.' }],
+    onSubmit: async (v) => {
+      await api('/access/request', { method: 'POST', body: { page_key: v.page_key, reason: v.reason } });
+      if (after) after(); else alert('Request sent. The administrator will review it.');
+    } });
 }
 
 // ------------------------------------------------------------------ charts
-function tableFor(cols, rows) {
+function tableFor(cols, rows, onRow) {
   return h('div', { class: 'table-wrap' }, h('table', {},
     h('thead', {}, h('tr', {}, cols.map((c) => h('th', { class: c.num ? 'num' : '', text: c.head })))),
-    h('tbody', {}, rows.map((r) => h('tr', {}, cols.map((c) => h('td', { class: c.num ? 'num' : '', text: c.get(r) })))))));
+    h('tbody', {}, rows.map((r) => h('tr', onRow ? { class: 'clickable-row', tabindex: '0', title: 'Open order details', onclick: () => onRow(r),
+      onkeydown: (e) => { if (e.key === 'Enter') onRow(r); } } : {},
+      cols.map((c) => h('td', { class: c.num ? 'num' : '', text: c.get(r) })))))));
 }
 
 /* A card with a Chart/Table twin. build() returns the chart node; cols/rows describe the table view. */
@@ -506,6 +588,44 @@ function columnSvg(rows, { fmt = fmtInt, tip, labelEvery, height = 210, onClick,
   return svg;
 }
 
+// ------------------------------------------------------------------ multi-select
+// A compact "Label (n)" button that opens a checkbox list with a search box, instead of a long
+// always-open checkbox list. `selected` is a Set the caller owns; onChange fires after every toggle.
+function multiSelect(label, options, selected, onChange) {
+  const btn = h('button', { type: 'button', class: 'btn multiselect-btn' },
+    h('span', { class: 'ms-label', text: label }), h('span', { class: 'ms-count' }), h('span', { class: 'ms-caret', 'aria-hidden': 'true', text: '▾' }));
+  const search = h('input', { type: 'text', placeholder: 'Search…', class: 'ms-search', 'aria-label': `Search ${label}` });
+  const list = h('div', { class: 'ms-list' });
+  const panel = h('div', { class: 'ms-panel' }, options.length > 8 ? search : null, list);
+  const wrap = h('div', { class: 'multiselect' }, btn, panel);
+
+  const refresh = () => {
+    btn.querySelector('.ms-count').textContent = selected.size ? ` (${selected.size})` : '';
+    btn.classList.toggle('active', selected.size > 0);
+  };
+  const draw = (q) => {
+    const needle = (q || '').trim().toLowerCase();
+    list.replaceChildren(...options.filter((v) => !needle || v.toLowerCase().includes(needle)).map((v) => {
+      const box = h('input', { type: 'checkbox', checked: selected.has(v) || null });
+      box.addEventListener('change', () => {
+        if (box.checked) selected.add(v); else selected.delete(v);
+        refresh(); onChange();
+      });
+      return h('label', { class: 'check ms-item' }, box, v);
+    }));
+    if (!options.length) list.replaceChildren(h('p', { class: 'note', text: 'No values yet.' }));
+  };
+  search.addEventListener('input', () => draw(search.value));
+  draw('');
+  refresh();
+
+  btn.addEventListener('click', (e) => { e.stopPropagation(); const open = wrap.classList.toggle('open'); if (open) search.focus(); });
+  panel.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => wrap.classList.remove('open'));
+  wrap.refresh = refresh;
+  return wrap;
+}
+
 // ------------------------------------------------------------------ dashboard
 function delta(cur, prev, goodWhenUp = true, label = 'previous period') {
   if (!delta.comparable) return null; // earlier period is only partly covered by the data: a % would mislead
@@ -539,27 +659,72 @@ function funnel(segments, total) {
   }));
 }
 
-// With archiving on, "active" data is naturally always a recent + still-open window,
-// so a user-facing period picker no longer adds much - the dashboard just always shows
-// this fixed trailing window.
+// Default window is the last 30 days; the From / To date pickers on the page change it.
 const DASHBOARD_WINDOW_DAYS = 30;
-function fixedDashboardRange() {
+function defaultDashboardRange() {
   const to = todayIST();
   return { from: shiftDate(to, -(DASHBOARD_WINDOW_DAYS - 1)), to };
 }
 
+// Same attribute list the Orders page filters by; the dashboard filters by the same values.
+const DASH_FILTER_GROUPS = [['stage', 'Stage'], ['channel', 'Order via'], ['submission_type', 'Submission type'],
+  ['delivery_status', 'Delivery status'], ['payment_status', 'Payment status'], ['ready_by', 'Ready by'],
+  ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by']];
+
 async function renderDashboard(panel) {
+  const slot = S.actionsSlot || h('div'); // top-right of the tab row (see renderModule)
   const stamp = h('span', { text: 'Loading…' });
   const body = h('div', { id: 'dash-body' });
   const dl = h('button', { class: 'btn primary', text: '⬇ Download Excel' });
   let busy = false, last = null;
+  let options = {};
+  try { options = await api('/admin/orders/filter-options'); } catch { /* filters just won't have choices */ }
+  const dashSelections = {};
+  const dflt = defaultDashboardRange();
+  const fromEl = h('input', { type: 'date', id: 'dash_from', value: dflt.from, 'aria-label': 'From date' });
+  const toEl = h('input', { type: 'date', id: 'dash_to', value: dflt.to, 'aria-label': 'To date' });
+  const rangeMsg = h('span', { class: 'msg error', id: 'dash_range_msg' });
+  const currentRange = () => ({ from: fromEl.value || dflt.from, to: toEl.value || dflt.to });
+  const rangeOk = () => {
+    const r = currentRange();
+    const bad = r.from > r.to;
+    rangeMsg.textContent = bad ? '"From" date must be on or before "To" date.' : '';
+    return !bad;
+  };
+  const onRangeChange = () => { if (rangeOk()) load(); };
+  fromEl.addEventListener('change', onRangeChange);
+  toEl.addEventListener('change', onRangeChange);
+  const resetBtn = h('button', { type: 'button', class: 'btn', id: 'dash_reset', text: 'Last 30 days',
+    onclick: () => { const d = defaultDashboardRange(); fromEl.value = d.from; toEl.value = d.to; onRangeChange(); } });
+  const dateBar = h('div', { class: 'filter-row' },
+    h('span', { class: 'filter-label', text: 'Period' }),
+    h('label', { class: 'date-field' }, 'From ', fromEl), h('label', { class: 'date-field' }, 'To ', toEl), resetBtn, rangeMsg);
+  const filterBar = h('div', { class: 'filter-row' },
+    h('span', { class: 'filter-label', text: 'Filter by' }),
+    ...DASH_FILTER_GROUPS.map(([key, label]) => {
+      dashSelections[key] = new Set();
+      return multiSelect(label, options[key] || [], dashSelections[key], () => load());
+    }));
+  const archiveNote = h('div', { class: 'archive-note', id: 'archiveNote' },
+    h('strong', { text: 'Archived orders are not included on this page. ' }),
+    'An order is archived when it is at least 7 days old (by order date) and fully finished: ' +
+    'either Closed (delivered, received and payment recorded) or Cancelled. ' +
+    'Everything still open stays here, whatever its age. ' +
+    'To see archived orders, go to the "All orders" tab and tick "Include archived orders".');
+  const filterQuery = () => {
+    const qs = new URLSearchParams();
+    for (const [key] of DASH_FILTER_GROUPS) dashSelections[key].forEach((v) => qs.append(key, v));
+    return qs.toString();
+  };
 
+  let pending = false;
   async function load() {
-    if (busy) return;
+    if (busy) { pending = true; return; } // a filter/date change during a refresh is re-run right after
     busy = true; body.classList.add('loading');
-    const r = fixedDashboardRange();
+    const r = currentRange();
     try {
-      const d = await api(`/admin/dashboard?date_from=${r.from}&date_to=${r.to}`);
+      const fq = filterQuery();
+      const d = await api(`/admin/dashboard?date_from=${r.from}&date_to=${r.to}` + (fq ? `&${fq}` : ''));
       last = d;
       const y = window.scrollY;
       body.replaceChildren(...dashboardNodes(d));
@@ -567,11 +732,15 @@ async function renderDashboard(panel) {
       stamp.textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour12: false });
     } catch (ex) {
       if (ex.message !== 'Session ended') body.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'msg error', text: ex.message })));
-    } finally { busy = false; body.classList.remove('loading'); }
+    } finally {
+      busy = false; body.classList.remove('loading');
+      if (pending && panel.isConnected) { pending = false; load(); }
+    }
   }
 
   dl.addEventListener('click', async () => {
-    const r = fixedDashboardRange();
+    if (!rangeOk()) return;
+    const r = currentRange();
     dl.disabled = true; dl.textContent = 'Preparing…';
     try {
       const res = await api(`/admin/export.xlsx?date_from=${r.from}&date_to=${r.to}`, { raw: true });
@@ -583,9 +752,11 @@ async function renderDashboard(panel) {
   });
 
   panel.replaceChildren(
-    h('div', { class: 'filters' }, dl,
-      h('span', { class: 'live' }, h('span', { class: 'dot' }), 'Live · refreshes every 30 s · ', stamp)),
+    dateBar,
+    filterBar,
+    archiveNote,
     body);
+  if (panel.isConnected) slot.replaceChildren(h('span', { class: 'live' }, h('span', { class: 'dot' }), 'Live · every 30 s · ', stamp), dl);
   await load();
   if (!panel.isConnected) return; // user already left this tab
   S.timer = setInterval(() => {
@@ -606,14 +777,6 @@ function dashboardNodes(d) {
   const open = hd.orders - cancelled - delivered;
   const awaitingReceiving = delivered - closed;
 
-  const story = h('p', { class: 'story' },
-    `Of `, h('strong', { text: fmtInt(hd.orders) }), ` orders received ${periodLabel}, `,
-    h('strong', { text: fmtInt(cancelled) }), ` were cancelled and `,
-    h('strong', { text: fmtInt(open) }), ` are still open. `,
-    h('strong', { text: fmtInt(delivered) }), ` have been delivered, of which `,
-    h('strong', { text: fmtInt(closed) }), ` are fully closed and `,
-    h('strong', { text: fmtInt(awaitingReceiving) }), ` are awaiting receiving or payment.`);
-
   const topFunnel = funnel([
     { label: 'Cancelled', value: cancelled, color: 'var(--bad)', onClick: () => drill({ title: 'Cancelled orders', params: { stage: 'Cancelled' } }) },
     { label: 'Still open (awaiting godown / dispatch)', value: open, color: 'var(--warn)', onClick: () => drill({ title: 'Open orders', params: { stage: 'Awaiting godown,Awaiting dispatch' } }) },
@@ -627,7 +790,7 @@ function dashboardNodes(d) {
   const storyCard = h('div', { class: 'card story-card' },
     h('div', { class: 'section-head' }, h('div', {}, h('h1', { text: fmtInt(hd.orders) + ' orders' }), h('div', { class: 'sub', text: periodLabel })),
       delta(hd.orders, pv.orders, true, prevLabel)),
-    story, topFunnel,
+    topFunnel,
     h('div', { class: 'funnel-sub-label', text: 'Of the delivered orders:' }), subFunnel);
 
   const kpi2 = h('div', { class: 'kpis second' },
@@ -757,6 +920,7 @@ async function renderApps(panel) {
   let links, meta;
   try { [links, meta] = await Promise.all([api('/admin/links'), api('/admin/roles')]); }
   catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  links = links.filter((l) => l.url !== '/sales/'); // who opens the O2D Portal is set in Access now
   const reload = () => renderApps(panel);
   const roleChoices = meta.roles.filter((r) => r !== 'admin').map((r) => [r, roleLabel(r)]);
   const fields = (l) => [
@@ -770,7 +934,7 @@ async function renderApps(panel) {
   const del = async (l) => { if (await confirmDialog('Delete “' + l.name + '”?', 'It will disappear from everyone’s home page.', 'Delete', true)) { try { await api('/admin/links/' + l.link_key, { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); } } };
 
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Apps appear as buttons after sign-in. Add a page of this app (like /sales/) or any https address, and choose which roles may open it.' }),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Extra links that appear as buttons after sign-in: any https address, with the roles that may open it. Who can open the Dashboard and the O2D Portal is set under Access.' }),
     h('div', { class: 'row', style: 'margin-bottom:14px' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', text: '+ Add app', onclick: add })),
     links.length ? h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Name', 'Address', 'Roles', 'Status', ''].map((t) => h('th', { text: t })))),
@@ -782,6 +946,32 @@ async function renderApps(panel) {
 }
 
 // ------------------------------------------------------------------ permissions (field access per role)
+async function renderWeeklyOff(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let data;
+  try { data = await api('/admin/weekly-off-days'); }
+  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+
+  const msg = h('div', { class: 'msg' });
+  const boxes = data.day_names.map((name, i) => {
+    const cb = h('input', { type: 'checkbox', checked: data.days.includes(i) || null });
+    return h('label', { class: 'check' }, cb, name);
+  });
+  const save = async () => {
+    const days = boxes.map((b, i) => (b.firstChild.checked ? i : null)).filter((d) => d !== null);
+    msg.className = 'msg'; msg.textContent = 'Saving…';
+    try {
+      await api('/admin/weekly-off-days', { method: 'PUT', body: { days } });
+      msg.className = 'msg ok'; msg.textContent = 'Saved.';
+    } catch (ex) { msg.className = 'msg error'; msg.textContent = ex.message; }
+  };
+  panel.replaceChildren(h('div', { class: 'card', style: 'max-width:420px' },
+    h('h2', { text: 'Weekly off' }),
+    h('p', { class: 'note', text: 'Which day(s) the business is closed. The O2D dashboard uses this to skip to the right "previous working day" instead of a fixed Monday.' }),
+    h('div', { class: 'checks', style: 'flex-direction:column;gap:8px;margin:12px 0' }, boxes),
+    h('button', { class: 'btn primary', text: 'Save', onclick: save }), msg));
+}
+
 async function renderPermissions(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
   let data, viewData;
