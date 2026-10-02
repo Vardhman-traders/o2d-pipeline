@@ -36,6 +36,66 @@
   .topbar .btn-home, .topbar select { flex-shrink: 0; }
   .topbar > div:not(#topbar_searchResults) { flex-wrap: nowrap; min-width: 0; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 22px; }
+  /* ---- Admin overview: same filter pattern as the portal dashboard ---- */
+  body.wide { --page-w: 1320px; }
+  .topbar { padding-left: max(24px, calc((100% - var(--page-w, 1100px)) / 2 + 22px)); padding-right: max(24px, calc((100% - var(--page-w, 1100px)) / 2 + 22px)); }
+  .wrap { max-width: var(--page-w, 1100px); }
+  #adminViewSwitcher { width: auto; }
+  .ov-filters { padding: 14px 18px 6px; margin-bottom: 14px; }
+  .ov-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 10px; }
+  .ov-label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); min-width: 64px; }
+  .ov-date { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin: 0; }
+  .ov-date input { width: auto; padding: 6px 8px; font-size: 13px; }
+  .ov-btn { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; color: var(--text); font-family: inherit; }
+  .ov-btn:hover { border-color: var(--blue-2); }
+  .ov-err { color: var(--red); font-size: 12px; }
+  .ms { position: relative; display: inline-block; }
+  .ms-btn { display: inline-flex; align-items: center; gap: 3px; min-width: 120px; justify-content: space-between; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; font-family: inherit; color: var(--text); }
+  .ms-btn.active { border-color: var(--blue-2); color: var(--blue-2); }
+  .ms-count { font-weight: 700; }
+  .ms-caret { margin-left: 8px; font-size: 11px; }
+  .ms-panel { display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 10px; }
+  .ms.open .ms-panel { display: block; }
+  .ms-list { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow: auto; }
+  .ms-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); margin: 0; font-weight: 400; white-space: nowrap; }
+  .ms-item input { width: auto; }
+  .ms-search { margin-bottom: 8px; padding: 6px 8px; font-size: 13px; }
+  .ms-clear { background: none; border: none; color: var(--blue-2); font-size: 12px; cursor: pointer; padding: 0 0 4px; text-align: left; }
+  .ov-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .ov-card { text-align: left; font: inherit; cursor: pointer; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 4px solid var(--c, #999); border-radius: 12px; padding: 12px 14px; }
+  .ov-card:hover { border-color: var(--c, var(--blue-2)); }
+  .ov-card.sel { outline: 2px solid var(--c, var(--blue-2)); }
+  .ov-card .n { font-size: 26px; font-weight: 800; color: var(--navy); }
+  .ov-card .l { font-size: 12px; color: var(--muted); }
+  .ov-card.total { background: var(--navy); border-color: var(--navy); }
+  .ov-card.total .n, .ov-card.total .l { color: #fff; }
+  .ov-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; align-items: start; }
+  .ov-col { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; min-height: 100px; }
+  .ov-col-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid var(--c); font-size: 12.5px; }
+  .ov-pill { background: var(--c); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .ov-ocard { display: block; width: 100%; text-align: left; font: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px; font-size: 12px; cursor: pointer; color: var(--text); }
+  .ov-ocard:hover { border-color: var(--blue-2); }
+  .ov-ocard .top { display: flex; justify-content: space-between; gap: 6px; font-weight: 700; color: var(--navy); }
+  .ov-ocard .sub { color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-modal { position: fixed; inset: 0; background: rgba(16,38,61,.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .ov-modal-box { background: var(--panel); border-radius: 14px; width: 560px; max-width: 100%; max-height: 90vh; overflow: auto; padding: 18px 20px; }
+  .ov-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: var(--navy); font-size: 16px; }
+  .ov-x { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+  .ov-more { width: 100%; background: none; border: 1px dashed var(--border); border-radius: 8px; padding: 6px; font-size: 12px; color: var(--blue-2); cursor: pointer; font-family: inherit; }
+  .ov-more:hover { border-color: var(--blue-2); }
+  .ov-remind { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .ov-remind textarea { min-height: 54px; font-size: 13px; margin: 6px 0 8px; }
+  .rem-box { position: fixed; top: 76px; right: 20px; z-index: 90; width: 340px; max-width: calc(100vw - 32px); max-height: 70vh; overflow: auto; }
+  .rem-item { background: #fff8e6; border: 1px solid #e8c36a; border-left: 5px solid var(--amber); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; }
+  .rem-item .t { font-weight: 700; color: var(--navy); }
+  .rem-item .m { margin: 4px 0; }
+  .rem-item .s { font-size: 11.5px; color: var(--muted); }
+  .rem-item button { margin-top: 6px; }
+  .ov-dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 13px; margin: 0; }
+  .ov-dl dt { color: var(--muted); font-weight: 600; }
+  .ov-dl dd { margin: 0; word-break: break-word; }
+  @media (max-width: 1000px) { .ov-board { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } .ov-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 22px; box-shadow: 0 1px 4px rgba(22,50,74,0.05); }
   .card.accent-shop     { border-left: 4px solid var(--shop-color); }
   .card.accent-godown   { border-left: 4px solid var(--godown-color); }
@@ -282,18 +342,41 @@
 
     <!-- ================= OVERVIEW SECTION (admin only) ================= -->
     <div id="overviewSection" style="display:none;">
-      <div class="card" style="margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <strong style="font-size:13px;color:var(--navy);">Filters</strong>
-          <div>
-            <button type="button" class="small" onclick="initOverview()">Apply</button>
-            <button type="button" class="small" onclick="overviewResetFilters()">Reset</button>
+      <div class="card ov-filters">
+        <div class="ov-row"><span class="ov-label">Period</span>
+          <label class="ov-date">From <input type="date" id="ov_from" aria-label="From date"></label>
+          <label class="ov-date">To <input type="date" id="ov_to" aria-label="To date"></label>
+          <button type="button" class="ov-btn" onclick="overviewLast30()">Last 30 days</button>
+          <span id="ov_range_msg" class="ov-err"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="ov-btn" onclick="overviewResetFilters()">Clear filters</button>
+        </div>
+        <div class="ov-row"><span class="ov-label">Filter by</span><span id="overview_filters" class="ov-row" style="margin:0;"></span></div>
+      </div>
+      <div id="overview_summary" class="ov-summary"></div>
+      <div class="card accent-shop" style="margin-bottom:16px;">
+        <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
+        <div id="overview_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ No missing bill numbers</div>
+        <div id="overview_missingWrapper">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
+          <div id="overview_missingContainer"></div>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
+            <div id="overview_missingInvoiceContainer"></div>
           </div>
         </div>
-        <div id="overview_filters" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;"></div>
       </div>
-      <div id="overview_summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px;"></div>
-      <div id="overview_board" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;"></div>
+      <div id="overview_board" class="ov-board"></div>
+    </div>
+
+    <div id="reminderBox" class="rem-box" style="display:none;" role="alert"></div>
+
+    <div id="ovModal" class="ov-modal" style="display:none;" onclick="if(event.target===this)closeOrderModal()">
+      <div class="ov-modal-box" role="dialog" aria-modal="true" aria-labelledby="ovModalTitle">
+        <div class="ov-modal-head"><strong id="ovModalTitle"></strong><button type="button" class="ov-x" onclick="closeOrderModal()" aria-label="Close">&#10005;</button></div>
+        <div id="ovModalBody"></div>
+        <div id="ovRemind"></div>
+      </div>
     </div>
 
     <!-- ================= SHOP SECTION ================= -->
@@ -302,13 +385,13 @@
       <div id="shop_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
       <div class="card accent-shop">
-        <h2>🔍 Missing Numbers</h2>
+        <h2>🔍 Missing Numbers <span class="count" id="shop_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="shop_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="shop_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
           <div id="shop_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
             <div id="shop_missingInvoiceContainer"></div>
           </div>
         </div>
@@ -372,6 +455,7 @@
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">4</span>DC / Invoice No.<span class="required-star">*</span></label>
               <input type="text" id="shop_dcNo" placeholder="Challan / Invoice number" required>
+              <div id="shop_dcWarn" style="font-size:12px;margin-top:4px;"></div>
             </div>
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">5</span>Address</label>
@@ -408,13 +492,13 @@
       <div id="godown_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
       <div class="card accent-godown">
-        <h2>🔍 Missing Numbers</h2>
+        <h2>🔍 Missing Numbers <span class="count" id="godown_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="godown_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="godown_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
           <div id="godown_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
             <div id="godown_missingInvoiceContainer"></div>
           </div>
         </div>
@@ -457,7 +541,7 @@
       </div>
 
       <div class="card accent-godown">
-        <h2>✅ Recently Completed <span class="count" id="godown_completedCount">0</span></h2>
+        <h2>✅ Under Processing <span class="count" id="godown_completedCount">0</span></h2>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Order Date</th><th>DC No</th><th>Submission Type</th><th>Ready By</th><th>Delivery Status</th><th>Remarks</th><th></th></tr></thead>
@@ -473,13 +557,13 @@
       <div id="dispatch_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
       <div class="card accent-dispatch">
-        <h2>🔍 Missing Numbers</h2>
+        <h2>🔍 Missing Numbers <span class="count" id="dispatch_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="dispatch_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="dispatch_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (Daily)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
           <div id="dispatch_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (1000+)</div>
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
             <div id="dispatch_missingInvoiceContainer"></div>
           </div>
         </div>
@@ -544,7 +628,7 @@
       </div>
 
       <div class="card accent-dispatch">
-        <h2>✅ Recently Delivered <span class="count" id="dispatch_completedCount">0</span></h2>
+        <h2>✅ Awaiting Receiving <span class="count" id="dispatch_completedCount">0</span></h2>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Order Date</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th>Cartage</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
@@ -641,6 +725,7 @@
     });
     var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
     if (section) section.style.display = 'block';
+    document.body.classList.toggle('wide', CURRENT_ROLE === 'overview');
     document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
     var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
     document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
@@ -710,55 +795,103 @@
     if (current) sel.value = current;
   }
 
-  /* ---- Missing Numbers ---- */
-  function hasMissing_(g) { return !!(g && g.missing && g.missing.length > 0); }
+  /* ---- Missing bill numbers ----
+     Challan restarts every day (counted from 1); Invoice is one series per financial year. A number shows here until
+     an order with it is punched, or someone closes it with a reason (e.g. the bill was voided in BUSY). */
+  function gapRangeLabel_(r) { return r.from === r.to ? String(r.from) : r.from + '–' + r.to; }
 
-  function buildMissingGroupHtml_(g) {
-    return '<div style="font-size:12px;color:var(--muted);margin:6px 0 10px;">' +
-      'Range: ' + g.min + '–' + g.max + '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-      g.missing.map(function(n) {
-        return '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + n + '</span>';
-      }).join('') + '</div>';
+  function gapRowHtml_(docType, seriesKey, r, data, prefix) {
+    var btns = '';
+    var args = "'" + docType + "','" + seriesKey + "'," + r.from + ',' + r.to;
+    if (prefix === 'shop' && data.canPunch) btns += '<button type="button" class="small" onclick="punchMissing_(' + args + ')">Punch now</button> ';
+    if (data.canResolve) btns += '<button type="button" class="small" style="background:var(--muted);" onclick="voidMissing_(' + args + ')">No bill / voided</button>';
+    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0;">' +
+      '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + gapRangeLabel_(r) + (r.count > 1 ? ' (' + r.count + ')' : '') + '</span>' +
+      (r.afterDate ? '<span style="font-size:12px;color:var(--muted);">after ' + (r.from - 1) + ' · ' + formatDateDisplay(r.afterDate) + '</span>' : '') +
+      btns + '</div>';
   }
 
-  function buildMissingChallanDayBlockHtml_(dateStr, challan) {
-    return '<div style="margin-bottom:14px;">' +
-      '<div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px;">📅 ' + formatDateDisplay(dateStr) + '</div>' +
-      '<div style="background:rgba(216,67,63,0.06);border:1px solid rgba(216,67,63,0.3);border-radius:10px;padding:14px;">' +
-      buildMissingGroupHtml_(challan) + '</div></div>';
+  function gapBlockHtml_(title, docType, seriesKey, g, data, prefix) {
+    return '<div style="margin-bottom:14px;"><div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px;">' + title +
+      ' <span style="font-weight:400;color:var(--muted);">· highest entered ' + g.highest + '</span></div>' +
+      '<div style="background:rgba(216,67,63,0.06);border:1px solid rgba(216,67,63,0.3);border-radius:10px;padding:10px 14px;">' +
+      g.ranges.map(function (r) { return gapRowHtml_(docType, seriesKey, r, data, prefix); }).join('') +
+      (g.truncated ? '<div style="font-size:12px;color:var(--muted);">Showing the first 200 of ' + g.total + ' missing numbers. A very large gap usually means a mistyped number.</div>' : '') +
+      '</div></div>';
   }
 
   function initMissingNumbers(prefix) {
     google.script.run
-      .withSuccessHandler(function(data) {
+      .withSuccessHandler(function (data) {
         if (!data || !data.ok) return;
-        var challanBlocks = data.challanByDate.filter(function(r) { return hasMissing_(r.challan); });
-        var challanContainer = document.getElementById(prefix + '_missingContainer');
-        if (challanContainer) challanContainer.innerHTML = challanBlocks.map(function(r) {
-          return buildMissingChallanDayBlockHtml_(r.date, r.challan);
-        }).join('');
-
-        var invoiceBlocks = [];
-        if (data.invoiceByDate) {
-          invoiceBlocks = data.invoiceByDate.filter(function(r) { return hasMissing_(r.invoice); });
-        }
-        var invoiceContainer = document.getElementById(prefix + '_missingInvoiceContainer');
-        if (invoiceContainer) {
-          invoiceContainer.innerHTML = invoiceBlocks.map(function(r) {
-            return buildMissingChallanDayBlockHtml_(r.date, r.invoice);
-          }).join('');
-        }
-
-        var invoiceHasMissing = invoiceBlocks.length > 0;
-        var nothingMissing = challanBlocks.length === 0 && !invoiceHasMissing;
+        var ch = document.getElementById(prefix + '_missingContainer');
+        if (ch) ch.innerHTML = data.challan.map(function (g) {
+          return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Challan', g.date, g, data, prefix);
+        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing challan numbers.</div>';
+        var inv = document.getElementById(prefix + '_missingInvoiceContainer');
+        if (inv) inv.innerHTML = data.invoice.map(function (g) {
+          return gapBlockHtml_('Financial year ' + g.fy, 'Invoice', g.fy, g, data, prefix);
+        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing invoice numbers.</div>';
+        var none = data.total === 0;
         var wrapper = document.getElementById(prefix + '_missingWrapper');
         var allClear = document.getElementById(prefix + '_missingAllClear');
-        if (wrapper) wrapper.style.display = nothingMissing ? 'none' : 'block';
-        if (allClear) allClear.style.display = nothingMissing ? 'block' : 'none';
+        if (wrapper) wrapper.style.display = none ? 'none' : 'block';
+        if (allClear) allClear.style.display = none ? 'block' : 'none';
+        var count = document.getElementById(prefix + '_missingCount');
+        if (count) { count.textContent = data.total; count.style.display = none ? 'none' : 'inline-block'; }
       })
-      .getMissingNumbersForWindow(CURRENT_TOKEN);
+      .getDocGaps(CURRENT_TOKEN);
   }
+
+  // Fill the order form with a missing number so it can be punched straight away.
+  function punchMissing_(docType, seriesKey, from) {
+    var form = document.getElementById('shop_typeOfSubmission');
+    if (!form) return;
+    form.value = docType;
+    setDatePickerValue('shop_orderRcvdDate', docType === 'Challan' ? seriesKey : isoToday_());
+    document.getElementById('shop_dcNo').value = String(from);
+    document.getElementById('shop_dcNo').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('shop_dcNo').focus();
+    shopCheckDocNumber();
+  }
+
+  function voidMissing_(docType, seriesKey, from, to) {
+    var label = from === to ? String(from) : from + '–' + to;
+    var reason = window.prompt('Close missing ' + docType + ' ' + label + ' - no bill needs punching.\nReason (e.g. "voided in BUSY"):');
+    if (reason === null) return;
+    if (reason.trim().length < 3) { alert('Please give a reason.'); return; }
+    google.script.run.withSuccessHandler(function (r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'Could not close it.'); return; }
+      refreshCurrent();
+    }).voidDocGap(CURRENT_TOKEN, { doc_type: docType, series_key: seriesKey, number_from: from, number_to: to, reason: reason.trim() });
+  }
+
+  // Warning under the DC/Inv field while the shop types a bill number: not digits, already used, or skipping ahead.
+  function shopCheckDocNumber() {
+    var warn = document.getElementById('shop_dcWarn');
+    var type = document.getElementById('shop_typeOfSubmission').value;
+    var no = document.getElementById('shop_dcNo').value.trim();
+    var date = document.getElementById('shop_orderRcvdDate_iso').value;
+    warn.textContent = '';
+    if (!no || (type !== 'Challan' && type !== 'Invoice')) return;
+    if (!/^\d+$/.test(no)) { warn.style.color = 'var(--red)'; warn.textContent = type + ' number must be digits only.'; return; }
+    if (!date) return;
+    google.script.run.withSuccessHandler(function (d) {
+      if (!d || !d.ok) return;
+      if (document.getElementById('shop_dcNo').value.trim() !== no) return;  // typed on since
+      if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = type + ' ' + no + ' is already used' + (type === 'Challan' ? ' for this date.' : ' this financial year.'); }
+      else if (d.skipped && d.skipped.length) {
+        warn.style.color = 'var(--amber)';
+        warn.textContent = 'Last ' + type.toLowerCase() + ' number is ' + d.last + '. Not yet punched: ' + d.skipped.join(', ') + '. Check before saving.';
+      }
+    }).checkDocNumber(CURRENT_TOKEN, type, date, no);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    ['shop_dcNo', 'shop_typeOfSubmission'].forEach(function (id) {
+      var e = document.getElementById(id);
+      if (e) e.addEventListener(id === 'shop_dcNo' ? 'blur' : 'change', shopCheckDocNumber);
+    });
+  });
 
   function enterDashboard() {
     document.getElementById('dpPopup').style.display = 'none';
@@ -785,6 +918,7 @@
     document.getElementById('userDisplayName').textContent = CURRENT_USER_NAME;
     var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
     if (section) section.style.display = 'block';
+    document.body.classList.toggle('wide', CURRENT_ROLE === 'overview');
     var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
     document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
     if (switcher.style.display !== 'none') switcher.value = CURRENT_ROLE;
@@ -794,6 +928,7 @@
   }
 
   function refreshCurrent() {
+    loadReminders();
     if (CURRENT_ROLE === 'overview')                                    initOverview();
     else if (CURRENT_ROLE === 'shop')                                   initShop();
     else if (CURRENT_ROLE === 'godown')                                  initGodown();
@@ -820,51 +955,189 @@
     return e;
   }
 
+  // Same nine filters, in the same order, as the dashboard and All orders pages: [api key, option list, label].
   var OVERVIEW_FILTER_FIELDS = [
-    ['channel', 'orderVia', 'Order via'], ['submission_type', 'typeOfSubmission', 'Submission type'],
-    ['payment_status', 'paymentStatus', 'Payment status'], ['ready_by', 'readyByWhom', 'Ready by'],
-    ['colour_making_by', 'colourMakingBy', 'Colour making by'], ['delivered_by', 'deliveredByWhom', 'Delivered by']
+    ['stage', 'stage', 'Stage'], ['channel', 'orderVia', 'Order via'], ['submission_type', 'typeOfSubmission', 'Submission type'],
+    ['delivery_status', 'deliveryStatus', 'Delivery status'], ['payment_status', 'paymentStatus', 'Payment status'],
+    ['ready_by', 'readyByWhom', 'Ready by'], ['colour_making_by', 'colourMakingBy', 'Colour making by'],
+    ['delivered_by', 'deliveredByWhom', 'Delivered by'], ['created_by', 'createdBy', 'Logged by']
   ];
-  var overviewFiltersBuilt = false;
+  var overviewFiltersBuilt = false, OV_SEL = {}, OV_WIDGETS = {}, OV_LIMIT = 25;
+
+  function istToday_() { return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); }
+  function shiftIso_(iso, days) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
+  function overviewLast30() {
+    var to = istToday_();
+    document.getElementById('ov_from').value = shiftIso_(to, -29);
+    document.getElementById('ov_to').value = to;
+    initOverview();
+  }
 
   function overviewFilterValues() {
     var out = {};
-    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
-      var sel = document.getElementById('overview_f_' + f[0]);
-      if (!sel) return;
-      var chosen = Array.prototype.filter.call(sel.options, function (o) { return o.selected; }).map(function (o) { return o.value; });
-      if (chosen.length) out[f[0]] = chosen;
-    });
+    var from = document.getElementById('ov_from').value, to = document.getElementById('ov_to').value;
+    out.per_stage = [String(OV_LIMIT)];
+    if (from) out.date_from = [from];
+    if (to) out.date_to = [to];
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) { if (OV_SEL[f[0]] && OV_SEL[f[0]].size) out[f[0]] = Array.from(OV_SEL[f[0]]); });
     return out;
   }
 
   function overviewResetFilters() {
-    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
-      var sel = document.getElementById('overview_f_' + f[0]);
-      if (sel) Array.prototype.forEach.call(sel.options, function (o) { o.selected = false; });
-    });
-    initOverview();
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) { if (OV_SEL[f[0]]) OV_SEL[f[0]].clear(); if (OV_WIDGETS[f[0]]) OV_WIDGETS[f[0]].refresh(); });
+    overviewLast30();
+  }
+
+  // A "Label (n)" button that opens a checkbox list, like the dashboard's filters. Changes apply straight away.
+  function overviewMultiSelect(key, label, options) {
+    var sel = OV_SEL[key] = OV_SEL[key] || new Set();
+    var wrap = el_('div', { class: 'ms' });
+    var btn = el_('button', { type: 'button', class: 'ms-btn' });
+    var lab = el_('span'), cnt = el_('span', { class: 'ms-count' });
+    btn.appendChild(lab); btn.appendChild(cnt); btn.appendChild(el_('span', { class: 'ms-caret' }, '▾'));
+    var panel = el_('div', { class: 'ms-panel' });
+    var search = el_('input', { type: 'text', class: 'ms-search', placeholder: 'Search…' });
+    var list = el_('div', { class: 'ms-list' });
+    if (options.length > 8) panel.appendChild(search);
+    panel.appendChild(list);
+    wrap.appendChild(btn); wrap.appendChild(panel);
+    function refresh() {
+      var n = sel.size;
+      lab.textContent = n ? label + ':' : label;
+      cnt.textContent = !n ? '' : n === 1 ? ' ' + Array.from(sel)[0] : ' ' + n + ' selected';
+      btn.classList.toggle('active', n > 0);
+    }
+    function draw() {
+      var needle = search.value.trim().toLowerCase();
+      list.replaceChildren();
+      if (sel.size) {
+        var clr = el_('button', { type: 'button', class: 'ms-clear' }, 'Clear selection');
+        clr.onclick = function () { sel.clear(); refresh(); draw(); initOverview(); };
+        list.appendChild(clr);
+      }
+      if (!options.length) list.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted)' }, 'No values yet.'));
+      options.filter(function (v) { return !needle || v.toLowerCase().indexOf(needle) !== -1; }).forEach(function (v) {
+        var row = el_('label', { class: 'ms-item' });
+        var box = el_('input', { type: 'checkbox' });
+        box.checked = sel.has(v);
+        box.onchange = function () { if (box.checked) sel.add(v); else sel.delete(v); refresh(); initOverview(); };
+        row.appendChild(box); row.appendChild(document.createTextNode(v));
+        list.appendChild(row);
+      });
+    }
+    search.oninput = draw;
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      var open = !wrap.classList.contains('open');
+      Array.prototype.forEach.call(document.querySelectorAll('.ms.open'), function (m) { m.classList.remove('open'); });
+      if (open) { draw(); wrap.classList.add('open'); }
+    };
+    panel.onclick = function (e) { e.stopPropagation(); };
+    document.addEventListener('click', function () { wrap.classList.remove('open'); });
+    wrap.refresh = refresh; refresh();
+    OV_WIDGETS[key] = wrap;
+    return wrap;
   }
 
   function buildOverviewFilters(dropdowns) {
     var host = document.getElementById('overview_filters');
     host.replaceChildren();
-    OVERVIEW_FILTER_FIELDS.forEach(function (f) {
-      var wrap = el_('div');
-      wrap.appendChild(el_('label', { style: 'display:block;font-size:12px;font-weight:650;color:var(--muted);margin-bottom:4px;' }, f[2]));
-      var sel = el_('select', { id: 'overview_f_' + f[0], multiple: 'multiple', size: '4', style: 'width:100%;font-size:12px;' });
-      (dropdowns[f[1]] || []).forEach(function (name) { sel.appendChild(el_('option', { value: name }, name)); });
-      wrap.appendChild(sel);
-      host.appendChild(wrap);
-    });
-    overviewFiltersBuilt = true;
+    OVERVIEW_FILTER_FIELDS.forEach(function (f) { host.appendChild(overviewMultiSelect(f[0], f[2], dropdowns[f[1]] || [])); });
   }
+
+  // Clicking a scorecard sets the Stage filter, so the whole page (board included) follows it.
+  function overviewPickStage(name) {
+    var sel = OV_SEL.stage = OV_SEL.stage || new Set();
+    OV_LIMIT = 25;
+    if (name === null) sel.clear();
+    else if (sel.has(name)) sel.delete(name); else sel.add(name);
+    if (OV_WIDGETS.stage) OV_WIDGETS.stage.refresh();
+    initOverview();
+  }
+
+  function fmtMoney_(v) { return v == null ? '' : '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+
+  function openOrderModal(o) {
+    document.getElementById('ovModalTitle').textContent = (o.dcNo || ('Sl ' + o.slNo)) + ' · ' + o.stage;
+    var rows = [['Sl no.', o.slNo], ['DC / Invoice no.', o.dcNo], ['Order date', formatDateDisplay(o.orderDate)], ['Stage', o.stage],
+      ['Logged by', o.createdBy], ['Order via', o.channel], ['Submission type', o.submissionType], ['Shipping location', o.shippingLocation],
+      ['Remarks', o.remarks], ['Ready by', o.readyBy], ['Colour making by', o.colourMakingBy], ['Delivery status', o.deliveryStatus],
+      ['Delivered by', o.deliveredBy], ['Delivered at', o.deliveredAt ? o.deliveredAt.replace('T', ' ').slice(0, 16) : ''],
+      ['Cartage', fmtMoney_(o.cartage)], ['Date received', o.receivedOn ? formatDateDisplay(o.receivedOn) : ''],
+      ['Payment status', o.paymentStatus], ['Amount received', fmtMoney_(o.amount)]];
+    var dl = el_('dl', { class: 'ov-dl' });
+    rows.forEach(function (r) {
+      dl.appendChild(el_('dt', null, r[0]));
+      dl.appendChild(el_('dd', null, r[1] === '' || r[1] == null ? '–' : String(r[1])));
+    });
+    document.getElementById('ovModalBody').replaceChildren(dl);
+
+    buildRemindBox(o);
+    document.getElementById('ovModal').style.display = 'flex';
+  }
+
+  var REMIND_WHO = { 'Awaiting godown': 'Godown', 'Awaiting dispatch': 'Dispatch (shop and godown)', 'Awaiting receiving': 'Receiving' };
+  function buildRemindBox(o) {
+    var host = document.getElementById('ovRemind');
+    host.replaceChildren();
+    if (!REMIND_WHO[o.stage]) return;
+    var box = el_('div', { class: 'ov-remind' });
+    box.appendChild(el_('strong', { style: 'font-size:13px;color:var(--navy);' }, 'Remind ' + REMIND_WHO[o.stage]));
+    var msg = el_('textarea', { placeholder: 'Optional note, e.g. "Customer is waiting - please prioritise"', maxlength: '300' });
+    var btn = el_('button', { type: 'button', class: 'small' }, 'Send reminder');
+    var status = el_('span', { class: 'status-msg', style: 'margin-left:10px;' });
+    btn.onclick = function () {
+      btn.disabled = true; status.className = 'status-msg'; status.textContent = 'Sending\u2026';
+      google.script.run.withSuccessHandler(function (r) {
+        btn.disabled = false;
+        if (r && r.ok) status.textContent = '\u2713 Sent. It will pop up on the ' + REMIND_WHO[o.stage] + ' screen.';
+        else { status.className = 'status-msg error'; status.textContent = (r && r.error) || 'Could not send.'; }
+      }).withFailureHandler(function (e) { btn.disabled = false; status.className = 'status-msg error'; status.textContent = e.message; })
+        .sendReminder(CURRENT_TOKEN, o.slNo, msg.value);
+    };
+    box.appendChild(msg); box.appendChild(btn); box.appendChild(status);
+    host.appendChild(box);
+  }
+
+  // Reminders from the admin, shown on the screen of whoever handles that stage until they tick "Got it".
+  function loadReminders() {
+    var host = document.getElementById('reminderBox');
+    if (CURRENT_ROLE === 'overview') { host.style.display = 'none'; return; }
+    google.script.run.withSuccessHandler(function (d) {
+      host.replaceChildren();
+      var list = (d && d.ok && d.reminders) || [];
+      host.style.display = list.length ? 'block' : 'none';
+      list.forEach(function (r) {
+        var it = el_('div', { class: 'rem-item' });
+        it.appendChild(el_('div', { class: 't' }, '\uD83D\uDD14 Reminder: ' + (r.dcNo || ('Sl ' + r.slNo)) + (r.shippingLocation ? ' \u00B7 ' + r.shippingLocation : '')));
+        if (r.message) it.appendChild(el_('div', { class: 'm' }, r.message));
+        it.appendChild(el_('div', { class: 's' }, r.stage + ' \u00B7 from ' + r.sentBy + ', ' + new Date(r.sentAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+        var ok = el_('button', { type: 'button', class: 'small' }, 'Got it');
+        ok.onclick = function () { google.script.run.withSuccessHandler(loadReminders).ackReminder(CURRENT_TOKEN, r.id); };
+        it.appendChild(ok);
+        host.appendChild(it);
+      });
+    }).getReminders(CURRENT_TOKEN, CURRENT_ROLE);
+  }
+  function closeOrderModal() { document.getElementById('ovModal').style.display = 'none'; }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeOrderModal(); });
 
   function initOverview() {
     var summaryEl = document.getElementById('overview_summary');
     var boardEl = document.getElementById('overview_board');
+    var fromEl = document.getElementById('ov_from'), toEl = document.getElementById('ov_to');
+    if (!fromEl.dataset.bound) {
+      fromEl.dataset.bound = '1';
+      var t = istToday_(); toEl.value = t; fromEl.value = shiftIso_(t, -29);
+      fromEl.addEventListener('change', initOverview); toEl.addEventListener('change', initOverview);
+    }
+    var bad = fromEl.value && toEl.value && fromEl.value > toEl.value;
+    document.getElementById('ov_range_msg').textContent = bad ? '"From" date must be on or before "To" date.' : '';
+    if (bad) return;
     if (!overviewFiltersBuilt) {
-      google.script.run.withSuccessHandler(function (d) { if (d && d.ok) buildOverviewFilters(d.dropdowns); }).getAdminFormOptions(CURRENT_TOKEN);
+      overviewFiltersBuilt = true;
+      google.script.run.withSuccessHandler(function (d) { if (d && d.ok) buildOverviewFilters(d.dropdowns); else overviewFiltersBuilt = false; })
+        .getAdminFormOptions(CURRENT_TOKEN);
     }
     google.script.run
       .withSuccessHandler(function (data) {
@@ -873,38 +1146,47 @@
           boardEl.replaceChildren(el_('p', { style: 'color:var(--muted)' }, (data && data.error) || 'Could not load the overview.'));
           return;
         }
+        var chosen = data.selected || [];
         summaryEl.replaceChildren();
-        var totalCard = el_('div', { style: 'background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;' });
-        totalCard.appendChild(el_('div', { style: 'font-size:26px;font-weight:800;' }, String(data.total)));
-        totalCard.appendChild(el_('div', { style: 'font-size:12px;opacity:0.85;' }, 'Total open + closed (active orders)'));
+        var totalCard = el_('button', { type: 'button', class: 'ov-card total' + (chosen.length ? '' : ' sel'), style: '--c:#fff', title: 'Show every stage' });
+        totalCard.appendChild(el_('div', { class: 'n' }, String(data.total)));
+        totalCard.appendChild(el_('div', { class: 'l' }, 'All stages (active orders)'));
+        totalCard.onclick = function () { overviewPickStage(null); };
         summaryEl.appendChild(totalCard);
         data.stages.forEach(function (s) {
-          var card = el_('div', { style: 'background:var(--panel);border:1px solid var(--border);border-left:4px solid ' + (STAGE_COLORS[s.name] || '#999') + ';border-radius:12px;padding:14px 16px;' });
-          card.appendChild(el_('div', { style: 'font-size:26px;font-weight:800;color:var(--navy);' }, String(s.count)));
-          card.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted);' }, s.name));
+          var card = el_('button', { type: 'button', class: 'ov-card' + (chosen.indexOf(s.name) !== -1 ? ' sel' : ''), style: '--c:' + (STAGE_COLORS[s.name] || '#999'), title: 'Show only: ' + s.name });
+          card.appendChild(el_('div', { class: 'n' }, String(s.count)));
+          card.appendChild(el_('div', { class: 'l' }, s.name));
+          card.onclick = function () { overviewPickStage(s.name); };
           summaryEl.appendChild(card);
         });
 
         boardEl.replaceChildren();
-        data.stages.forEach(function (s) {
-          var col = el_('div', { style: 'background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px;min-height:120px;' });
-          var head = el_('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid ' + (STAGE_COLORS[s.name] || '#999') + ';' });
-          head.appendChild(el_('strong', { style: 'font-size:13px;' }, s.name));
-          head.appendChild(el_('span', { style: 'background:' + (STAGE_COLORS[s.name] || '#999') + ';color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;' }, String(s.count)));
+        var shown = data.stages.filter(function (s) { return !chosen.length || chosen.indexOf(s.name) !== -1; });
+        boardEl.style.gridTemplateColumns = 'repeat(' + Math.max(shown.length, 1) + ', minmax(0, 1fr))';
+        shown.forEach(function (s) {
+          var col = el_('div', { class: 'ov-col', style: '--c:' + (STAGE_COLORS[s.name] || '#999') });
+          var head = el_('div', { class: 'ov-col-head' });
+          head.appendChild(el_('strong', null, s.name));
+          head.appendChild(el_('span', { class: 'ov-pill' }, String(s.count)));
           col.appendChild(head);
-          if (!s.orders.length) {
-            col.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted);padding:8px 0;' }, 'Nothing here.'));
-          }
+          if (!s.orders.length) col.appendChild(el_('div', { style: 'font-size:12px;color:var(--muted);padding:8px 0;' }, 'Nothing here.'));
           s.orders.forEach(function (o) {
-            var card = el_('div', { style: 'background:var(--bg,#f7f8fa);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;cursor:pointer;' });
-            card.appendChild(el_('div', { style: 'font-weight:700;color:var(--navy);' }, o.dcNo || ('Sl ' + o.slNo)));
-            card.appendChild(el_('div', { style: 'color:var(--muted);' }, formatDateDisplay(o.orderDate) + (o.shippingLocation ? ' · ' + o.shippingLocation : '')));
-            if (o.deliveryStatus) card.appendChild(el_('div', { style: 'color:var(--muted);' }, o.deliveryStatus));
+            var card = el_('button', { type: 'button', class: 'ov-ocard', title: 'Open order details' });
+            var top = el_('div', { class: 'top' });
+            top.appendChild(el_('span', null, o.dcNo || ('Sl ' + o.slNo)));
+            top.appendChild(el_('span', null, fmtMoney_(o.amount)));
+            card.appendChild(top);
+            // "Product" is shown as the submission type: the order record has no separate product field.
+            card.appendChild(el_('div', { class: 'sub' }, formatDateDisplay(o.orderDate) + (o.submissionType ? ' · ' + o.submissionType : '')));
+            card.appendChild(el_('div', { class: 'sub' }, 'Opened by ' + (o.createdBy || '–')));
+            card.onclick = function () { openOrderModal(o); };
             col.appendChild(card);
           });
           if (s.count > s.orders.length) {
-            col.appendChild(el_('div', { style: 'font-size:11px;color:var(--muted);text-align:center;padding-top:4px;' },
-              '+ ' + (s.count - s.orders.length) + ' more'));
+            var more = el_('button', { type: 'button', class: 'ov-more' }, 'Show more (' + (s.count - s.orders.length) + ' not shown)');
+            more.onclick = function () { OV_LIMIT = Math.min(OV_LIMIT + 50, 500); initOverview(); };
+            col.appendChild(more);
           }
           boardEl.appendChild(col);
         });
@@ -913,6 +1195,7 @@
         boardEl.replaceChildren(el_('p', { style: 'color:var(--bad,#d8433f)' }, 'Error: ' + err.message));
       })
       .getKanban(CURRENT_TOKEN, overviewFilterValues());
+    initMissingNumbers('overview');
   }
 
   /* ================= SHOP ================= */

@@ -311,7 +311,7 @@ def test_admin_home_screen_and_navigation(base_url):
 
 
 def test_archived_orders_appear_when_included(base_url, migrated_db_url):
-    """Archived orders are hidden by default; "Include archived" shows them and the count that follows the filters."""
+    """Archived orders are hidden by default; the Archived KPI card shows them."""
     expect = sync_api.expect
     u = uuid.uuid4().hex[:4].upper()
     conn = psycopg2.connect(migrated_db_url)
@@ -343,14 +343,12 @@ def test_archived_orders_appear_when_included(base_url, migrated_db_url):
         assert int(archived_kpi.inner_text().replace(",", "")) >= 2          # the database holds archived orders
         # hidden by default
         expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(0)
-        before = int(page.locator("#kpiMatching").inner_text().replace(",", ""))
-        # ticking the box brings them in, and the "matching" count rises by exactly those two
-        page.check("#f_archived")
+        # clicking the Archived card filters the whole page to archived orders
+        page.click("#orderKpis .k-archived")
         expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(2, timeout=8000)
         expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}-1")).to_contain_text("Archived")
-        after = int(page.locator("#kpiMatching").inner_text().replace(",", ""))
-        assert after == before + 2, (before, after)
-        page.uncheck("#f_archived")
+        # clicking it again returns to the default (active) view
+        page.click("#orderKpis .k-archived")
         expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(0, timeout=8000)
         browser.close()
     assert not errors, errors

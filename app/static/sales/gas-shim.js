@@ -60,6 +60,25 @@
       return ask('GET', '/o2d/admin/kanban' + (q ? '?' + q : ''), token)
         .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
+    getReminders: function (token, role) {
+      return ask('GET', '/o2d/reminders' + (role ? '?role=' + encodeURIComponent(role) : ''), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    ackReminder: function (token, id) {
+      return ask('POST', '/o2d/reminders/' + id + '/ack', token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    sendReminder: function (token, slNo, message) {
+      return ask('POST', '/o2d/admin/reminders', token, { sl_no: slNo, message: message || null })
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    getDocGaps: read('/o2d/doc-gaps'),
+    voidDocGap: function (token, body) {
+      return ask('POST', '/o2d/doc-gaps/void', token, body).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    checkDocNumber: function (token, docType, date, number) {
+      return ask('GET', '/o2d/doc-check?doc_type=' + encodeURIComponent(docType) + '&date=' + encodeURIComponent(date) + '&number=' + encodeURIComponent(number), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
     getMissingNumbersForWindow: read('/o2d/missing-numbers'),
     getAdminFormOptions: read('/o2d/admin/form-options'),
     searchOrders: function (token, date, dcNo) {

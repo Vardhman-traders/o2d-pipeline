@@ -12,7 +12,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import access, admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles, timeline
+from . import access, admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles, timeline, doc_numbers
 
 
 @asynccontextmanager
@@ -317,6 +317,23 @@ def _check_test_dc(fields: dict, user):
         raise HTTPException(400, f"Test accounts must use a DC/Inv No starting with {roles.TEST_DC_PREFIX}")
 
 
+def _check_doc_number(cur, user, fields: dict, before: dict | None = None):
+    """Challan / Invoice numbers: digits only, no repeats inside their series (see doc_numbers.py). Only checked when
+    the number, type or date is being set, so unrelated edits to an older order are never blocked."""
+    if not ({"dc_inv_no", "submission_type_key", "order_received_date"} & set(fields)):
+        return
+    b = before or {}
+    key = fields.get("submission_type_key", b.get("submission_type_key"))
+    type_name = None
+    if key is not None:
+        cur.execute("SELECT type_name FROM dim_submission_type WHERE submission_type_key = %s", (key,))
+        row = cur.fetchone()
+        type_name = row["type_name"] if row else None
+    doc_numbers.validate(cur, user, dc_no=fields.get("dc_inv_no", b.get("dc_inv_no")), type_name=type_name,
+                         order_date=fields.get("order_received_date", b.get("order_received_date")),
+                         own_order_key=b.get("order_key"))
+
+
 def _fk_error(exc):
     detail = getattr(exc.diag, "message_detail", "") or ""
     return HTTPException(400, f"Invalid reference (id or date not found): {detail}")
@@ -378,6 +395,7 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
         with db.cursor() as cur:
             # Serialise serial-number assignment so concurrent creates can't collide.
             cur.execute("SELECT pg_advisory_xact_lock(7001)")
+            _check_doc_number(cur, user, fields)
             cur.execute("SELECT COALESCE(MAX(sl_no), 0) + 1 AS n FROM fact_orders")
             sl_no = cur.fetchone()["n"]
             cur.execute(
@@ -422,6 +440,7 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
                 raise HTTPException(404, "Order not found")
             cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
             before = cur.fetchone()
+            _check_doc_number(cur, user, fields, before)
             cur.execute(
                 f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
                 f"last_updated_at = now() WHERE order_key = %s",

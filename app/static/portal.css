@@ -458,4 +458,7 @@ th.sorted .sort-arrow, th.sorted .sort-btn { opacity: 1; color: var(--accent); }
 .usecase { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .usecase-title { display: flex; gap: 8px; align-items: center; font-size: 15px; }
 .usecase-q { margin: 6px 0 4px; font-weight: 600; }
+.kpi.clickable { text-align: left; font: inherit; cursor: pointer; }
+.kpi.clickable:hover { border-color: var(--accent); }
+.kpi.clickable.selected { outline: 2px solid var(--accent); background: var(--surface-2, var(--surface)); }
 .kpi.k-match { border-left: 4px solid var(--series-2); }

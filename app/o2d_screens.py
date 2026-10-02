@@ -18,10 +18,10 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
-from . import access, auth, config, db, roles
+from . import access, auth, config, db, doc_numbers, roles
 
 log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
@@ -208,50 +208,114 @@ def admin_orders(date_from: date | None = None, date_to: date | None = None,
 
 
 STAGES = ("Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled")
-KANBAN_FILTER_COLUMNS = ("channel", "submission_type", "payment_status", "ready_by", "colour_making_by", "delivered_by")
+CARD_COLUMNS = ("sl_no, dc_inv_no, order_date, stage, created_by, amount_received, submission_type, channel, "
+                "shipping_location, detailed_remarks, delivery_status, payment_status, ready_by, colour_making_by, "
+                "delivered_by, cartage, material_delivery_datetime, date_of_receiving")
 
 
-def _kanban_filter_clause(filters: dict) -> tuple[str, list]:
-    clauses, params = [], []
-    for col in KANBAN_FILTER_COLUMNS:
-        values = filters.get(col)
-        if values:
-            clauses.append(f"o.{col} = ANY(%s)")
-            params.append(list(values))
-    return ("" if not clauses else " AND " + " AND ".join(clauses)), params
+def _card(r: dict) -> dict:
+    iso = lambda v: v.isoformat() if v is not None else ""  # noqa: E731
+    return {"slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "orderDate": iso(r["order_date"]), "stage": r["stage"],
+            "createdBy": r["created_by"] or "", "amount": float(r["amount_received"]) if r["amount_received"] is not None else None,
+            "submissionType": r["submission_type"] or "", "channel": r["channel"] or "",
+            "shippingLocation": r["shipping_location"] or "", "remarks": r["detailed_remarks"] or "",
+            "deliveryStatus": r["delivery_status"] or "", "paymentStatus": r["payment_status"] or "",
+            "readyBy": r["ready_by"] or "", "colourMakingBy": r["colour_making_by"] or "",
+            "deliveredBy": r["delivered_by"] or "", "cartage": float(r["cartage"]) if r["cartage"] is not None else None,
+            "deliveredAt": iso(r["material_delivery_datetime"]), "receivedOn": iso(r["date_of_receiving"])}
 
 
 @router.get("/admin/kanban")
-def admin_kanban(
-    per_stage: int = Query(default=25, ge=1, le=100),
-    channel: list[str] | None = Query(default=None), submission_type: list[str] | None = Query(default=None),
-    payment_status: list[str] | None = Query(default=None), ready_by: list[str] | None = Query(default=None),
-    colour_making_by: list[str] | None = Query(default=None), delivered_by: list[str] | None = Query(default=None),
-    user=Depends(access.require_page("o2d_overview")),
-):
-    """One card per order, grouped by stage, for the admin Overview board - plus the count for each
-    stage across every active order (not just the sampled cards)."""
-    # Having the Overview page means seeing every active order on it (v_orders is already active-only).
-    vis_sql, vis_params = "TRUE", list[Any]()
-    extra, extra_params = _kanban_filter_clause({
-        "channel": channel, "submission_type": submission_type, "payment_status": payment_status,
-        "ready_by": ready_by, "colour_making_by": colour_making_by, "delivered_by": delivered_by})
+def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=500),
+                 user=Depends(access.require_page("o2d_overview"))):
+    """One card per order, grouped by stage, for the admin Overview board. Takes the same filters as the dashboard
+    (period + stage, order via, ... logged by). The scorecards count every stage under those filters; the Stage
+    filter (which the scorecards also set) decides which columns the board shows."""
+    from . import admin_tools  # late import: keeps the router modules independent at load time
+    f = admin_tools.filter_from_query(request)
+    chosen = f.pop("stage", None)
+    where, params = admin_tools.build_where(f)  # active orders only: archived ones live on the All orders page
+    cols = ", ".join("v." + c.strip() for c in CARD_COLUMNS.split(","))
     with db.cursor() as cur:
-        cur.execute(f"SELECT stage, count(*) AS n FROM v_orders o WHERE {vis_sql}{extra} GROUP BY stage",
-                    vis_params + extra_params)
+        cur.execute(f"SELECT v.stage, count(*) AS n {admin_tools.ORDERS_FROM} WHERE {where} GROUP BY v.stage", params)
         counts = {row["stage"]: row["n"] for row in cur.fetchall()}
         columns = {}
         for stage in STAGES:
-            cur.execute(
-                f"SELECT sl_no, dc_inv_no, order_date, shipping_location, delivery_status, timestamp_created "
-                f"FROM v_orders o WHERE {vis_sql}{extra} AND stage = %s "
-                f"ORDER BY timestamp_created DESC LIMIT %s", vis_params + extra_params + [stage, per_stage])
-            columns[stage] = [{
-                "slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "orderDate": str(r["order_date"]),
-                "shippingLocation": r["shipping_location"] or "", "deliveryStatus": r["delivery_status"] or "",
-            } for r in cur.fetchall()]
-    return {"ok": True, "stages": [{"name": s, "count": counts.get(s, 0), "orders": columns[s]} for s in STAGES],
-            "total": sum(counts.values())}
+            if chosen and stage not in chosen:
+                continue
+            cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND v.stage = %s "
+                        f"ORDER BY v.timestamp_created DESC LIMIT %s", params + [stage, per_stage])
+            columns[stage] = [_card(r) for r in cur.fetchall()]
+    return {"ok": True, "total": sum(counts.values()), "selected": chosen or [],
+            "stages": [{"name": s, "count": counts.get(s, 0), "orders": columns.get(s, [])} for s in STAGES]}
+
+
+def _created_by_names() -> list[str]:
+    with db.cursor() as cur:
+        cur.execute("SELECT display_name FROM dim_user ORDER BY lower(display_name)")
+        return [r["display_name"] for r in cur.fetchall()]
+
+
+# ------------------------------------------------------------------ reminders (admin -> the people who handle a stage)
+STAGE_ROLES = {"Awaiting godown": ("godown",), "Awaiting dispatch": ("shop_dispatch", "godown_dispatch"),
+               "Awaiting receiving": ("receiving",)}
+
+
+class ReminderIn(BaseModel):
+    sl_no: int
+    message: str | None = None
+
+
+@router.post("/admin/reminders")
+def send_reminder(body: ReminderIn, user=Depends(access.require_page("o2d_overview"))):
+    """Remind the people responsible for this order's current stage. Closed and cancelled orders have nobody to remind."""
+    with db.cursor() as cur:
+        cur.execute("SELECT order_key, stage, dc_inv_no FROM v_orders WHERE sl_no = %s", (body.sl_no,))
+        o = cur.fetchone()
+        if not o:
+            raise HTTPException(404, "Order not found")
+        if o["stage"] not in STAGE_ROLES:
+            raise HTTPException(400, f"This order is {o['stage']}; there is nobody to remind.")
+        cur.execute("INSERT INTO order_reminder (order_key, stage, message, sent_by_user_key, sent_by_name) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (o["order_key"], o["stage"], (body.message or "").strip()[:300] or None,
+                     user["user_key"], user.get("display_name") or user["username"]))
+    return {"ok": True, "stage": o["stage"], "roles": list(STAGE_ROLES[o["stage"]])}
+
+
+@router.get("/reminders")
+def my_reminders(role: str | None = Query(default=None), user=Depends(ANY_VIEWER)):
+    """Open reminders for this user's screen. Admin may pass ?role= to preview a screen. A reminder disappears
+    by itself once the order has moved on from the stage it was sent for."""
+    r = role if (user["role"] == "admin" and role) else user["role"]
+    stages = [st for st, rs in STAGE_ROLES.items() if r in rs]
+    if not stages:
+        return {"ok": True, "reminders": []}
+    with db.cursor() as cur:
+        cur.execute("SELECT m.reminder_key, m.message, m.sent_by_name, m.sent_at, m.stage, v.sl_no, v.dc_inv_no, "
+                    "v.shipping_location, v.order_date FROM order_reminder m "
+                    "JOIN v_orders v ON v.order_key = m.order_key "
+                    "WHERE m.acked_at IS NULL AND m.stage = ANY(%s) AND v.stage = m.stage ORDER BY m.sent_at DESC",
+                    (stages,))
+        rows = cur.fetchall()
+    return {"ok": True, "reminders": [{
+        "id": x["reminder_key"], "message": x["message"] or "", "sentBy": x["sent_by_name"] or "Admin",
+        "sentAt": x["sent_at"].isoformat(), "stage": x["stage"], "slNo": x["sl_no"], "dcNo": x["dc_inv_no"] or "",
+        "shippingLocation": x["shipping_location"] or "", "orderDate": str(x["order_date"])} for x in rows]}
+
+
+@router.post("/reminders/{reminder_key}/ack")
+def ack_reminder(reminder_key: int, user=Depends(ANY_VIEWER)):
+    with db.cursor() as cur:
+        cur.execute("SELECT stage FROM order_reminder WHERE reminder_key = %s", (reminder_key,))
+        m = cur.fetchone()
+        if not m:
+            raise HTTPException(404, "Reminder not found")
+        if user["role"] != "admin" and user["role"] not in STAGE_ROLES.get(m["stage"], ()):
+            raise HTTPException(403, "This reminder is for another screen.")
+        cur.execute("UPDATE order_reminder SET acked_at = now(), acked_by_name = %s "
+                    "WHERE reminder_key = %s AND acked_at IS NULL", (user.get("display_name") or user["username"], reminder_key))
+    return {"ok": True}
 
 
 @router.get("/admin/form-options")
@@ -263,7 +327,8 @@ def admin_form_options(user=Depends(ADMIN_ONLY)):
         "paymentStatus": _names(_lookup_rows("payment-statuses")),
         "readyByWhom": _names(_people_rows("ready_by")),
         "colourMakingBy": _names(_people_rows("colour_making")),
-        "deliveredByWhom": _names(_people_rows("delivery"))}}
+        "deliveredByWhom": _names(_people_rows("delivery")),
+        "stage": list(STAGES), "createdBy": _created_by_names()}}
 
 
 @router.get("/search")
@@ -316,6 +381,57 @@ def missing_numbers(date_: date | None = Query(default=None, alias="date"), user
     if date_ is not None and user["role"] != "admin":
         raise HTTPException(403, "Only admin can pick a date")
     return missing_numbers_for(user, date_ or today_ist())
+
+
+# ------------------------------------------------------------------ missing bill numbers
+GAP_RESOLVERS = {"admin", "shop"}  # who may mark a missing number as "no bill to punch"
+
+
+@router.get("/doc-gaps")
+def doc_gaps(user=Depends(ANY_VIEWER)):
+    """Bill numbers nobody has punched: Challan per day (from 1), Invoice per financial year."""
+    with db.cursor() as cur:
+        out = doc_numbers.open_gaps(cur, today_ist())
+    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": user["role"] in roles.CREATE_ORDER_ROLES, **out}
+
+
+class GapVoid(BaseModel):
+    doc_type: str
+    series_key: str
+    number_from: int
+    number_to: int
+    reason: str
+
+
+@router.post("/doc-gaps/void")
+def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
+    """Close a missing number (or a run of them) that needs no punch, e.g. the bill was voided in BUSY."""
+    if user["role"] not in GAP_RESOLVERS:
+        raise HTTPException(403, "Only admin or the shop can close a missing number.")
+    reason = body.reason.strip()
+    if body.doc_type not in ("Challan", "Invoice"):
+        raise HTTPException(422, "doc_type must be Challan or Invoice")
+    if len(reason) < 3:
+        raise HTTPException(422, "Please give a reason.")
+    if not 0 < body.number_from <= body.number_to or body.number_to - body.number_from >= doc_numbers.MAX_LISTED:
+        raise HTTPException(422, "Invalid number range.")
+    with db.cursor() as cur:
+        for n in range(body.number_from, body.number_to + 1):
+            cur.execute("INSERT INTO doc_gap_void (doc_type, series_key, doc_no, reason, by_user_key, by_name) "
+                        "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                        (body.doc_type, body.series_key[:10], n, reason[:300], user["user_key"],
+                         user.get("display_name") or user["username"]))
+    return {"ok": True}
+
+
+@router.get("/doc-check")
+def doc_check(doc_type: str, date_: date = Query(alias="date"), number: int = Query(ge=0),
+              user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+    """Used by the order form while a number is typed: is it already taken, does it skip ahead of the series?"""
+    if doc_type not in ("Challan", "Invoice"):
+        return {"ok": True, "duplicate": False, "skipped": []}
+    with db.cursor() as cur:
+        return {"ok": True, **doc_numbers.check_entry(cur, doc_type, date_, number)}
 
 
 # ------------------------------------------------------------------ write screens

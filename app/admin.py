@@ -153,26 +153,34 @@ def disable_user(user_key: int, admin=Depends(ADMIN)):
 
 @router.delete("/users/{user_key}")
 def delete_user(user_key: int, admin=Depends(ADMIN)):
-    """Only allowed for accounts with no order or admin-action history - anyone who
-    has actually touched an order or acted in the portal must be disabled instead,
-    since deleting them would orphan real records."""
+    """Remove a member, e.g. someone who has left. Orders in their name are not blocked: they are reassigned to the
+    admin doing the delete, each with a note in the order's timeline. The audit log keeps the old username."""
     if user_key == admin["user_key"]:
         raise HTTPException(400, "You cannot delete your own account")
     with db.cursor() as cur:
         target = _get_user(cur, user_key)
-        cur.execute(
-            "SELECT count(*) AS n FROM fact_orders WHERE created_by_user_key = %s OR last_updated_by_user_key = %s",
-            (user_key, user_key))
-        order_refs = cur.fetchone()["n"]
-        cur.execute("SELECT count(*) AS n FROM admin_audit_log WHERE admin_user_key = %s", (user_key,))
-        audit_refs = cur.fetchone()["n"]
-        if order_refs or audit_refs:
-            raise HTTPException(
-                409, f"Can't delete {target['username']}: linked to {order_refs} order(s) and "
-                     f"{audit_refs} admin action(s). Disable the account instead to preserve that history.")
+        cur.execute("SELECT order_key FROM fact_orders WHERE created_by_user_key = %s OR last_updated_by_user_key = %s",
+                    (user_key, user_key))
+        order_keys = [r["order_key"] for r in cur.fetchall()]
+        who = target["display_name"] or target["username"]
+        title = f"Owner changed to {admin['display_name']}: {who} was removed from the portal"
+        for ok in order_keys:
+            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
+                        "VALUES (%s, 'reassigned', %s, %s, %s, %s)",
+                        (ok, title[:120], admin["user_key"], admin["display_name"], admin["role"]))
+        cur.execute("UPDATE fact_orders SET created_by_user_key = %s WHERE created_by_user_key = %s",
+                    (admin["user_key"], user_key))
+        cur.execute("UPDATE fact_orders SET last_updated_by_user_key = %s WHERE last_updated_by_user_key = %s",
+                    (admin["user_key"], user_key))
+        cur.execute("UPDATE admin_audit_log SET admin_user_key = %s WHERE admin_user_key = %s",  # admin_username still names them
+                    (admin["user_key"], user_key))
+        cur.execute("UPDATE import_batch SET created_by_user_key = %s WHERE created_by_user_key = %s",
+                    (admin["user_key"], user_key))
         cur.execute("DELETE FROM dim_user WHERE user_key = %s", (user_key,))
-        audit(cur, admin, "user.delete", target["username"])
-    return {"ok": True}
+        audit(cur, admin, "user.delete", target["username"], {"orders_reassigned_to_admin": len(order_keys)})
+    note = (f"{len(order_keys)} order(s) that were in {who}'s name now belong to you ({admin['display_name']})."
+            if order_keys else "They had no orders.")
+    return {"ok": True, "orders_reassigned": len(order_keys), "note": note}
 
 
 # ------------------------------------------------------------------ dashboard

@@ -122,7 +122,7 @@ async function renderOrders(panel) {
   inputs.date_from = h('input', { type: 'date', id: 'f_from', value: d0.from, 'aria-label': 'From date' });
   inputs.date_to = h('input', { type: 'date', id: 'f_to', value: d0.to, 'aria-label': 'To date' });
   inputs.sl_no = h('input', { type: 'search', id: 'f_sl', placeholder: 'Sl no. or DC/Inv no.', 'aria-label': 'Search by Sl number', autocomplete: 'off' });
-  inputs.include_archived = h('input', { type: 'checkbox', id: 'f_archived' });
+  let view = 'active';  // which KPI card is selected; it filters the whole page
   const selections = {};  // key -> Set of chosen values, owned by each multiSelect widget
   const groups = FILTER_GROUPS.map(([key, label]) => {
     selections[key] = new Set();
@@ -138,13 +138,13 @@ async function renderOrders(panel) {
     } else {
       if (inputs.date_from.value) f.date_from = inputs.date_from.value;
       if (inputs.date_to.value) f.date_to = inputs.date_to.value;
-      if (inputs.include_archived.checked) f.include_archived = true;
+      f.view = view;
     }
     for (const [key] of FILTER_GROUPS) { if (selections[key].size) f[key] = [...selections[key]]; }
     return f;
   };
 
-  const run = () => { st.filter = collect(); st.offset = 0; load(); };
+  const run = () => { st.filter = collect(); st.offset = 0; load(); loadKpis(); };
 
   // What was just done (an edit or a delete), kept at the top of the page until dismissed.
   const notice = h('div', { id: 'actionSummary', role: 'status', 'aria-live': 'polite' });
@@ -182,7 +182,6 @@ async function renderOrders(panel) {
           h('button', { class: 'btn small', text: 'View', onclick: (e) => { e.stopPropagation(); openOrderDetail(r.sl_no); } }),
           admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, (n) => { showNotice(n); load(); loadKpis(); }); } }) : null,
           admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, (n) => { showNotice(n); load(); loadKpis(); }); } }) : null)));
-      matchValue.textContent = fmtInt(data.total);
       const last = Math.min(st.offset + st.limit, data.total);
       const prev = h('button', { class: 'btn small', text: '‹ Previous', disabled: st.offset === 0 || null, onclick: () => { st.offset = Math.max(0, st.offset - st.limit); load(); } });
       const next = h('button', { class: 'btn small', text: 'Next ›', disabled: last >= data.total || null, onclick: () => { st.offset += st.limit; load(); } });
@@ -210,7 +209,6 @@ async function renderOrders(panel) {
   };
   inputs.date_from.addEventListener('change', onDates);
   inputs.date_to.addEventListener('change', onDates);
-  inputs.include_archived.addEventListener('change', run);
   let slTimer = null;
   inputs.sl_no.addEventListener('input', () => { clearTimeout(slTimer); slTimer = setTimeout(run, 400); });
   inputs.sl_no.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(slTimer); run(); } });
@@ -222,24 +220,22 @@ async function renderOrders(panel) {
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Filter by' }), ...groups),
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Find order' }), inputs.sl_no, findBtn, clearBtn,
       h('span', { class: 'note', text: 'Searches all dates, including archived orders.' }))];
-  // High-level counts for the whole database; refreshed after an edit or delete.
+  // Counts for the current filters. Each card is also a filter: click one to narrow the whole page to it.
   const kpis = h('div', { class: 'kpi-strip', id: 'orderKpis' });
-  // The cards above describe the whole database; this one follows the filters, so ticking "Include archived" visibly changes it.
-  const matchValue = h('div', { class: 'k-value', id: 'kpiMatching', text: '–' });
-  const matchCard = h('div', { class: 'kpi k-match' }, h('div', { class: 'k-label', text: 'Matching filters' }), matchValue,
-    h('div', { class: 'k-sub', text: 'orders in the table below' }));
+  const KPI_CARDS = [['total', 'Total orders', 'all orders, archived included', ''], ['active', 'Active', 'shown by default', 'k-active'],
+    ['archived', 'Archived', 'closed or cancelled, 7+ days old', 'k-archived'], ['in_progress', 'In progress', 'active, not yet closed', ''],
+    ['closed', 'Closed', 'delivered, received, paid', ''], ['cancelled', 'Cancelled', '', '']];
+  let kpiSeq = 0;
   const loadKpis = async () => {
+    const seq = ++kpiSeq;
     try {
-      const k = await api('/admin/orders/summary');
-      const card = (label, value, sub, cls) => h('div', { class: 'kpi ' + (cls || '') },
-        h('div', { class: 'k-label', text: label }), h('div', { class: 'k-value', text: fmtInt(value) }), sub ? h('div', { class: 'k-sub', text: sub }) : null);
-      kpis.replaceChildren(
-        card('Total orders', k.total, 'active + archived, all time'),
-        card('Active', k.active, 'shown by default', 'k-active'),
-        card('Archived', k.archived, 'finished and 7+ days old', 'k-archived'),
-        card('In progress', k.in_progress, 'active, not yet closed'),
-        card('Closed', k.closed, 'delivered, received, paid'),
-        card('Cancelled', k.cancelled, ''), matchCard);
+      const k = await api('/admin/orders/summary?' + queryFrom(collect(), {}));
+      if (seq !== kpiSeq) return;
+      kpis.replaceChildren(...KPI_CARDS.map(([key, label, sub, cls]) => h('button', {
+        type: 'button', class: 'kpi clickable ' + cls + (view === key ? ' selected' : ''), 'data-view': key, 'aria-pressed': String(view === key),
+        title: 'Show only: ' + label,
+        onclick: () => { view = view === key && key !== 'active' ? 'active' : key; run(); } },
+        h('div', { class: 'k-label', text: label }), h('div', { class: 'k-value', text: fmtInt(k[key]) }), sub ? h('div', { class: 'k-sub', text: sub }) : null)));
     } catch { kpis.replaceChildren(); }
   };
   const toggle = h('button', { type: 'button', class: 'btn small', id: 'f_toggle', 'aria-expanded': 'true', text: 'Hide filters ▲' });
@@ -258,13 +254,9 @@ async function renderOrders(panel) {
   });
   panel.replaceChildren(
     notice,
-    kpis,
     filtersBox,
-    h('div', { class: 'archive-note', id: 'archiveNote' },
-      h('strong', { text: 'Archived orders are hidden by default. ' }),
-      'An order is archived when it is at least 7 days old (by order date) and fully finished: either Closed (delivered, received and payment recorded) or Cancelled. ',
-      h('label', { class: 'check', style: 'display:inline-flex;margin-left:6px' }, inputs.include_archived, ' Include archived orders'),
-      h('div', { class: 'note', id: 'archiveHint' }, 'Archived orders are older than 7 days, so they only appear if the period above reaches back far enough. Totals at the top count the whole database; “Matching filters” follows your selection.')),
+    kpis,
+    h('div', { class: 'note', id: 'archiveNote', text: 'Archived orders (closed or cancelled, 7+ days old) are hidden by default. Click the Archived or Total orders card to see them.' }),
     results);
   trackSticky(filtersBox, '--filters-h');
   loadKpis();
