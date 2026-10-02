@@ -911,8 +911,8 @@ async function renderMembers(panel) {
   };
 
   const remove = async (u) => {
-    if (!(await confirmDialog('Delete ' + u.username + '?', `Permanently removes ${u.display_name}'s account. This only works if they have no order or admin-action history - otherwise use Disable instead. Cannot be undone.`, 'Delete', true))) return;
-    try { await api(`/admin/users/${u.user_key}`, { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); }
+    if (!(await confirmDialog('Delete ' + u.username + '?', `Permanently removes ${u.display_name}'s account. Note: any orders in their name are not deleted - they are reassigned to you (the admin deleting), and each order's timeline records the change. Use Disable instead if you may need them back. Cannot be undone.`, 'Delete', true))) return;
+    try { const r = await api(`/admin/users/${u.user_key}`, { method: 'DELETE' }); reload(); if (r && r.note) alert(r.note); } catch (ex) { alert(ex.message); }
   };
 
   const add = () => formDialog({ title: 'Add member', submitLabel: 'Create',
