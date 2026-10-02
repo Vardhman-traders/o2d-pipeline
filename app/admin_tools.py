@@ -26,7 +26,14 @@ NUMBERS = {"min_amount": ("v.amount_received", ">="), "max_amount": ("v.amount_r
 SORTS = {"sl_no": "v.sl_no", "order_date": "v.order_date", "dc_inv_no": "v.dc_inv_no", "stage": "v.stage",
          "delivery_status": "v.delivery_status", "payment_status": "v.payment_status", "channel": "v.channel",
          "amount_received": "v.amount_received", "cartage": "v.cartage", "hours_to_deliver": "v.hours_to_deliver"}
-FILTER_KEYS = ({"date_from", "date_to", "q", "sl_no", "cancelled", "include_archived", "batch_id"}
+# The KPI cards on the All orders page; clicking one sets this as the "view". No view means the default: active orders.
+VIEWS = {"total": None,
+         "active": "v.archived_at IS NULL",
+         "archived": "v.archived_at IS NOT NULL",
+         "in_progress": "(v.archived_at IS NULL AND NOT v.is_cancelled AND v.stage <> 'Closed')",
+         "closed": "v.stage = 'Closed'",
+         "cancelled": "v.is_cancelled"}
+FILTER_KEYS = ({"date_from", "date_to", "q", "sl_no", "cancelled", "include_archived", "view", "batch_id"}
                | set(MULTI) | set(NUMBERS))
 
 
@@ -55,6 +62,8 @@ def normalise_filter(raw: dict[str, Any]) -> dict[str, Any]:
             out["cancelled"] = raw["cancelled"]
         if str(raw.get("include_archived", "")).lower() in ("1", "true", "yes"):
             out["include_archived"] = True
+        if raw.get("view") in VIEWS:
+            out["view"] = raw["view"]
         if raw.get("batch_id") not in (None, ""):
             out["batch_id"] = int(raw["batch_id"])
     except (ValueError, TypeError) as e:
@@ -72,7 +81,10 @@ def filter_from_query(request: Request) -> dict[str, Any]:
 
 def build_where(f: dict[str, Any]) -> tuple[str, list]:
     where, params = [], []
-    if not f.get("include_archived"):
+    if f.get("view"):
+        if VIEWS[f["view"]]:
+            where.append(VIEWS[f["view"]])
+    elif not f.get("include_archived"):
         where.append("v.archived_at IS NULL")
     if f.get("date_from"):
         where.append("v.order_date >= %s")
@@ -166,18 +178,20 @@ def search_orders(request: Request, sort: str = "order_date", direction: str = Q
 
 
 @router.get("/orders/summary")
-def orders_summary(viewer=Depends(access.require_page("dashboard_orders"))):
-    """High-level counts for the top of the All orders page: the whole database, archived orders included."""
+def orders_summary(request: Request, viewer=Depends(access.require_page("dashboard_orders"))):
+    """Counts for the KPI cards. They follow every filter except the card choice itself, archived orders included."""
+    f = filter_from_query(request)
+    f.pop("view", None)
+    f["include_archived"] = True
+    where, params = build_where(f)
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS total, "
-                    "count(*) FILTER (WHERE archived_at IS NULL) AS active, "
-                    "count(*) FILTER (WHERE archived_at IS NOT NULL) AS archived, "
-                    "count(*) FILTER (WHERE archived_at IS NULL AND NOT is_cancelled "
-                    "AND stage <> 'Closed') AS in_progress, "
-                    "count(*) FILTER (WHERE stage = 'Closed') AS closed, "
-                    "count(*) FILTER (WHERE is_cancelled) AS cancelled, "
-                    "min(order_date) AS first_order, max(order_date) AS last_order "
-                    "FROM v_orders_archive")
+                    "count(*) FILTER (WHERE v.archived_at IS NULL) AS active, "
+                    "count(*) FILTER (WHERE v.archived_at IS NOT NULL) AS archived, "
+                    f"count(*) FILTER (WHERE {VIEWS['in_progress']}) AS in_progress, "
+                    "count(*) FILTER (WHERE v.stage = 'Closed') AS closed, "
+                    "count(*) FILTER (WHERE v.is_cancelled) AS cancelled "
+                    f"{ORDERS_FROM} WHERE {where}", params)
         return cur.fetchone()
 
 
