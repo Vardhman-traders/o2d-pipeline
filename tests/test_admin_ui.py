@@ -101,6 +101,11 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         _section(page, "Setup", "Import")
         page.set_input_files("#importFile", str(csv))
         expect(page.locator("#errorTable")).to_contain_text("'Phone' not found", timeout=8000)
+        expect(page.locator("#passedCount")).to_have_text("1")
+        expect(page.locator("#failedCount")).to_have_text("1")
+        with page.expect_download() as bad_dl:
+            page.click("#downloadFailedBtn")
+        assert bad_dl.value.suggested_filename == "orders_failed_rows.csv"
         page.locator("#errorTable input[aria-label^='Order Via']").fill("Walk-in")
         page.click("#recheckBtn")
         expect(page.locator("#importBtn")).to_have_text("Import 2 orders", timeout=8000)
@@ -117,15 +122,17 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         channel_filter.locator("button.multiselect-btn").click()
         channel_filter.get_by_label("Call").check()
         expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
-        # the dropdown closes by itself after a pick and the button shows the choice
-        expect(channel_filter.locator(".ms-panel")).to_be_hidden()
+        # the list stays open so several values can be ticked; Done (or a click outside) closes it
+        expect(channel_filter.locator(".ms-panel")).to_be_visible()
         expect(channel_filter.locator("button.multiselect-btn")).to_contain_text("Call")
-        # Find button filters the table; digits-only exact; Clear brings the rest back
+        channel_filter.get_by_label("Walk-in").check()
+        expect(page.locator("#ordersTable tbody tr")).to_have_count(2, timeout=8000)
+        expect(channel_filter.locator("button.multiselect-btn")).to_contain_text("2 selected")
+        channel_filter.get_by_role("button", name="Done").click()
+        expect(channel_filter.locator(".ms-panel")).to_be_hidden()
+        # Find button filters the table (both channels still ticked); Clear brings the rest back
         page.fill("#f_sl", f"UI-{u}-2")
         page.click("#f_find")
-        expect(page.locator("#ordersTable tbody tr")).to_have_count(0, timeout=8000)  # channel=Call still set
-        channel_filter.locator("button.multiselect-btn").click()
-        channel_filter.get_by_label("Call").uncheck()
         expect(page.locator("#ordersTable tbody tr")).to_have_count(1, timeout=8000)
         page.click("#f_clearfind")
         # header sorting: click once = sorted, click again = reversed
@@ -143,6 +150,12 @@ def test_admin_filters_bulk_upload_and_undo(base_url, tmp_path):
         assert 100 < page.locator("#orderFilters").bounding_box()["y"] < 140  # pinned under the tab row
         head_y = page.locator("#ordersTable thead th").first.bounding_box()["y"]
         assert head_y < 330, head_y  # header pinned under the filters
+        # nothing scrolls over the pinned panels: what is on top of them is the panel itself
+        for sel in (".module-head", "#orderFilters"):
+            box = page.locator(sel).first.bounding_box()
+            hit = page.evaluate("([x, y, sel]) => !!document.elementFromPoint(x, y).closest(sel)",
+                                [box["x"] + 20, box["y"] + box["height"] / 2, sel])
+            assert hit, sel
         page.set_viewport_size({"width": 1280, "height": 900})
         with page.expect_download() as dl:
             page.click("#exportBtn")
@@ -192,7 +205,8 @@ def test_admin_cleans_up_duplicate_names(base_url, migrated_db_url):
         page.fill("input[autocomplete=username]", "ui_admin")
         page.fill("input[autocomplete=current-password]", PW)
         page.click("button[type=submit]")
-        _section(page, "Setup", "Reconciliation")
+        _section(page, "Setup", "Dropdown values")
+        page.locator(".list-tabs .subtab", has_text=re.compile(r"^Delivered by$")).click()
 
         # the pair is flagged as a possible duplicate; merge it, keeping the correct spelling
         pair = page.locator("#rc_dups tr", has_text=f"Suresh{u}")
@@ -206,8 +220,8 @@ def test_admin_cleans_up_duplicate_names(base_url, migrated_db_url):
         expect(page.locator("#rc_table tbody tr", has_text=f"Suresh{u}")).to_contain_text("1")
 
         # rename a value in place
-        page.locator("#rc_table tbody tr", has_text=f"Bablu{u}").get_by_role("button", name="Rename").click()
-        page.fill("dialog input[type=text]", f"Babloo{u}")
+        page.locator("#rc_table tbody tr", has_text=f"Bablu{u}").get_by_role("button", name="Edit").click()
+        page.locator("dialog input[type=text]").first.fill(f"Babloo{u}")
         page.locator("dialog button[type=submit]").click()
         expect(page.locator("#rc_table tbody tr", has_text=f"Babloo{u}")).to_have_count(1, timeout=8000)
         browser.close()
@@ -267,6 +281,8 @@ def test_admin_home_screen_and_navigation(base_url):
         expect(page.locator("#f_sl")).to_be_visible()
         expect(page.locator("#f_from")).not_to_have_value("")  # defaults to the last 30 days, like the Overview
         expect(page.locator("#moduleActions #exportBtn")).to_be_visible()
+        expect(page.locator("#orderKpis")).to_contain_text("Total orders", timeout=8000)   # high-level counts on top
+        expect(page.locator("#orderKpis")).to_contain_text("Archived")
         page.click("#f_last30")
         expect(page.locator("#f_from")).not_to_have_value("")
 
@@ -275,11 +291,66 @@ def test_admin_home_screen_and_navigation(base_url):
         page.click("#tileSetup")
         expect(page.locator(".module-tabs .subtab")).to_have_text(
             [re.compile(p) for p in (
-                r"^Members$", r"^Import$", r"^Reconciliation$", r"^Access$",
-                r"^Access requests( \(\d+\))?$",   # carries a count while requests are waiting
-                r"^Dropdown values$", r"^Permissions$", r"^Weekly off$", r"^Apps$")])
-        page.locator(".module-tabs .subtab", has_text="Reconciliation").click()
+                r"^Members$", r"^Import$", r"^Dropdown values$",
+                r"^Access & permissions( \(\d+\))?$",   # carries a count while requests are waiting
+                r"^Weekly off$")])
+        page.locator(".module-tabs .subtab", has_text="Dropdown values").click()
         expect(page.locator("#rc_table")).to_be_visible(timeout=8000)
+        page.locator(".module-tabs .subtab", has_text="Access & permissions").click()
+        expect(page.locator("#accessMatrix")).to_be_visible(timeout=8000)          # page access
+        expect(page.locator("#hubExplainer")).to_contain_text("Can this person open this page at all?")
+        expect(page.locator("#hubExplainer")).to_contain_text("what may this role see or change")
+        expect(page.locator("#hubRequests")).to_be_visible()                       # requests, same page
+        expect(page.locator("#hubPermissions table").first).to_be_visible()        # role permissions, same page
+        page.locator(".module-tabs .subtab", has_text="Import").click()
+        expect(page.locator("#templateXlsxBtn")).to_be_visible(timeout=8000)
+        expect(page.locator("#templateBtn")).to_be_visible()
         assert "Activity log" not in page.content()
+        browser.close()
+    assert not errors, errors
+
+
+def test_archived_orders_appear_when_included(base_url, migrated_db_url):
+    """Archived orders are hidden by default; "Include archived" shows them and the count that follows the filters."""
+    expect = sync_api.expect
+    u = uuid.uuid4().hex[:4].upper()
+    conn = psycopg2.connect(migrated_db_url)
+    cur = conn.cursor()
+    when = date.today() - timedelta(days=20)
+    cur.execute("INSERT INTO dim_date (date_key, full_date, day, month, year, day_of_week, is_monday_holiday) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (int(when.strftime("%Y%m%d")), when, when.day, when.month, when.year, when.strftime("%A"), False))
+    for i in (1, 2):   # two cancelled, 20 days old, already archived
+        cur.execute("INSERT INTO fact_orders (sl_no, dc_inv_no, order_received_date_key, is_cancelled, archived_at) "
+                    "SELECT COALESCE(max(sl_no), 0) + 1, %s, %s, true, now() FROM fact_orders",
+                    (f"ARCH-{u}-{i}", int(when.strftime("%Y%m%d"))))
+    conn.commit()
+    conn.close()
+    errors: list[str] = []
+
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(base_url)
+        page.fill("input[autocomplete=username]", "ui_admin")
+        page.fill("input[autocomplete=current-password]", PW)
+        page.click("button[type=submit]")
+        _section(page, "Dashboard", "All orders")
+        expect(page.locator("#orderCount")).to_be_visible(timeout=8000)
+        expect(page.locator("#orderKpis")).to_contain_text("Archived", timeout=8000)
+        archived_kpi = page.locator("#orderKpis .k-archived .k-value")
+        assert int(archived_kpi.inner_text().replace(",", "")) >= 2          # the database holds archived orders
+        # hidden by default
+        expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(0)
+        before = int(page.locator("#kpiMatching").inner_text().replace(",", ""))
+        # ticking the box brings them in, and the "matching" count rises by exactly those two
+        page.check("#f_archived")
+        expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(2, timeout=8000)
+        expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}-1")).to_contain_text("Archived")
+        after = int(page.locator("#kpiMatching").inner_text().replace(",", ""))
+        assert after == before + 2, (before, after)
+        page.uncheck("#f_archived")
+        expect(page.locator("#ordersTable tbody tr", has_text=f"ARCH-{u}")).to_have_count(0, timeout=8000)
         browser.close()
     assert not errors, errors

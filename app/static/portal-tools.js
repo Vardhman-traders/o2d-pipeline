@@ -180,8 +180,9 @@ async function renderOrders(panel) {
         h('td', { class: 'num', text: r.hours_to_deliver == null ? '' : fmtHours(r.hours_to_deliver) }),
         h('td', { class: 'row', style: 'gap:4px' },
           h('button', { class: 'btn small', text: 'View', onclick: (e) => { e.stopPropagation(); openOrderDetail(r.sl_no); } }),
-          admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, (n) => { showNotice(n); load(); }); } }) : null,
-          admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, (n) => { showNotice(n); load(); }); } }) : null)));
+          admin ? h('button', { class: 'btn small', text: 'Edit', onclick: (e) => { e.stopPropagation(); openOrderEdit(r, options, (n) => { showNotice(n); load(); loadKpis(); }); } }) : null,
+          admin ? h('button', { class: 'btn small danger', text: 'Delete', onclick: (e) => { e.stopPropagation(); deleteOrder(r, (n) => { showNotice(n); load(); loadKpis(); }); } }) : null)));
+      matchValue.textContent = fmtInt(data.total);
       const last = Math.min(st.offset + st.limit, data.total);
       const prev = h('button', { class: 'btn small', text: '‹ Previous', disabled: st.offset === 0 || null, onclick: () => { st.offset = Math.max(0, st.offset - st.limit); load(); } });
       const next = h('button', { class: 'btn small', text: 'Next ›', disabled: last >= data.total || null, onclick: () => { st.offset += st.limit; load(); } });
@@ -221,6 +222,26 @@ async function renderOrders(panel) {
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Filter by' }), ...groups),
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Find order' }), inputs.sl_no, findBtn, clearBtn,
       h('span', { class: 'note', text: 'Searches all dates, including archived orders.' }))];
+  // High-level counts for the whole database; refreshed after an edit or delete.
+  const kpis = h('div', { class: 'kpi-strip', id: 'orderKpis' });
+  // The cards above describe the whole database; this one follows the filters, so ticking "Include archived" visibly changes it.
+  const matchValue = h('div', { class: 'k-value', id: 'kpiMatching', text: '–' });
+  const matchCard = h('div', { class: 'kpi k-match' }, h('div', { class: 'k-label', text: 'Matching filters' }), matchValue,
+    h('div', { class: 'k-sub', text: 'orders in the table below' }));
+  const loadKpis = async () => {
+    try {
+      const k = await api('/admin/orders/summary');
+      const card = (label, value, sub, cls) => h('div', { class: 'kpi ' + (cls || '') },
+        h('div', { class: 'k-label', text: label }), h('div', { class: 'k-value', text: fmtInt(value) }), sub ? h('div', { class: 'k-sub', text: sub }) : null);
+      kpis.replaceChildren(
+        card('Total orders', k.total, 'active + archived, all time'),
+        card('Active', k.active, 'shown by default', 'k-active'),
+        card('Archived', k.archived, 'finished and 7+ days old', 'k-archived'),
+        card('In progress', k.in_progress, 'active, not yet closed'),
+        card('Closed', k.closed, 'delivered, received, paid'),
+        card('Cancelled', k.cancelled, ''), matchCard);
+    } catch { kpis.replaceChildren(); }
+  };
   const toggle = h('button', { type: 'button', class: 'btn small', id: 'f_toggle', 'aria-expanded': 'true', text: 'Hide filters ▲' });
   const filtersBox = h('div', { class: 'sticky-filters', id: 'orderFilters' },
     h('div', { class: 'filter-row' }, h('span', { class: 'filter-label', text: 'Period' }),
@@ -237,13 +258,16 @@ async function renderOrders(panel) {
   });
   panel.replaceChildren(
     notice,
+    kpis,
     filtersBox,
     h('div', { class: 'archive-note', id: 'archiveNote' },
       h('strong', { text: 'Archived orders are hidden by default. ' }),
       'An order is archived when it is at least 7 days old (by order date) and fully finished: either Closed (delivered, received and payment recorded) or Cancelled. ',
-      h('label', { class: 'check', style: 'display:inline-flex;margin-left:6px' }, inputs.include_archived, ' Include archived orders')),
+      h('label', { class: 'check', style: 'display:inline-flex;margin-left:6px' }, inputs.include_archived, ' Include archived orders'),
+      h('div', { class: 'note', id: 'archiveHint' }, 'Archived orders are older than 7 days, so they only appear if the period above reaches back far enough. Totals at the top count the whole database; “Matching filters” follows your selection.')),
     results);
   trackSticky(filtersBox, '--filters-h');
+  loadKpis();
   if (panel.isConnected) slot.replaceChildren(exportBtn);
   run();
 }
@@ -290,6 +314,40 @@ async function openOrderDetail(slNo) {
       note ? h('p', { class: 'note', text: note }) : null,
       h('ol', { class: 'timeline', id: 'orderTimeline' }, events));
   } catch (ex) { body.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+}
+
+// ------------------------------------------------------------------ Setup > Access & permissions (one page)
+// Two layers, kept apart on purpose: ACCESS decides which pages a person can open (the door); PERMISSIONS decide what a role may
+// do once inside the O2D screens (which fields it may edit, whether it may view all orders). Requests to open a page are decided here too.
+async function renderAccessHub(panel) {
+  const section = (id, title, intro) => {
+    const body = h('div', { id });
+    return [h('div', { class: 'hub-section' }, h('h2', { class: 'hub-title', text: title }), h('p', { class: 'note', text: intro })), body];
+  };
+  const [reqHead, reqBody] = section('hubRequests', 'Requests waiting for a decision',
+    'People who opened a page they cannot see can ask for access. Approving gives that one person the page; colleagues in the same role are not affected.');
+  const [pageHead, pageBody] = section('hubPages', 'Who can open which page',
+    'The door: tick the pages each role opens by default, then add exceptions for one person. Opening a page does not change what someone may do inside it.');
+  const [permHead, permBody] = section('hubPermissions', 'What each role can do inside the O2D screens',
+    'The rules inside the door: which order fields a role may set, and which view-only roles may see all orders. Changes apply immediately.');
+  const jump = h('nav', { class: 'hub-jump', 'aria-label': 'Jump to a section' },
+    ...[['Requests', reqHead], ['Page access', pageHead], ['Role permissions', permHead]].map(([t, el]) => h('button', { type: 'button', class: 'linklike', text: t,
+      onclick: () => el.scrollIntoView({ behavior: 'smooth', block: 'start' }) })));
+  const useCase = (icon, title, question, example) => h('div', { class: 'usecase' },
+    h('div', { class: 'usecase-title' }, h('span', { 'aria-hidden': 'true', text: icon }), h('strong', { text: title })),
+    h('p', { class: 'usecase-q', text: question }), h('p', { class: 'note', text: example }));
+  const explainer = h('div', { class: 'card hub-explainer', id: 'hubExplainer' },
+    h('h2', { class: 'hub-title', text: 'How access and permissions work' }),
+    h('p', { class: 'note', text: 'Two separate controls. A person first needs access to a page (the door), and then their role’s permissions decide what they can do inside it.' }),
+    h('div', { class: 'usecase-grid' },
+      useCase('🚪', 'Page access', 'Can this person open this page at all?',
+        'Example: the cashier role does not get the All orders page, so it never appears for them. Tick pages for a whole role, or add an exception for one person. A person who opens a page they cannot see can send a request, which you approve below.'),
+      useCase('✏️', 'Role permissions', 'Once inside, what may this role see or change?',
+        'Example: the shop role may set “Order via” and “Remarks” on an order but not “Payment status”. View-only roles such as accounts can see all orders only if you turn that on. Opening a page never grants editing.')));
+  panel.replaceChildren(explainer, jump, reqHead, reqBody, pageHead, pageBody, permHead, permBody);
+  renderAccessRequests(reqBody);
+  renderAccess(pageBody);
+  renderPermissions(permBody);
 }
 
 // ------------------------------------------------------------------ Setup > Access (who sees which page)
@@ -348,7 +406,7 @@ async function renderAccess(panel) {
     h('div', { class: 'card', style: 'margin-bottom:16px' },
       h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Who sees which page' }),
       h('p', { class: 'note', text: 'Tick the pages each role opens by default. Admins always open everything, and Setup is for admins only. As new modules are added, their pages appear here.' }),
-      h('p', { class: 'note', style: 'margin:6px 0 12px', text: 'Opening a page does not change what someone may do inside it: what a person can see and edit in the O2D screens still follows their role (Setup > Permissions).' }),
+      h('p', { class: 'note', style: 'margin:6px 0 12px', text: 'Opening a page does not change what someone may do inside it: what a person can see and edit in the O2D screens still follows their role (the section below).' }),
       matrix),
     h('div', { class: 'card' },
       h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Exceptions for one person' }),
@@ -388,8 +446,7 @@ async function renderAccessRequests(panel) {
       : h('div', { class: 'card empty', text: filter.value === 'pending' ? 'No requests waiting. 🎉' : 'Nothing here.' }));
   };
   filter.addEventListener('change', load);
-  panel.replaceChildren(h('p', { class: 'note', style: 'margin-bottom:12px', text: 'People who opened a page they cannot see can ask for access. Approving gives that one person the page; their colleagues in the same role are not affected.' }),
-    h('div', { class: 'row', style: 'margin-bottom:12px' }, filter), holder);
+  panel.replaceChildren(h('div', { class: 'row', style: 'margin-bottom:12px' }, filter), holder);
   load();
 }
 
@@ -414,16 +471,25 @@ function importFlow(root, kind, restart) {
   const file = h('input', { type: 'file', accept: '.csv,.xlsx', id: 'importFile', 'aria-label': 'Choose a file to upload' });
   let filename = '';
 
+  const dl = (path, name) => () => downloadFile(path, name).catch((ex) => alert(ex.message));
   root.replaceChildren(
-    h('div', { class: 'card' },
+    h('div', { class: 'card import-steps' },
       h('h3', { text: `Upload ${label} in bulk` }),
-      h('ol', { class: 'steps' },
-        h('li', {}, 'Download the template and fill it in (rows marked EXAMPLE are ignored).'),
-        h('li', {}, 'Upload the CSV or Excel file. Every row is checked and problems are explained.'),
-        h('li', {}, 'Fix problems right here, then import. Nothing is saved until you press Import, and an import can be undone.')),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', id: 'templateBtn', text: 'Download template', onclick: () => downloadFile(`/admin/bulk/${kind}/template.csv`, kind + '_template.csv').catch((ex) => alert(ex.message)) }),
-        file), status),
+      h('div', { class: 'import-step' }, h('span', { class: 'step-no', text: '1' }),
+        h('div', {}, h('strong', { text: 'Download the template' }),
+          h('p', { class: 'note', text: kind === 'orders'
+            ? 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.'
+            : 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.' }),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn primary', id: 'templateXlsxBtn', text: '⬇ Excel template (.xlsx)', onclick: dl(`/admin/bulk/${kind}/template.xlsx`, kind + '_upload_template.xlsx') }),
+            h('button', { class: 'btn', id: 'templateBtn', text: '⬇ CSV template', onclick: dl(`/admin/bulk/${kind}/template.csv`, kind + '_upload_template.csv') })))),
+      h('div', { class: 'import-step' }, h('span', { class: 'step-no', text: '2' }),
+        h('div', {}, h('strong', { text: 'Fill it in and upload it here' }),
+          h('p', { class: 'note', text: 'Every row is checked before anything is saved: you will see how many passed, how many failed, and what to fix in each failed row.' }),
+          file, status)),
+      h('div', { class: 'import-step' }, h('span', { class: 'step-no', text: '3' }),
+        h('div', {}, h('strong', { text: 'Fix any failed rows, then import' }),
+          h('p', { class: 'note', text: 'Correct the cells on this page (or download the failed rows, fix them and upload again). An import can be undone from the list below.' })))),
     work, h('h3', { style: 'margin-top:24px', text: 'Recent imports' }), history);
 
   const setStatus = (text, cls) => status.replaceChildren(h('div', { class: 'msg ' + (cls || ''), role: 'status', text }));
@@ -467,18 +533,27 @@ function importFlow(root, kind, restart) {
         return h('tr', { 'data-row': e.row }, h('td', { text: e.row }), h('td', { class: 'err-text', text: e.error }), cells);
       });
       work.replaceChildren(
-        h('div', { class: 'summary' },
-          h('span', { class: 'pill', text: `${fmtInt(rep.total)} rows read` }),
-          h('span', { class: 'pill', text: `${fmtInt(validCount)} ready` }),
-          h('span', { class: 'pill ' + (problems ? 'off' : ''), text: `${fmtInt(problems)} with problems` })),
+        h('div', { class: 'kpi-strip import-result', id: 'importResult' },
+          h('div', { class: 'kpi' }, h('div', { class: 'k-label', text: 'Rows checked' }), h('div', { class: 'k-value', text: fmtInt(rep.total) })),
+          h('div', { class: 'kpi k-pass' }, h('div', { class: 'k-label', text: 'Passed' }), h('div', { class: 'k-value', id: 'passedCount', text: fmtInt(validCount) }), h('div', { class: 'k-sub', text: 'ready to import' })),
+          h('div', { class: 'kpi k-fail' }, h('div', { class: 'k-label', text: 'Failed' }), h('div', { class: 'k-value', id: 'failedCount', text: fmtInt(problems) }), h('div', { class: 'k-sub', text: problems ? 'see what to fix below' : 'nothing to fix' }))),
         problems ? h('div', {},
-          h('p', { class: 'note', text: 'Correct the cells below and press Re-check. Rows you leave with problems are skipped.' }),
+          h('p', { class: 'note', text: 'Each failed row says what to fix. Correct the cells below and press Re-check. Rows you leave with problems are skipped.' }),
+          h('div', { class: 'row', style: 'margin-bottom:8px' }, h('button', { class: 'btn small', id: 'downloadFailedBtn', text: '⬇ Download failed rows (CSV)', onclick: downloadFailed })),
           h('div', { class: 'table-wrap' }, h('table', { id: 'errorTable' },
-            h('thead', {}, h('tr', {}, h('th', { text: 'Row' }), h('th', { text: 'Problem' }), columns.map((c) => h('th', { text: c })))),
+            h('thead', {}, h('tr', {}, h('th', { text: 'Row in file' }), h('th', { text: 'What to fix' }), columns.map((c) => h('th', { text: c })))),
             h('tbody', {}, rowsFor))),
           h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn', id: 'recheckBtn', text: 'Re-check', onclick: recheck }))) : h('p', { class: 'note', text: 'Everything looks good.' }),
         h('div', { class: 'row', style: 'margin-top:14px' }, importBtn),
         rep.help ? h('details', { class: 'fgroup', style: 'margin-top:14px' }, h('summary', { text: 'What each column means' }), h('p', { class: 'note', text: rep.help })) : null);
+    };
+    const downloadFailed = () => {
+      const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      const lines = [['Row in file', 'What to fix', ...columns].map(q).join(',')];
+      for (const e of errors) lines.push([e.row, e.error, ...columns.map((c) => held.get(e.row)[c])].map(q).join(','));
+      const url = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+      const a = h('a', { href: url, download: kind + '_failed_rows.csv' });
+      document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
     const recheck = async () => {
       try {
@@ -535,40 +610,59 @@ async function loadHistory(box, restart) {
       h('td', {}, b.undone_at ? h('span', { class: 'pill off', text: 'Undone' }) : h('button', { class: 'btn small danger', text: 'Undo', onclick: () => undo(b) }))))))));
 }
 
-// ------------------------------------------------------------------ Setup > Clean up names (reconciliation)
-async function renderReconcile(panel, kind) {
-  kind = kind || S.reconcileKind || 'person';
-  S.reconcileKind = kind;
+// ------------------------------------------------------------------ Setup > Dropdown values (lists + clean-up in one place)
+// Every list behind the dashboard / order-entry dropdowns: add, rename, delete, merge look-alike spellings. Each change is
+// written to the PostgreSQL database at once and shows on every screen. [tab id, reconcile list, role, label, lookup slug]
+const LIST_TABS = [
+  ['channel', 'channel', null, 'Order via', 'channels'], ['submission_type', 'submission_type', null, 'Submission type', 'submission-types'],
+  ['delivery_status', 'delivery_status', null, 'Delivery status', 'delivery-statuses'], ['payment_status', 'payment_status', null, 'Payment status', 'payment-statuses'],
+  ['ready_by', 'person', 'ready_by', 'Ready by', null], ['colour_making', 'person', 'colour_making', 'Colour making by', null],
+  ['delivery', 'person', 'delivery', 'Delivered by', null]];
+
+async function renderReconcile(panel, tab) {
+  tab = tab || S.listTab || 'channel';
+  S.listTab = tab;
+  const [, kind, role, tabLabel, slug] = LIST_TABS.find((t) => t[0] === tab) || LIST_TABS[0];
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let overview, data;
-  try { [overview, data] = await Promise.all([api('/admin/reconcile'), api('/admin/reconcile/' + kind)]); }
-  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  const reload = () => renderReconcile(panel, kind);
-  const roleName = (r) => (data.role_labels && data.role_labels[r]) || r || '';
-  const byKey = new Map(data.values.map((v) => [v.key, v]));
+  let data, phones = new Map();
+  try {
+    const calls = [api('/admin/reconcile/' + kind)];
+    if (role) calls.push(api('/admin/people?role=' + role));
+    const [d, people] = await Promise.all(calls);
+    data = d;
+    if (people) people.forEach((r) => phones.set(r.key, r.phone_number || ''));
+  } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  // people share one list in the database; show only the chosen role
+  const values = data.values.filter((v) => !role || v.role === role);
+  const dups = data.suggestions.filter((sg) => !role || sg.role === role);
+  const reload = () => renderReconcile(panel, tab);
+  const byKey = new Map(values.map((v) => [v.key, v]));
   const picked = new Set();
-  let letter = '';
 
-  const kinds = h('div', { class: 'subtabs', role: 'tablist' }, overview.map((o) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(o.kind === kind),
-    text: `${o.label} (${o.distinct})` + (o.possible_duplicates ? ` · ${o.possible_duplicates} to check` : ''),
-    onclick: () => renderReconcile(panel, o.kind) })));
+  const kinds = h('div', { class: 'subtabs list-tabs', role: 'tablist' }, LIST_TABS.map(([id, , , label]) => h('button', {
+    class: 'subtab', role: 'tab', 'aria-selected': String(id === tab), text: label, onclick: () => renderReconcile(panel, id) })));
 
-  const search = h('input', { type: 'text', id: 'rc_search', placeholder: 'Search values', 'aria-label': 'Search values', style: 'max-width:260px' });
-  const mergeBtn = h('button', { class: 'btn primary', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
-  const letters = h('div', { class: 'letters' });
+  const search = h('input', { type: 'search', id: 'rc_search', placeholder: 'Search ' + tabLabel.toLowerCase(), 'aria-label': 'Search values', style: 'max-width:260px' });
+  const mergeBtn = h('button', { class: 'btn', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
+  const addBtn = h('button', { class: 'btn primary', id: 'rc_addBtn', text: '+ Add ' + tabLabel.toLowerCase(), onclick: () => openAdd() });
   const tbody = h('tbody');
   const dupBox = h('div');
 
-  const label = (v) => v.name + (v.role ? ` (${roleName(v.role)})` : '');
+  function openAdd() {
+    formDialog({ title: 'Add ' + tabLabel.toLowerCase(), submitLabel: 'Add',
+      fields: [{ name: 'name', label: 'Name', required: true, maxlength: 100 }, role ? { name: 'phone', label: 'Phone (optional)' } : null].filter(Boolean),
+      onSubmit: async (v) => {
+        if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null } });
+        else await api('/admin/lookups/' + slug, { method: 'POST', body: { name: v.name } });
+        reload();
+      } });
+  }
 
   function openMerge(keys) {
     const items = keys.map((k) => byKey.get(k)).filter(Boolean);
     if (items.length < 2) return;
     const locked = items.filter((i) => i.protected);
     if (locked.length > 1) return alert('Two built-in values cannot be merged into each other.');
-    const roles = new Set(items.map((i) => i.role));
-    if (roles.size > 1) return alert('People can only be merged within the same role.');
     const keep = h('select', { id: 'rc_keep', 'aria-label': 'Value to keep' }, items.map((i) => h('option', { value: String(i.key), text: `${i.name} — ${fmtInt(i.orders)} orders`, selected: locked.length ? i.protected : false })));
     if (locked.length) keep.disabled = true;
     const info = h('p', { class: 'note', id: 'rc_preview', text: '' });
@@ -597,51 +691,56 @@ async function renderReconcile(panel, kind) {
     refresh();
   }
 
-  function openRename(v) {
+  function openEdit(v) {
+    if (role) {
+      formDialog({ title: 'Edit “' + v.name + '”', fields: [
+        { name: 'full_name', label: 'Name', value: v.name, required: true, maxlength: 100 },
+        { name: 'phone_number', label: 'Phone (optional)', value: phones.get(v.key) || '' }],
+      onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null } }); reload(); } });
+      return;
+    }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
       fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
         hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }],
       onSubmit: async (vals) => { await api(`/admin/reconcile/${kind}/rename`, { method: 'POST', body: { key: v.key, name: vals.name } }); reload(); } });
   }
 
+  async function remove(v) {
+    if (!(await confirmDialog('Delete "' + v.name + '"?', v.orders ? `${fmtInt(v.orders)} order(s) use it, so this will be refused. Merge it into another value instead.` : 'It is not used by any order.', 'Delete', true))) return;
+    try { await api(role ? '/admin/people/' + v.key : `/admin/lookups/${slug}/${v.key}`, { method: 'DELETE' }); reload(); }
+    catch (ex) { alert(ex.message); }
+  }
+
   const draw = () => {
     const q = search.value.trim().toLowerCase();
-    const shown = data.values.filter((v) => (!q || v.name.toLowerCase().includes(q)) && (!letter || v.name.charAt(0).toUpperCase() === letter));
-    const initials = [...new Set(data.values.map((v) => v.name.charAt(0).toUpperCase()))].sort();
-    letters.replaceChildren(h('button', { class: 'chip', 'aria-pressed': String(!letter), text: 'All', onclick: () => { letter = ''; draw(); } }),
-      ...initials.map((c) => h('button', { class: 'chip', 'aria-pressed': String(letter === c), text: c, onclick: () => { letter = c; draw(); } })));
-    const rows = [];
-    let last = '';
-    for (const v of shown) {
-      const c = v.name.charAt(0).toUpperCase();
-      if (c !== last) { last = c; rows.push(h('tr', { class: 'letter-row' }, h('td', { colspan: data.role_labels ? 5 : 4, text: c }))); }
+    const shown = values.filter((v) => !q || v.name.toLowerCase().includes(q));
+    const rows = shown.map((v) => {
       const box = h('input', { type: 'checkbox', 'aria-label': 'Select ' + v.name, checked: picked.has(v.key) });
       box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; });
-      rows.push(h('tr', { 'data-key': v.key },
+      return h('tr', { 'data-key': v.key },
         h('td', {}, box), h('td', {}, v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null),
-        data.role_labels ? h('td', { text: roleName(v.role) }) : null,
+        role ? h('td', { text: phones.get(v.key) || '' }) : null,
         h('td', { class: 'num', text: fmtInt(v.orders) }),
-        h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('button', { class: 'btn small', text: 'Rename', onclick: () => openRename(v) }))));
-    }
-    tbody.replaceChildren(...rows);
-    if (!shown.length) tbody.replaceChildren(h('tr', {}, h('td', { colspan: 5, class: 'empty', text: 'No values match.' })));
+        h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
+          h('button', { class: 'btn small', text: role ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
+          h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) }))));
+    });
+    tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 5, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
   };
   search.addEventListener('input', draw);
 
-  const dups = data.suggestions;
   dupBox.replaceChildren(dups.length ? h('div', { class: 'card', style: 'margin-bottom:16px' },
     h('h3', { text: `Possible duplicates (${dups.length})` }),
     h('p', { class: 'note', text: 'These look like the same thing spelled differently. Review each pair, and merge it if it really is the same.' }),
-    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.map((s) => h('tr', {},
-      h('td', { text: s.names[0] }), h('td', { text: '≈' }), h('td', { text: s.names[1] }),
-      data.role_labels ? h('td', { text: roleName(s.role) }) : null,
-      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(s.keys) })))))))) : h('p', { class: 'note', text: 'No likely duplicates found in this list.' }));
+    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.map((sg) => h('tr', {},
+      h('td', { text: sg.names[0] }), h('td', { text: '≈' }), h('td', { text: sg.names[1] }),
+      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(sg.keys) })))))))) : null);
 
-  panel.replaceChildren(kinds, dupBox,
-    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn),
-    letters,
+  panel.replaceChildren(
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'The values behind every dropdown and dashboard filter. Add, rename, delete or merge look-alike spellings here: each change is saved to the database at once, shows on all order screens and dashboards, and is kept in the audit trail. A value that orders still use cannot be deleted - merge it into the right one instead.' }),
+    kinds, dupBox,
+    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn),
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
-      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), data.role_labels ? h('th', { text: 'Role' }) : null, h('th', { class: 'num', text: 'Orders' }), h('th', { text: '' }))), tbody)),
-    h('p', { class: 'note', style: 'margin-top:10px', text: 'Every change is saved to the database at once, shows up on all order screens and dashboards, and is kept in the audit trail.' }));
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, h('th', { class: 'num', text: 'Orders using it' }), h('th', { text: '' }))), tbody)));
   draw();
 }

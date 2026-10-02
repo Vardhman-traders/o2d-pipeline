@@ -52,7 +52,7 @@ def test_no_access_request_approval_and_order_timeline(base_url, migrated_db_url
         _sign_in(boss, base_url, "ui_admin")
         expect(boss.locator("#tileSetup")).to_contain_text("access request", timeout=8000)
         boss.click("#tileSetup")
-        boss.locator(".module-tabs .subtab", has_text=re.compile(r"^Access requests")).click()
+        boss.locator(".module-tabs .subtab", has_text=re.compile(r"^Access & permissions")).click()
         row = boss.locator("#requestsTable tbody tr", has_text=cash)
         expect(row).to_contain_text("Need the daily numbers", timeout=8000)
         expect(row).to_contain_text("Dashboard - Overview")

@@ -396,8 +396,8 @@ dialog.order-modal { width: min(880px, calc(100vw - 32px)); }
 
 /* ---------- sticky: tab row, order filters, table header (All orders) ---------- */
 :root { --topbar-h: 64px; --head-h: 56px; --filters-h: 0px; }
-.module-head { position: sticky; top: var(--topbar-h); z-index: 11; background: var(--bg); padding: 10px 0 8px; margin-bottom: 0; }
-.sticky-filters { position: sticky; top: calc(var(--topbar-h) + var(--head-h)); z-index: 10; background: var(--bg); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.module-head { position: sticky; top: var(--topbar-h); z-index: 11; background: var(--plane); padding: 10px 0 8px; margin-bottom: 0; }
+.sticky-filters { position: sticky; top: calc(var(--topbar-h) + var(--head-h)); z-index: 10; background: var(--plane); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
 .sticky-filters .filter-row:last-child { margin-bottom: 4px; }
 .sticky-filters [hidden] { display: none !important; }
 .table-wrap.sticky-head { overflow: visible; }
@@ -414,3 +414,48 @@ th.sorted .sort-arrow, th.sorted .sort-btn { opacity: 1; color: var(--accent); }
 .action-summary.delete { border-left-color: var(--bad); }
 .action-summary ul { margin: 6px 0 6px 18px; padding: 0; font-size: 13px; }
 .action-summary .dismiss { position: absolute; top: 8px; right: 12px; font-size: 14px; color: var(--ink-2); }
+
+.ms-foot { display: flex; justify-content: flex-end; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border); }
+.ms-panel { z-index: 30; }
+
+/* One rule for every table inside a module page (Dashboard, Setup): the header pins under the tab row and the
+   filter panel, on an opaque background, and nothing scrolls over it. */
+#panel .table-wrap { overflow: visible; overflow-x: clip; }
+#panel .table-wrap thead th { position: sticky; top: calc(var(--topbar-h) + var(--head-h) + var(--filters-h)); z-index: 5;
+  background: var(--surface-2); box-shadow: 0 1px 0 var(--border); }
+#panel .chart-card .table-wrap { overflow: auto; max-height: 300px; }
+#panel .chart-card .table-wrap thead th { top: 0; }
+.module-head { box-shadow: 0 1px 0 var(--border); }
+@media (max-width: 900px) {
+  #panel .table-wrap { overflow-x: auto; }
+  #panel .table-wrap thead th { position: static; }
+}
+
+/* KPI strip on the All orders page */
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0 0 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow-sm); }
+.kpi .k-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); font-weight: 700; }
+.kpi .k-value { font-size: 24px; font-weight: 800; color: var(--ink); line-height: 1.2; }
+.kpi .k-sub { font-size: 12px; color: var(--muted); }
+.kpi.k-archived { border-left: 4px solid var(--warn); }
+.kpi.k-active { border-left: 4px solid var(--accent); }
+
+/* import steps and result */
+.import-step { display: flex; gap: 14px; padding: 12px 0; border-top: 1px solid var(--border); }
+.import-step:first-of-type { border-top: 0; }
+.step-no { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; display: grid; place-items: center; }
+.kpi.k-pass { border-left: 4px solid var(--good); }
+.kpi.k-fail { border-left: 4px solid var(--bad); }
+.import-result { max-width: 640px; }
+
+/* Access & permissions: one page, three sections */
+.hub-jump { display: flex; gap: 16px; margin: 0 0 10px; font-size: 13px; }
+.hub-section { margin: 22px 0 10px; scroll-margin-top: calc(var(--topbar-h) + var(--head-h) + 10px); }
+.hub-section:first-of-type { margin-top: 6px; }
+.hub-title { font-size: 17px; margin: 0 0 2px; }
+.hub-explainer { border-left: 4px solid var(--accent); margin-bottom: 14px; }
+.usecase-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
+.usecase { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.usecase-title { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.usecase-q { margin: 6px 0 4px; font-weight: 600; }
+.kpi.k-match { border-left: 4px solid var(--series-2); }

@@ -32,7 +32,7 @@ def _cell(v) -> str:
 def _read_xlsx(raw: bytes):
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    ws = wb.worksheets[0]
+    ws = wb["Template"] if "Template" in wb.sheetnames else wb.worksheets[0]   # our template has other sheets too
     it = ws.iter_rows(values_only=True)
     header = next(it, None)
     if not header:

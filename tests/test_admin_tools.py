@@ -95,6 +95,26 @@ def test_template_round_trips_and_examples_are_ignored(client, db_conn, seed):
     assert "format_error" in rep and "No data rows" in rep["format_error"]
 
 
+def test_excel_template_has_examples_dropdowns_and_valid_values(client, db_conn, seed):
+    import io
+
+    from openpyxl import load_workbook
+    admin = login(client, db_conn)
+    for entity, first in (("orders", "Order Date"), ("users", "Display Name")):
+        r = client.get(f"/admin/bulk/{entity}/template.xlsx", headers=admin)
+        assert r.status_code == 200 and r.content[:2] == b"PK"
+        wb = load_workbook(io.BytesIO(r.content))
+        assert wb.sheetnames == ["Instructions", "Template", "Valid values"]
+        assert wb["Template"]["A1"].value == first
+        assert str(wb["Template"]["A2"].value).startswith("EXAMPLE")
+        assert wb["Template"].data_validations.dataValidation          # dropdowns are attached
+        assert wb["Valid values"]["A2"].value                          # and the lists are filled in
+    # the template itself uploads as "no data rows" (examples are ignored)
+    tpl = client.get("/admin/bulk/orders/template.xlsx", headers=admin).content
+    assert "No data rows" in upload(client, admin, "orders", tpl)["format_error"]
+    assert client.get("/admin/bulk/orders/template.xlsx", headers=login(client, db_conn, "shop")).status_code == 403
+
+
 # ---------------------------------------------------------------- order validation
 def test_valid_rows_and_all_the_error_messages(client, db_conn, seed):
     admin = login(client, db_conn)
@@ -349,3 +369,11 @@ def test_filtered_excel_export(client, db_conn, seed):
     assert "channel" in [c[0] for c in wb["Filter"].iter_rows(values_only=True)]
     formula_cell = [c for c in rows[1] if c == "=1+1"]
     assert formula_cell, "an address starting with = must stay text"
+
+
+def test_orders_summary_counts_and_page_gate(client, db_conn, seed):
+    admin = login(client, db_conn)
+    k = client.get("/admin/orders/summary", headers=admin).json()
+    assert k["total"] == k["active"] + k["archived"]
+    assert {"in_progress", "closed", "cancelled"} <= set(k)
+    assert client.get("/admin/orders/summary", headers=login(client, db_conn, "shop")).status_code == 403

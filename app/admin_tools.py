@@ -165,6 +165,22 @@ def search_orders(request: Request, sort: str = "order_date", direction: str = Q
     return {"total": total, "rows": rows, "filter": f}
 
 
+@router.get("/orders/summary")
+def orders_summary(viewer=Depends(access.require_page("dashboard_orders"))):
+    """High-level counts for the top of the All orders page: the whole database, archived orders included."""
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS total, "
+                    "count(*) FILTER (WHERE archived_at IS NULL) AS active, "
+                    "count(*) FILTER (WHERE archived_at IS NOT NULL) AS archived, "
+                    "count(*) FILTER (WHERE archived_at IS NULL AND NOT is_cancelled "
+                    "AND stage <> 'Closed') AS in_progress, "
+                    "count(*) FILTER (WHERE stage = 'Closed') AS closed, "
+                    "count(*) FILTER (WHERE is_cancelled) AS cancelled, "
+                    "min(order_date) AS first_order, max(order_date) AS last_order "
+                    "FROM v_orders_archive")
+        return cur.fetchone()
+
+
 @router.get("/orders/{sl_no}/detail")
 def order_detail(sl_no: int, viewer=Depends(access.require_page(*access.DASHBOARD_PAGES))):
     """Everything on one order (active or archived) plus its timeline, for the order-details popup."""
@@ -282,6 +298,70 @@ def template(entity: str, admin=Depends(ADMIN)):
     body = bulk.template_csv(ent["columns"], ent["examples"])
     return Response(body, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{entity}_upload_template.csv"'})
+
+
+# Template columns that must hold one of the values set up in the system -> where those values come from.
+ORDER_LISTS = {"Order Via": "channel", "Type of Submission": "type", "Ready By": "person_ready_by",
+               "Colour Making By": "person_colour_making", "Delivery Status": "delivery",
+               "Delivered By": "person_delivery", "Payment Status": "payment"}
+
+
+@router.get("/bulk/{entity}/template.xlsx")
+def template_xlsx(entity: str, admin=Depends(ADMIN)):
+    """Excel template: Template sheet (examples + dropdowns), Instructions sheet, Valid values sheet."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+    ent = _entity(entity)
+    if entity == "orders":
+        maps = bulk_entities._lookup_maps()
+        lists = {col: [n for _, n in maps.get(kind, {}).values()] for col, kind in ORDER_LISTS.items()}
+    else:
+        lists = {"Role": list(bulk_entities.BULK_ROLES)}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Template"
+    ws.append(ent["columns"])
+    for ex in ent["examples"]:
+        ws.append(ex)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="10263D")
+        ws.column_dimensions[c.column_letter].width = max(16, len(str(c.value)) + 4)
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            if isinstance(c.value, str):
+                c.data_type = "s"                    # dates stay as typed text, formatted dd-mm-yyyy
+    ws.freeze_panes = "A2"
+    vals = wb.create_sheet("Valid values")
+    for i, (col, items) in enumerate(lists.items(), start=1):
+        vals.cell(row=1, column=i, value=col).font = Font(bold=True)
+        vals.column_dimensions[get_column_letter(i)].width = 24
+        for j, item in enumerate(items, start=2):
+            vals.cell(row=j, column=i, value=item)
+        if items:
+            letter = get_column_letter(i)
+            dv = DataValidation(type="list", formula1=f"='Valid values'!${letter}$2:${letter}${len(items) + 1}",
+                                allow_blank=True, showErrorMessage=False)
+            ws.add_data_validation(dv)
+            col_letter = get_column_letter(ent["columns"].index(col) + 1)
+            dv.add(f"{col_letter}2:{col_letter}{bulk.MAX_ROWS + 1}")
+    info = wb.create_sheet("Instructions", 0)
+    info.column_dimensions["A"].width = 110
+    info.append([f"How to upload {ent['label']}"])
+    info["A1"].font = Font(bold=True, size=14)
+    for line in ("1. Fill the Template sheet, one row per line. Rows marked EXAMPLE are ignored - delete or keep them.",
+                 "2. Columns with a dropdown must use one of the values on the Valid values sheet.",
+                 "3. Save as .xlsx (or export the Template sheet as CSV) and upload it on Setup > Import.",
+                 "4. The portal checks every row, tells you how many passed and failed, and what to fix in each failed "
+                 "row. Nothing is saved until you press Import.", "", ent["help"]):
+        info.append([line])
+    wb.active = wb.sheetnames.index("Template")
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{entity}_upload_template.xlsx"'})
 
 
 @router.post("/bulk/{entity}/validate")

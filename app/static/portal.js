@@ -326,10 +326,8 @@ const MODULES = {
       ['orders', 'All orders', (p) => renderOrders(p), 'dashboard_orders']] },
   setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab',
     sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
-      ['reconcile', 'Reconciliation', (p) => renderReconcile(p)], ['access', 'Access', (p) => renderAccess(p)],
-      ['requests', 'Access requests', (p) => renderAccessRequests(p)], ['lists', 'Dropdown values', (p) => renderLists(p)],
-      ['permissions', 'Permissions', (p) => renderPermissions(p)], ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)],
-      ['apps', 'Apps', (p) => renderApps(p)]] },
+      ['lists', 'Dropdown values', (p) => renderReconcile(p)], ['access', 'Access & permissions', (p) => renderAccessHub(p)],
+      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)]] },
 };
 const sectionsOf = (mod) => mod.sections.filter((sec) => !sec[3] || can(sec[3]));
 
@@ -351,7 +349,7 @@ function renderModule(body, key) {
     secs.find(([id]) => id === S[mod.stateKey])[2](panel);
   };
   const drawBar = () => bar.replaceChildren(...secs.map(([id, label]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'requests' && S.pendingRequests ? ` (${S.pendingRequests})` : ''),
+    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'access' && S.pendingRequests ? ` (${S.pendingRequests})` : ''),
     onclick: () => { S[mod.stateKey] = id; drawBar(); openInner(); } })));
   S.redrawModuleBar = drawBar;
   document.documentElement.style.setProperty('--filters-h', '0px'); // only the orders list stacks filters under the tabs
@@ -600,7 +598,8 @@ function multiSelect(label, options, selected, onChange) {
     h('span', { class: 'ms-label', text: label }), h('span', { class: 'ms-count' }), h('span', { class: 'ms-caret', 'aria-hidden': 'true', text: '▾' }));
   const search = h('input', { type: 'text', placeholder: 'Search…', class: 'ms-search', 'aria-label': `Search ${label}` });
   const list = h('div', { class: 'ms-list' });
-  const panel = h('div', { class: 'ms-panel' }, options.length > 8 ? search : null, list);
+  const done = h('button', { type: 'button', class: 'btn small primary ms-done', text: 'Done', onclick: () => setOpen(false) });
+  const panel = h('div', { class: 'ms-panel' }, options.length > 8 ? search : null, list, h('div', { class: 'ms-foot' }, done));
   const wrap = h('div', { class: 'multiselect' }, btn, panel);
   const setOpen = (open) => { wrap.classList.toggle('open', open); btn.setAttribute('aria-expanded', String(open)); };
 
@@ -617,14 +616,13 @@ function multiSelect(label, options, selected, onChange) {
       const box = h('input', { type: 'checkbox', checked: selected.has(v) || null });
       box.addEventListener('change', () => {
         if (box.checked) selected.add(v); else selected.delete(v);
-        refresh(); onChange();
-        setOpen(false); // one pick = one filter applied; the list gets out of the way
+        refresh(); onChange();  // applied straight away; the list stays open so several values can be ticked
       });
       return h('label', { class: 'check ms-item' }, box, v);
     }));
     if (!options.length) list.replaceChildren(h('p', { class: 'note', text: 'No values yet.' }));
     if (selected.size) list.prepend(h('button', { type: 'button', class: 'linklike ms-clear', text: 'Clear selection',
-      onclick: () => { selected.clear(); refresh(); draw(search.value); onChange(); setOpen(false); } }));
+      onclick: () => { selected.clear(); refresh(); draw(search.value); onChange(); } }));
   };
   search.addEventListener('input', () => draw(search.value));
   draw('');
@@ -933,37 +931,6 @@ async function renderMembers(panel) {
   draw();
 }
 
-// ------------------------------------------------------------------ apps
-async function renderApps(panel) {
-  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let links, meta;
-  try { [links, meta] = await Promise.all([api('/admin/links'), api('/admin/roles')]); }
-  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  links = links.filter((l) => l.url !== '/sales/'); // who opens the O2D Portal is set in Access now
-  const reload = () => renderApps(panel);
-  const roleChoices = meta.roles.filter((r) => r !== 'admin').map((r) => [r, roleLabel(r)]);
-  const fields = (l) => [
-    { name: 'name', label: 'Name shown on the button', value: l?.name || '', required: true, maxlength: 100 },
-    { name: 'url', label: 'Web address (https://… or a page of this app, like /sales/)', value: l?.url || '', required: true },
-    { name: 'roles', label: 'Who can open it', type: 'checks', options: roleChoices, value: l?.roles || [], hint: 'Admins always see every app.' },
-    { name: 'sort_order', label: 'Sort order', type: 'number', value: l?.sort_order ?? 0 },
-    { name: 'active', label: 'Active', type: 'bool', value: l ? l.active : true }];
-  const add = () => formDialog({ title: 'Add app', fields: fields(null), submitLabel: 'Add', onSubmit: async (v) => { await api('/admin/links', { method: 'POST', body: v }); reload(); } });
-  const edit = (l) => formDialog({ title: 'Edit app', fields: fields(l), onSubmit: async (v) => { await api('/admin/links/' + l.link_key, { method: 'PUT', body: v }); reload(); } });
-  const del = async (l) => { if (await confirmDialog('Delete “' + l.name + '”?', 'It will disappear from everyone’s home page.', 'Delete', true)) { try { await api('/admin/links/' + l.link_key, { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); } } };
-
-  panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Extra links that appear as buttons after sign-in: any https address, with the roles that may open it. Who can open the Dashboard and the O2D Portal is set under Access.' }),
-    h('div', { class: 'row', style: 'margin-bottom:14px' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', text: '+ Add app', onclick: add })),
-    links.length ? h('div', { class: 'table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Name', 'Address', 'Roles', 'Status', ''].map((t) => h('th', { text: t })))),
-      h('tbody', {}, links.map((l) => h('tr', {}, h('td', { text: l.name }), h('td', { text: l.url, style: 'word-break:break-all;max-width:340px' }),
-        h('td', { text: l.roles.map(roleLabel).join(', ') || 'Admins only' }),
-        h('td', {}, h('span', { class: 'pill' + (l.active ? '' : ' off'), text: l.active ? 'Active' : 'Hidden' })),
-        h('td', {}, h('div', { class: 'row' }, h('button', { class: 'btn small', text: 'Edit', onclick: () => edit(l) }), h('button', { class: 'btn small danger', text: 'Delete', onclick: () => del(l) }))))))))
-      : h('div', { class: 'card empty', text: 'No apps yet. Click “Add app” to add one.' }));
-}
-
 // ------------------------------------------------------------------ permissions (field access per role)
 async function renderWeeklyOff(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
@@ -1039,78 +1006,6 @@ async function renderPermissions(panel) {
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Role' }), h('th', { class: 'num', text: 'Can view all orders' }))), h('tbody', {}, viewRows)))),
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each operating role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
     h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
-}
-
-// ------------------------------------------------------------------ dropdown values (lookups + people)
-const LIST_KINDS = [
-  { key: 'channels', label: 'Order Channels', kind: 'lookup' },
-  { key: 'submission-types', label: 'Submission Types', kind: 'lookup' },
-  { key: 'delivery-statuses', label: 'Delivery Statuses', kind: 'lookup' },
-  { key: 'payment-statuses', label: 'Payment Statuses', kind: 'lookup' },
-  { key: 'ready_by', label: 'Ready-By People', kind: 'person' },
-  { key: 'colour_making', label: 'Colour-Making People', kind: 'person' },
-  { key: 'delivery', label: 'Delivery People', kind: 'person' },
-];
-
-async function renderLists(panel) {
-  panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Values shown in every dropdown across the order-entry apps. Deleting is blocked while any order still uses that value.' }),
-    ...LIST_KINDS.map((k) => h('div', { class: 'card', style: 'margin-bottom:16px', id: 'listcard_' + k.key })));
-  LIST_KINDS.forEach((k) => renderOneList(document.getElementById('listcard_' + k.key), k));
-}
-
-async function renderOneList(container, k) {
-  container.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let rows;
-  try { rows = k.kind === 'lookup' ? await api('/admin/lookups/' + k.key) : await api('/admin/people?role=' + k.key); }
-  catch (ex) { return container.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  const reload = () => renderOneList(container, k);
-  const label = (r) => (k.kind === 'lookup' ? r.name : r.full_name);
-  const path = (r) => (k.kind === 'lookup' ? '/admin/lookups/' + k.key + '/' + r.key : '/admin/people/' + r.key);
-
-  const del = async (r) => {
-    if (!(await confirmDialog('Delete "' + label(r) + '"?', 'Only works if no order currently uses this value.', 'Delete', true))) return;
-    try { await api(path(r), { method: 'DELETE' }); reload(); } catch (ex) { alert(ex.message); }
-  };
-
-  const editRow = (r) => {
-    if (k.kind === 'lookup') {
-      formDialog({ title: 'Rename', fields: [{ name: 'name', label: 'Name', value: r.name, required: true, maxlength: 150 }],
-        onSubmit: async (v) => { await api(path(r), { method: 'PUT', body: v }); reload(); } });
-    } else {
-      formDialog({ title: 'Edit person', fields: [
-        { name: 'full_name', label: 'Name', value: r.full_name, required: true, maxlength: 150 },
-        { name: 'phone_number', label: 'Phone (optional)', value: r.phone_number || '' }],
-        onSubmit: async (v) => { await api(path(r), { method: 'PUT', body: { full_name: v.full_name, phone_number: v.phone_number || null } }); reload(); } });
-    }
-  };
-
-  const addRow = () => {
-    if (k.kind === 'lookup') {
-      formDialog({ title: 'Add ' + k.label, submitLabel: 'Add', fields: [{ name: 'name', label: 'Name', required: true, maxlength: 150 }],
-        onSubmit: async (v) => { await api('/admin/lookups/' + k.key, { method: 'POST', body: v }); reload(); } });
-    } else {
-      formDialog({ title: 'Add person', submitLabel: 'Add', fields: [
-        { name: 'full_name', label: 'Name', required: true, maxlength: 150 },
-        { name: 'phone_number', label: 'Phone (optional)' }],
-        onSubmit: async (v) => { await api('/admin/people?role=' + k.key, { method: 'POST', body: { full_name: v.full_name, phone_number: v.phone_number || null } }); reload(); } });
-    }
-  };
-
-  container.replaceChildren(
-    h('div', { class: 'row', style: 'margin-bottom:10px' },
-      h('h2', { style: 'font-size:14px;margin:0', text: k.label }),
-      h('span', { class: 'grow' }),
-      h('button', { class: 'btn small primary', text: '+ Add', onclick: addRow })),
-    rows.length ? h('div', { class: 'table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, h('th', { text: 'Name' }), k.kind === 'person' ? h('th', { text: 'Phone' }) : null, h('th', { text: '' }))),
-      h('tbody', {}, rows.map((r) => h('tr', {},
-        h('td', { text: label(r) }),
-        k.kind === 'person' ? h('td', { text: r.phone_number || '' }) : null,
-        h('td', {}, h('div', { class: 'row' },
-          h('button', { class: 'btn small', text: 'Edit', onclick: () => editRow(r) }),
-          h('button', { class: 'btn small danger', text: 'Delete', onclick: () => del(r) }))))))))
-      : h('div', { class: 'empty', text: 'Nothing yet.' }));
 }
 
 // ------------------------------------------------------------------ activity
