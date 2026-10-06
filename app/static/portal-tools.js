@@ -378,11 +378,12 @@ async function renderAccess(panel) {
       const rows = d.pages.map((p) => {
         const sel = h('select', { 'aria-label': 'Access to ' + p.label, 'data-page': p.key },
           h('option', { value: 'default', text: 'Same as role (' + (p.role_default ? 'can open' : 'cannot open') + ')', selected: p.override == null }),
-          h('option', { value: 'allow', text: 'Always allow', selected: p.override === true }),
+          h('option', { value: 'allow', text: 'Always allow', selected: p.override === true && !p.view_only }),
+          h('option', { value: 'view', text: 'View only (cannot save or edit)', selected: p.override === true && !!p.view_only }),
           h('option', { value: 'block', text: 'Block', selected: p.override === false }));
         sel.addEventListener('change', async () => {
           sel.disabled = true;
-          try { await api('/admin/access/users/' + who.value, { method: 'PUT', body: { page_key: p.key, allowed: sel.value === 'default' ? null : sel.value === 'allow' } }); }
+          try { await api('/admin/access/users/' + who.value, { method: 'PUT', body: { page_key: p.key, allowed: sel.value === 'default' ? null : sel.value !== 'block', view_only: sel.value === 'view' } }); }
           catch (ex) { alert(ex.message); loadPerson(); }
           sel.disabled = false;
         });
@@ -402,7 +403,7 @@ async function renderAccess(panel) {
       matrix),
     h('div', { class: 'card' },
       h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Exceptions for one person' }),
-      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Give one person a page their role does not have, or block one they would normally get. Approved access requests show up here as “Always allow”.' }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Give one person a page their role does not have, block one they would normally get, or let them open a page as “View only” (they see everything on it but cannot save, enter or upload). Approved access requests show up here as “Always allow”.' }),
       who, personBox));
 }
 
@@ -611,28 +612,48 @@ const LIST_TABS = [
   ['ready_by', 'person', 'ready_by', 'Ready by', null], ['colour_making', 'person', 'colour_making', 'Colour making by', null],
   ['delivery', 'person', 'delivery', 'Delivered by', null]];
 
+// how one flag of a master list reads in the table
+function masterCell(f, row) {
+  const v = row && row[f.name];
+  if (f.type === 'bool') return v ? 'Yes' : 'No';
+  if (f.type === 'select') { const o = (f.options || []).find(([ov]) => ov === v || (ov === null && v == null)); return o ? o[1] : (v == null ? '–' : String(v)); }
+  return v == null ? '' : String(v);
+}
+
+const SCOPE_LABEL = { both: 'Both dispatch screens', shop: 'Shop dispatch & receiving only', godown: 'Godown dispatch only' };
+const SCOPE_FIELD = { name: 'dispatch_scope', label: 'Offered on', type: 'select', value: 'both',
+  options: Object.entries(SCOPE_LABEL), hint: 'Which dispatch screen lists this person under "Delivered by".' };
+
 async function renderReconcile(panel, tab) {
   tab = tab || S.listTab || 'channel';
   S.listTab = tab;
-  const [, kind, role, tabLabel, slug] = LIST_TABS.find((t) => t[0] === tab) || LIST_TABS[0];
+  // lists of the other modules (companies, payment modes, transaction types, parties, vendors) are described by the server
+  let masters = [];
+  try { masters = await api('/admin/masters'); } catch { /* the order lists still work */ }
+  const allTabs = LIST_TABS.concat(masters.map((m) => [m.id, m.kind, m.role, m.label, null, m]));
+  const [, kind, role0, tabLabel, slug, master] = allTabs.find((t) => t[0] === tab) || LIST_TABS[0];
+  const role = master ? null : role0;          // `role` below means "a list of people" (phone, delivery scope)
+  const roleFilter = master ? master.role : role0;
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let data, phones = new Map();
+  let data, phones = new Map(), scopes = new Map(), mrows = new Map(), mdef = master;
   try {
     const calls = [api('/admin/reconcile/' + kind)];
     if (role) calls.push(api('/admin/people?role=' + role));
-    const [d, people] = await Promise.all(calls);
+    if (master) calls.push(api('/admin/masters/' + master.id));
+    const [d, extra] = await Promise.all(calls);
     data = d;
-    if (people) people.forEach((r) => phones.set(r.key, r.phone_number || ''));
+    if (role && extra) extra.forEach((r) => { phones.set(r.key, r.phone_number || ''); scopes.set(r.key, r.dispatch_scope || 'both'); });
+    if (master && extra) { mdef = { ...master, fields: extra.fields }; extra.rows.forEach((r) => mrows.set(r.key, r)); }
   } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
-  // people share one list in the database; show only the chosen role
-  const values = data.values.filter((v) => !role || v.role === role);
-  const dups = data.suggestions.filter((sg) => !role || sg.role === role);
+  // people (and parties vs vendors) share one list in the database; show only the chosen kind
+  const values = master ? [...mrows.values()].map((r) => ({ ...r, orders: r.used, protected: false })) : data.values.filter((v) => !role || v.role === role);
+  const dups = data.suggestions.filter((sg) => !roleFilter || sg.role === roleFilter);
   const reload = () => renderReconcile(panel, tab);
   const byKey = new Map(values.map((v) => [v.key, v]));
   const picked = new Set();
 
-  const kinds = h('div', { class: 'subtabs list-tabs', role: 'tablist' }, LIST_TABS.map(([id, , , label]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(id === tab), text: label, onclick: () => renderReconcile(panel, id) })));
+  const kinds = h('div', { class: 'subtabs list-tabs', role: 'tablist' }, allTabs.map(([id, , , label, , m]) => h('button', {
+    class: 'subtab', role: 'tab', 'aria-selected': String(id === tab), text: label + (m && m.pending ? ` (${m.pending})` : ''), onclick: () => renderReconcile(panel, id) })));
 
   const search = h('input', { type: 'search', id: 'rc_search', placeholder: 'Search ' + tabLabel.toLowerCase(), 'aria-label': 'Search values', style: 'max-width:260px' });
   const mergeBtn = h('button', { class: 'btn', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
@@ -640,11 +661,23 @@ async function renderReconcile(panel, tab) {
   const tbody = h('tbody');
   const dupBox = h('div');
 
+  // the flags of a master list (checkbox / choice / number), as form fields
+  const masterFields = (row) => (mdef ? mdef.fields : []).map((f) => ({ name: f.name, label: f.label, type: f.type === 'number' ? 'number' : f.type,
+    options: f.options && f.options.map(([v, l]) => [v === null ? '' : String(v), l]),
+    value: row ? (f.type === 'select' ? (row[f.name] == null ? '' : String(row[f.name])) : row[f.name]) : (f.type === 'select' && f.options ? String(f.options[0][0] ?? '') : (f.type === 'bool' ? false : '')) }));
+  const masterBody = (v, name) => { const b = { name }; (mdef ? mdef.fields : []).forEach((f) => { b[f.name] = f.type === 'select' ? (v[f.name] === '' ? null : (isNaN(Number(v[f.name])) ? v[f.name] : Number(v[f.name]))) : v[f.name]; }); return b; };
+
   function openAdd() {
+    if (master) {
+      return formDialog({ title: 'Add ' + tabLabel.toLowerCase(), submitLabel: 'Add',
+        fields: [{ name: 'name', label: 'Name', required: true, maxlength: 150 }, ...masterFields(null)],
+        onSubmit: async (v) => { await api('/admin/masters/' + master.id, { method: 'POST', body: masterBody(v, v.name) }); reload(); } });
+    }
     formDialog({ title: 'Add ' + tabLabel.toLowerCase(), submitLabel: 'Add',
-      fields: [{ name: 'name', label: 'Name', required: true, maxlength: 100 }, role ? { name: 'phone', label: 'Phone (optional)' } : null].filter(Boolean),
+      fields: [{ name: 'name', label: 'Name', required: true, maxlength: 100 }, role ? { name: 'phone', label: 'Phone (optional)' } : null,
+        role === 'delivery' ? SCOPE_FIELD : null].filter(Boolean),
       onSubmit: async (v) => {
-        if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null } });
+        if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null, dispatch_scope: v.dispatch_scope || 'both' } });
         else await api('/admin/lookups/' + slug, { method: 'POST', body: { name: v.name } });
         reload();
       } });
@@ -684,11 +717,16 @@ async function renderReconcile(panel, tab) {
   }
 
   function openEdit(v) {
+    if (master) {
+      return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 150 }, ...masterFields(mrows.get(v.key))],
+        onSubmit: async (vals) => { await api('/admin/masters/' + master.id + '/' + v.key, { method: 'PUT', body: masterBody(vals, vals.name) }); reload(); } });
+    }
     if (role) {
       formDialog({ title: 'Edit “' + v.name + '”', fields: [
         { name: 'full_name', label: 'Name', value: v.name, required: true, maxlength: 100 },
-        { name: 'phone_number', label: 'Phone (optional)', value: phones.get(v.key) || '' }],
-      onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null } }); reload(); } });
+        { name: 'phone_number', label: 'Phone (optional)', value: phones.get(v.key) || '' },
+        role === 'delivery' ? { ...SCOPE_FIELD, value: scopes.get(v.key) || 'both' } : null].filter(Boolean),
+      onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null, dispatch_scope: vals.dispatch_scope || 'both' } }); reload(); } });
       return;
     }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
@@ -699,8 +737,19 @@ async function renderReconcile(panel, tab) {
 
   async function remove(v) {
     if (!(await confirmDialog('Delete "' + v.name + '"?', v.orders ? `${fmtInt(v.orders)} order(s) use it, so this will be refused. Merge it into another value instead.` : 'It is not used by any order.', 'Delete', true))) return;
-    try { await api(role ? '/admin/people/' + v.key : `/admin/lookups/${slug}/${v.key}`, { method: 'DELETE' }); reload(); }
+    try { await api(master ? `/admin/masters/${master.id}/${v.key}` : role ? '/admin/people/' + v.key : `/admin/lookups/${slug}/${v.key}`, { method: 'DELETE' }); reload(); }
     catch (ex) { alert(ex.message); }
+  }
+
+  const isNew = (v) => !!(master && master.reviewed && mrows.get(v.key) && mrows.get(v.key).review_status === 'pending');
+  const newCount = master && master.reviewed ? [...mrows.values()].filter((r) => r.review_status === 'pending').length : 0;
+  const reviewBox = h('div');
+  if (newCount) {
+    reviewBox.append(h('div', { class: 'card', id: 'rc_review', style: 'margin-bottom:16px' },
+      h('h3', { text: `${newCount} new value${newCount === 1 ? '' : 's'} to review` }),
+      h('p', { class: 'note', text: 'Typed on the module screens. They already work there. Approve the ones that are right, correct a spelling with Edit, or Merge a duplicate into the value it should be.' }),
+      h('button', { class: 'btn', id: 'rc_approveAll', text: 'Approve all', onclick: async () => {
+        try { await api(`/admin/masters/${master.id}/approve-all`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } })));
   }
 
   const draw = () => {
@@ -710,29 +759,58 @@ async function renderReconcile(panel, tab) {
       const box = h('input', { type: 'checkbox', 'aria-label': 'Select ' + v.name, checked: picked.has(v.key) });
       box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; });
       return h('tr', { 'data-key': v.key },
-        h('td', {}, box), h('td', {}, v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null),
+        h('td', {}, box), h('td', {}, v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null,
+          isNew(v) ? h('span', { class: 'pill warn', style: 'margin-left:8px', title: 'Typed on a module screen' + (mrows.get(v.key).created_by ? ' by ' + mrows.get(v.key).created_by : ''), text: 'New - review' }) : null),
         role ? h('td', { text: phones.get(v.key) || '' }) : null,
+        ...(master ? mdef.fields.map((f) => h('td', { text: masterCell(f, mrows.get(v.key)) })) : []),
+        role === 'delivery' ? h('td', { text: SCOPE_LABEL[scopes.get(v.key) || 'both'] }) : null,
         h('td', { class: 'num', text: fmtInt(v.orders) }),
         h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
-          h('button', { class: 'btn small', text: role ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
+          isNew(v) ? h('button', { class: 'btn small primary', text: 'Approve', onclick: async () => { try { await api(`/admin/masters/${master.id}/${v.key}/approve`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } }) : null,
+          h('button', { class: 'btn small', text: role || master ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
           h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) }))));
     });
     tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 5, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
   };
   search.addEventListener('input', draw);
 
-  dupBox.replaceChildren(dups.length ? h('div', { class: 'card', style: 'margin-bottom:16px' },
+  dupBox.replaceChildren(...(dups.length ? [h('div', { class: 'card', style: 'margin-bottom:16px' },
     h('h3', { text: `Possible duplicates (${dups.length})` }),
     h('p', { class: 'note', text: 'These look like the same thing spelled differently. Review each pair, and merge it if it really is the same.' }),
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.map((sg) => h('tr', {},
       h('td', { text: sg.names[0] }), h('td', { text: '≈' }), h('td', { text: sg.names[1] }),
-      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(sg.keys) })))))))) : null);
+      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(sg.keys) }))))))))] : []));
 
   panel.replaceChildren(
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'The values behind every dropdown and dashboard filter. Add, rename, delete or merge look-alike spellings here: each change is saved to the database at once, shows on all order screens and dashboards, and is kept in the audit trail. A value that orders still use cannot be deleted - merge it into the right one instead.' }),
-    kinds, dupBox,
+    kinds, reviewBox, dupBox,
     h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn),
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
-      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, h('th', { class: 'num', text: 'Orders using it' }), h('th', { text: '' }))), tbody)));
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' ? h('th', { text: 'Offered on' }) : null, h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
   draw();
+}
+
+
+// ------------------------------------------------------------------ Setup > Module settings
+// The numbers the Delegation module scores with and the day its week starts on (they used to be constants in the old script).
+async function renderModuleSettings(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let list;
+  try { list = await api('/admin/module-settings'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const groups = {};
+  list.forEach((s) => { (groups[s.group] = groups[s.group] || []).push(s); });
+  const cards = Object.entries(groups).map(([group, items]) => h('div', { class: 'card', style: 'margin-bottom:16px' },
+    h('h2', { style: 'font-size:15px;margin-bottom:6px', text: group }),
+    h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Changes apply to new activity straight away. Scores already given are not recalculated.' }),
+    ...items.map((s) => {
+      const input = h('input', { type: 'number', value: String(s.value), min: String(s.min), max: String(s.max), id: 'set_' + s.key, 'aria-label': s.label, style: 'max-width:110px' });
+      const msg = h('span', { class: 'msg' });
+      const save = h('button', { class: 'btn small', text: 'Save', onclick: async () => {
+        msg.className = 'msg'; msg.textContent = '';
+        try { await api('/admin/module-settings', { method: 'PUT', body: { key: s.key, value: Number(input.value) } }); msg.textContent = 'Saved'; }
+        catch (ex) { msg.className = 'msg error'; msg.textContent = ex.message; }
+      } });
+      return h('div', { class: 'row', style: 'margin:8px 0;align-items:center;gap:10px;flex-wrap:wrap' }, h('label', { style: 'flex:1;min-width:220px', text: s.label }), input, save, msg);
+    })));
+  panel.replaceChildren(...cards);
 }

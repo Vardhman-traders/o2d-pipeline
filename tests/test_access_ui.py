@@ -28,7 +28,7 @@ def test_no_access_request_approval_and_order_timeline(base_url, migrated_db_url
     conn = psycopg2.connect(migrated_db_url)
     with conn, conn.cursor() as cur:
         cur.execute("INSERT INTO dim_user (username, password_hash, role, display_name, must_change_password) "
-                    "VALUES (%s, %s, 'cashier', %s, false)", (cash, auth.hash_password(PW), f"Cash {u}"))
+                    "VALUES (%s, %s, 'cartage', %s, false)", (cash, auth.hash_password(PW), f"Cash {u}"))
     conn.close()
     errors: list[str] = []
 

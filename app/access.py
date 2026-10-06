@@ -13,17 +13,55 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import auth, db, roles
 
+# The screens of the O2D app, in the order the "View as" switcher lists them. This is the ONE place that names them:
+# the page switch in Setup > Access, the switcher, the screen titles and the home tile all come from here.
+# view = key the front end uses; page = the access page that opens it; section = the block of the screen it shows.
+O2D_SCREENS: list[dict] = [
+    {"view": "overview", "page": "o2d_overview", "section": "overviewSection", "label": "Overview",
+     "title": "Overview", "page_label": "O2D - Overview board", "search": False},
+    {"view": "shop", "page": "o2d_shop", "section": "shopSection", "label": "Shop",
+     "title": "Shop Dashboard", "page_label": "O2D - Shop screen", "search": True},
+    {"view": "godown", "page": "o2d_godown", "section": "godownSection", "label": "Godown",
+     "title": "Godown Dashboard", "page_label": "O2D - Godown screen", "search": True},
+    {"view": "shop_dispatch", "page": "o2d_shop_dispatch", "section": "dispatchSection", "label": "Shop Dispatch & Receiving",
+     "title": "Shop Dispatch & Receiving Dashboard", "page_label": "O2D - Shop dispatch & receiving screen", "search": True},
+    {"view": "godown_dispatch", "page": "o2d_godown_dispatch", "section": "dispatchSection", "label": "Godown Dispatch",
+     "title": "Godown Dispatch Dashboard", "page_label": "O2D - Godown dispatch screen", "search": True},
+    {"view": "cartage", "page": "o2d_cartage", "section": "cartageSection", "label": "Cartage",
+     "title": "Cartage Dashboard", "page_label": "O2D - Cartage screen (cartage and delivery-person payments)", "search": False},
+    {"view": "receiving", "page": "o2d_receiving", "section": "receivingSection", "label": "Godown Receiving",
+     "title": "Godown Receiving Dashboard", "page_label": "O2D - Godown receiving screen", "search": True},
+]
+
 # key -> (group, label). The group is the module it lives under on the home screen.
 PAGES: dict[str, tuple[str, str]] = {
     "dashboard_overview": ("Dashboard", "Dashboard - Overview"),
     "dashboard_orders": ("Dashboard", "Dashboard - All orders"),
-    "o2d_overview": ("O2D Portal", "O2D - Overview board"),
-    "o2d_shop": ("O2D Portal", "O2D - Shop screen"),
-    "o2d_godown": ("O2D Portal", "O2D - Godown screen"),
-    "o2d_shop_dispatch": ("O2D Portal", "O2D - Shop dispatch screen"),
-    "o2d_godown_dispatch": ("O2D Portal", "O2D - Godown dispatch screen"),
-    "o2d_receiving": ("O2D Portal", "O2D - Receiving screen"),
+    **{s["page"]: ("O2D Portal", s["page_label"]) for s in O2D_SCREENS},
+    "o2d_missing_entry": ("O2D Portal", "O2D - Enter a missing bill number (click it)"),
+    "o2d_reports": ("O2D Portal", "O2D - Reports (PDF downloads)"),
+    # ---- Payments (the role the old script gave a login - Cashier / Account - is now simply which pages a person holds)
+    "pay_cashier": ("Payments", "Payments - Cashier (enter and edit own entries for today)"),
+    "pay_account": ("Payments", "Payments - Account (see all entries, approve or reject, edit pending)"),
+    # ---- Delegation
+    "deleg_mine": ("Delegation", "Delegation - My tasks"),
+    "deleg_week": ("Delegation", "Delegation - My week (planned vs actual)"),
+    "deleg_scoreboard": ("Delegation", "Delegation - Scoreboard"),
+    "deleg_manage": ("Delegation", "Delegation - Manager (assign, review, follow up, all tasks)"),
+    # ---- Purchase report
+    "po_godown": ("Purchase", "Purchase - Godown entries"),
+    "po_shop": ("Purchase", "Purchase - Shop entries"),
+    "po_all": ("Purchase", "Purchase - All entries combined (filter, edit, delete)"),
 }
+
+# The business modules shown as tiles on the home screen. A person sees a tile when they hold at least one of its pages.
+# Adding a module = one entry here + its pages above; the home screen, access matrix and admin overview follow.
+MODULES: list[dict] = [
+    {"key": "payments", "title": "Payments", "icon": "💳", "url": "/payments/", "pages": ["pay_cashier", "pay_account"]},
+    {"key": "delegation", "title": "Delegation", "icon": "✅", "url": "/delegation/",
+     "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage"]},
+    {"key": "purchase", "title": "Purchase Report", "icon": "🧾", "url": "/purchase/", "pages": ["po_godown", "po_shop", "po_all"]},
+]
 DASHBOARD_PAGES = ("dashboard_overview", "dashboard_orders")
 O2D_PAGES = tuple(k for k in PAGES if k.startswith("o2d_"))
 # Roles that can be given pages in the matrix (admin has everything, legacy cannot sign in).
@@ -36,16 +74,62 @@ def page_list() -> list[dict]:
     return [{"key": k, "group": g, "label": lbl} for k, (g, lbl) in PAGES.items()]
 
 
-def effective_pages(user) -> set[str]:
+def effective_access(user) -> dict[str, str]:
+    """page key -> "edit" (full use) or "view" (opens and reads, never saves). Pages not listed are not available."""
     if user["role"] == "admin":
-        return set(PAGES)
+        return {k: "edit" for k in PAGES}
     with db.cursor() as cur:
         cur.execute("SELECT page_key FROM page_access WHERE role = %s", (user["role"],))
-        pages = {r["page_key"] for r in cur.fetchall()}
-        cur.execute("SELECT page_key, allowed FROM user_page_access WHERE user_key = %s", (user["user_key"],))
+        out = {r["page_key"]: "edit" for r in cur.fetchall()}
+        cur.execute("SELECT page_key, allowed, view_only FROM user_page_access WHERE user_key = %s", (user["user_key"],))
         for r in cur.fetchall():
-            (pages.add if r["allowed"] else pages.discard)(r["page_key"])
-    return pages & set(PAGES)
+            if not r["allowed"]:
+                out.pop(r["page_key"], None)
+            else:
+                out[r["page_key"]] = "view" if r["view_only"] else "edit"
+    return {k: v for k, v in out.items() if k in PAGES}
+
+
+def effective_pages(user) -> set[str]:
+    return set(effective_access(user))
+
+
+def users_with_page(page_key: str) -> set[int]:
+    """Everyone who holds a page, from the role defaults and the per-person exceptions (admins excluded)."""
+    with db.cursor() as cur:
+        cur.execute("""SELECT u.user_key FROM dim_user u
+                       WHERE u.role <> 'admin' AND u.password_hash <> %s
+                         AND ((EXISTS (SELECT 1 FROM page_access a WHERE a.page_key = %s AND a.role = u.role)
+                               AND NOT EXISTS (SELECT 1 FROM user_page_access x WHERE x.user_key = u.user_key
+                                               AND x.page_key = %s AND NOT x.allowed))
+                              OR EXISTS (SELECT 1 FROM user_page_access x WHERE x.user_key = u.user_key
+                                         AND x.page_key = %s AND x.allowed))""", (auth.DISABLED_HASH, page_key, page_key, page_key))
+        return {r["user_key"] for r in cur.fetchall()}
+
+
+def modules_for(user) -> list[dict]:
+    """The business modules this person may open (admin: all of them)."""
+    held = effective_access(user)
+    return [{k: m[k] for k in ("key", "title", "icon", "url")} for m in MODULES if set(m["pages"]) & set(held)]
+
+
+def o2d_screens_for(user) -> list[dict]:
+    """The O2D screens this person may open, in switcher order (admin: all of them)."""
+    held = effective_access(user)
+    return [{k: s[k] for k in ("view", "page", "section", "label", "title", "search")}
+            for s in O2D_SCREENS if s["page"] in held]
+
+
+def is_view_only(user, *page_keys: str) -> bool:
+    """True when the person holds the page(s) a screen belongs to, but only as "View only"."""
+    acc = effective_access(user)
+    held = [acc[k] for k in page_keys if k in acc]
+    return bool(held) and all(v == "view" for v in held)
+
+
+def require_edit(user, *page_keys: str):
+    if is_view_only(user, *page_keys):
+        raise HTTPException(403, "You have view-only access to this page, so you cannot save changes here.")
 
 
 def require_page(*page_keys: str):
@@ -156,19 +240,22 @@ def get_user_access(user_key: int, admin=Depends(ADMIN)):
         person = cur.fetchone()
         if not person:
             raise HTTPException(404, "Member not found")
-        cur.execute("SELECT page_key, allowed FROM user_page_access WHERE user_key = %s", (user_key,))
-        overrides = {r["page_key"]: r["allowed"] for r in cur.fetchall()}
+        cur.execute("SELECT page_key, allowed, view_only FROM user_page_access WHERE user_key = %s", (user_key,))
+        rows = cur.fetchall()
+        overrides = {r["page_key"]: r["allowed"] for r in rows}
+        view_only = {r["page_key"]: r["view_only"] for r in rows}
         cur.execute("SELECT page_key FROM page_access WHERE role = %s", (person["role"],))
         role_pages = {r["page_key"] for r in cur.fetchall()}
     return {"user": person, "pages": [
         {**p, "role_default": p["key"] in role_pages or person["role"] == "admin",
-         "override": overrides.get(p["key"])} for p in page_list()]}
+         "override": overrides.get(p["key"]), "view_only": bool(view_only.get(p["key"]))} for p in page_list()]}
 
 
 class UserAccessIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     page_key: str
     allowed: bool | None  # true = grant, false = block, null = back to the role's default
+    view_only: bool = False  # with allowed = true: the page opens but nothing can be saved through it
 
 
 @router.put("/users/{user_key}")
@@ -183,11 +270,14 @@ def set_user_access(user_key: int, body: UserAccessIn, admin=Depends(ADMIN)):
         if body.allowed is None:
             cur.execute("DELETE FROM user_page_access WHERE user_key = %s AND page_key = %s", (user_key, body.page_key))
         else:
-            cur.execute("INSERT INTO user_page_access (user_key, page_key, allowed, set_by_user_key) "
-                        "VALUES (%s, %s, %s, %s) ON CONFLICT (user_key, page_key) DO UPDATE "
-                        "SET allowed = EXCLUDED.allowed, set_by_user_key = EXCLUDED.set_by_user_key, set_at = now()",
-                        (user_key, body.page_key, body.allowed, admin["user_key"]))
-        _audit(cur, admin, "access.user", f"{person['username']}:{body.page_key}", {"allowed": body.allowed})
+            view_only = bool(body.allowed and body.view_only)
+            cur.execute("INSERT INTO user_page_access (user_key, page_key, allowed, view_only, set_by_user_key) "
+                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (user_key, page_key) DO UPDATE "
+                        "SET allowed = EXCLUDED.allowed, view_only = EXCLUDED.view_only, "
+                        "set_by_user_key = EXCLUDED.set_by_user_key, set_at = now()",
+                        (user_key, body.page_key, body.allowed, view_only, admin["user_key"]))
+        _audit(cur, admin, "access.user", f"{person['username']}:{body.page_key}",
+               {"allowed": body.allowed, "view_only": body.view_only})
     return {"ok": True}
 
 
@@ -234,9 +324,9 @@ def _decide(request_key: int, admin, approve: bool, note: str | None):
                     ("approved" if approve else "rejected", admin["user_key"],
                      (note or "").strip() or None, request_key))
         if approve:  # the person gets the page; their colleagues in the same role do not
-            cur.execute("INSERT INTO user_page_access (user_key, page_key, allowed, set_by_user_key) "
-                        "VALUES (%s, %s, TRUE, %s) ON CONFLICT (user_key, page_key) DO UPDATE "
-                        "SET allowed = TRUE, set_by_user_key = EXCLUDED.set_by_user_key, set_at = now()",
+            cur.execute("INSERT INTO user_page_access (user_key, page_key, allowed, view_only, set_by_user_key) "
+                        "VALUES (%s, %s, TRUE, FALSE, %s) ON CONFLICT (user_key, page_key) DO UPDATE "
+                        "SET allowed = TRUE, view_only = FALSE, set_by_user_key = EXCLUDED.set_by_user_key, set_at = now()",
                         (req["user_key"], req["page_key"], admin["user_key"]))
         action = "access.approve" if approve else "access.reject"
         _audit(cur, admin, action, f"{req['username']}:{req['page_key']}",

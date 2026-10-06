@@ -26,6 +26,22 @@ DEFAULT_WEEKLY_OFF_DAYS = {0}  # Monday, same default the app has always used
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
+DELIVERED_BY_TERMS_KEY = "delivered_by_custom_terms"
+DEFAULT_DELIVERED_BY_TERMS = "Porter / By Company / Transport"
+
+
+def delivered_by_custom_terms() -> list[str]:
+    """Delivered-by values that open the extra free-text box on the dispatch screens (admin setting)."""
+    raw = get(DELIVERED_BY_TERMS_KEY) or DEFAULT_DELIVERED_BY_TERMS
+    return [t.strip() for t in raw.replace(",", "/").split("/") if t.strip()]
+
+
+def needs_delivered_by_detail(name: str | None, terms: list[str] | None = None) -> bool:
+    terms = [t.lower() for t in (terms if terms is not None else delivered_by_custom_terms())]
+    parts = [p.strip().lower() for p in (name or "").replace(",", "/").split("/")]
+    return any(p and p in terms for p in parts)
+
+
 def weekly_off_days() -> set[int]:
     """Which weekdays (0=Monday..6=Sunday) count as the weekly off, for the dashboard's
     'previous working day' window. Admin-configurable (Setup), not hardcoded."""
@@ -76,7 +92,7 @@ def set_value(key, value, updated_by=None):
 ALL_ORDER_FIELDS = frozenset({
     "order_received_date", "order_via_key", "submission_type_key", "dc_inv_no",
     "shipping_location", "detailed_remarks", "ready_by_person_key", "colour_making_person_key",
-    "delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage",
+    "delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "delivered_by_detail", "cartage",
     "date_of_receiving", "payment_status_key", "amount_received",
 })
 

@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../modules/mobile.css">
+  <script src="../modules/api.js"></script>
+  <script src="../vendor/jspdf.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap');
+
+    :root {
+      --godown: #0E3A61; --godown-dark: #082846;
+      --shop: #0F6E5C;   --shop-dark: #0A4A3D;
+      --admin: #5B3A8E;  --admin-dark: #3B2560;
+      --accent: var(--godown); --accent-dark: var(--godown-dark);
+      --bg: #F3F5F8;
+      --card: #FFFFFF;
+      --text: #0f172a;
+      --muted: #64748b;
+      --hair: #e2e8f0;
+      --danger: #dc2626;
+      --shell-max: 480px;
+      --content-max: 1000px;
+    }
+
+    body[data-dash="godown"] { --accent: var(--godown); --accent-dark: var(--godown-dark); }
+    body[data-dash="shop"]   { --accent: var(--shop);   --accent-dark: var(--shop-dark); }
+    body[data-dash="admin"]  { --accent: var(--admin);  --accent-dark: var(--admin-dark); --content-max: 1320px; }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      height: 100%;
+      overscroll-behavior-y: contain;
+    }
+
+    #app {
+      max-width: var(--shell-max);
+      margin: 0 auto;
+      min-height: 100vh;
+      background: var(--bg);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---------------- Brand badge (replaces old logo image) ---------------- */
+    .brand-badge {
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 18px;
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      letter-spacing: .5px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+      flex-shrink: 0;
+    }
+    .brand-badge.lg { width: 76px; height: 76px; font-size: 26px; border-radius: 22px; background: linear-gradient(135deg, #334155 0%, #0f172a 100%); }
+    .brand-badge.sm { width: 34px; height: 34px; font-size: 13px; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%); box-shadow: none; }
+
+    /* ---------------- Login screen (single entry point — username + password auto-route to the right dashboard) ---------------- */
+    #loginScreen {
+      display: flex;
+      min-height: 100vh;
+      width: 100%;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 28px;
+      background: linear-gradient(160deg, #1f2937 0%, #0b1120 100%);
+      max-width: var(--shell-max);
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+    #loginScreen h1 {
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 20px;
+      margin: 16px 0 2px;
+      text-align: center;
+    }
+    #loginScreen p.tag {
+      color: #dfe6f0;
+      font-size: 13px;
+      margin: 0 0 26px;
+      text-align: center;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 26px 22px;
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.25);
+    }
+    .login-card label {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .login-card input {
+      width: 100%;
+      padding: 15px 16px;
+      border: 1.5px solid var(--hair);
+      border-radius: 12px;
+      font-size: 16px;
+      font-family: inherit;
+      margin-bottom: 14px;
+    }
+    .login-card input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(14,58,97,0.12);
+    }
+    .pwd-field-wrap { position: relative; }
+    .pwd-field-wrap input { padding-right: 44px; }
+    .pwd-eye-btn {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; font-size: 18px; line-height: 1;
+      color: var(--muted); cursor: pointer; padding: 10px;
+    }
+    .login-btn {
+      width: 100%;
+      padding: 15px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 15.5px;
+      cursor: pointer;
+    }
+    .login-btn:active { background: var(--accent-dark); }
+    .login-error {
+      color: var(--danger);
+      font-size: 13px;
+      margin: -6px 0 14px;
+      display: none;
+    }
+    .login-error.show { display: block; }
+
+    /* ---------------- App shell ---------------- */
+    #appShell { display: none; flex-direction: column; min-height: 100vh; }
+    #appShell.visible { display: flex; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #fff;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 10px; }
+    .topbar-left .titles h1 { font-family: 'Space Grotesk'; font-size: 15.5px; margin: 0; line-height: 1.2; }
+    .role-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.18);
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-top: 2px;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+    .logout-btn, .report-btn {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      width: 34px; height: 34px;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .logout-btn:disabled, .report-btn:disabled { opacity: .6; cursor: default; }
+    #refreshBtn { display: inline-flex; align-items: center; justify-content: center; }
+    #refreshBtn.spinning { animation: spin .7s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .search-bar {
+      position: sticky;
+      top: 62px;
+      z-index: 19;
+      background: var(--bg);
+      padding: 12px 16px 8px;
+    }
+    .search-bar-inner {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .search-bar input {
+      flex: 1;
+      min-width: 0;
+      padding: 12px 14px 12px 38px;
+      border-radius: 12px;
+      border: 1.5px solid var(--hair);
+      background: #fff;
+      font-size: 15px;
+      font-family: inherit;
+    }
+    .search-bar input:focus { outline: none; border-color: var(--accent); }
+    .search-icon { position: absolute; left: 13px; color: var(--muted); font-size: 15px; pointer-events: none; }
+
+    .filter-btn {
+      position: relative;
+      flex-shrink: 0;
+      background: #fff;
+      border: 1.5px solid var(--hair);
+      border-radius: 12px;
+      padding: 0 14px;
+      height: 46px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .filter-dot {
+      display: none;
+      position: absolute;
+      top: -3px; right: -3px;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--danger);
+      border: 2px solid #fff;
+    }
+
+    .stats-strip {
+      display: flex;
+      gap: 10px;
+      padding: 4px 16px 10px;
+    }
+    .stat-pill {
+      flex: 1;
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--hair);
+    }
+    .stat-pill .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+    .stat-pill .v { font-size: 16px; font-weight: 700; color: var(--accent); font-family: 'Space Grotesk'; }
+
+    .mini-stat-row { display: none; gap: 10px; padding: 0 16px 14px; }
+    .mini-stat-row.visible { display: flex; }
+    .mini-stat-card {
+      flex: 1; background: #fff; border: 1.5px solid var(--hair); border-radius: 12px;
+      padding: 9px 12px; cursor: pointer;
+    }
+    .mini-stat-card.active { border-color: var(--accent); background: #F3EEFA; }
+    .mini-stat-card .k { font-size: 10.5px; color: var(--muted); font-weight: 700; display:flex; align-items:center; gap:4px; }
+    .mini-stat-card .v { font-size: 13px; font-weight: 700; font-family: 'Space Grotesk'; color: var(--text); margin-top: 2px; }
+
+    .list-container {
+      flex: 1;
+      padding: 4px 16px 100px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .entry-card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      border: 1px solid var(--hair);
+      position: relative;
+      cursor: pointer;
+    }
+    .entry-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .entry-vendor { font-weight: 700; font-size: 15px; color: var(--text); padding-right: 26px; }
+    .entry-amount { font-weight: 700; font-size: 15px; color: var(--accent); white-space: nowrap; font-family: 'Space Grotesk'; }
+    .entry-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 6px; align-items: center; }
+    .entry-meta span { display: inline-flex; align-items: center; gap: 3px; }
+    .entry-remarks { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+    .entry-delete-icon {
+      position: absolute; top: 12px; right: 12px;
+      width: 26px; height: 26px;
+      border-radius: 8px;
+      background: #fef2f2;
+      color: var(--danger);
+      border: none;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .source-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 10.5px; font-weight: 700;
+      padding: 2px 8px; border-radius: 999px;
+    }
+    .source-badge.godown { background: #DCEAF7; color: var(--godown-dark); }
+    .source-badge.shop   { background: #DAF0EA; color: var(--shop-dark); }
+
+    .source-toggle { display: flex; gap: 8px; }
+    .source-toggle-btn {
+      flex: 1; padding: 11px; border-radius: 10px; border: 1.5px solid var(--hair);
+      background: #fff; font-weight: 700; font-size: 13px; cursor: pointer; color: var(--muted);
+      font-family: inherit;
+    }
+    .source-toggle-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-state .icon { font-size: 46px; margin-bottom: 12px; }
+    .empty-state h3 { font-family: 'Space Grotesk'; color: var(--text); font-size: 16px; margin: 0 0 6px; }
+    .empty-state p { font-size: 13px; margin: 0; }
+
+    /* ---------------- FAB ---------------- */
+    .fab {
+      position: fixed;
+      bottom: 24px;
+      right: 20px;
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 26px;
+      border: none;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.3);
+      cursor: pointer;
+      z-index: 25;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ---------------- Bottom sheet modals ---------------- */
+    .sheet-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.55);
+      z-index: 50;
+      max-width: var(--shell-max);
+      margin: 0 auto;
+    }
+    .sheet-overlay.open { display: block; }
+    .sheet {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      max-height: 92vh;
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      overflow-y: auto;
+      animation: slideUp .22s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .sheet-handle { width: 36px; height: 4px; background: var(--hair); border-radius: 99px; margin: 10px auto 0; }
+    .sheet-head {
+      padding: 14px 20px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--hair);
+    }
+    .sheet-head h2 { font-family: 'Space Grotesk'; font-size: 17px; margin: 0; }
+    .sheet-close { background: none; border: none; font-size: 22px; color: var(--muted); cursor: pointer; padding: 4px; }
+    .sheet-body { padding: 18px 20px 26px; }
+
+    .form-group { margin-bottom: 15px; }
+    .form-group label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .form-group input, .form-group textarea {
+      width: 100%; padding: 13px 14px; border: 1.5px solid var(--hair);
+      border-radius: 12px; font-size: 15px; font-family: inherit;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,58,97,0.1);
+    }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .vendor-suggestions {
+      display: none;
+      position: absolute;
+      left: 0; right: 0; top: 100%;
+      background: #fff;
+      border: 1.5px solid var(--hair);
+      border-radius: 12px;
+      margin-top: 4px;
+      max-height: 220px;
+      overflow-y: auto;
+      z-index: 30;
+      box-shadow: 0 10px 24px rgba(15,23,42,0.12);
+    }
+    .vendor-suggestions.open { display: block; }
+    .vendor-suggestion-item {
+      padding: 11px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .vendor-suggestion-item:last-child { border-bottom: none; }
+    .vendor-suggestion-item:active, .vendor-suggestion-item.active {
+      background: #f0f4f8;
+    }
+    .vendor-suggestion-empty {
+      padding: 12px 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .btn {
+      padding: 14px; border-radius: 12px; border: none; font-weight: 700;
+      font-size: 15px; cursor: pointer; font-family: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #fff; width: 100%; }
+    .btn-primary:active { background: var(--accent-dark); }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+    .btn-secondary { background: #fff; border: 1.5px solid var(--hair); color: var(--text); width: 100%; }
+    .btn-danger { background: #fef2f2; color: var(--danger); width: 100%; }
+
+    .photo-actions { display: flex; gap: 10px; margin-bottom: 4px; }
+    .photo-action-btn {
+      flex: 1; border: 2px dashed var(--hair); border-radius: 14px;
+      padding: 18px 8px; text-align: center; background: #fff;
+      display: flex; flex-direction: column; align-items: center; gap: 5px;
+      font-weight: 600; font-size: 12.5px; color: var(--muted); cursor: pointer;
+    }
+    .photo-action-btn:active { background: #f8fafc; border-color: var(--accent); color: var(--accent); }
+    .photo-action-icon { font-size: 24px; }
+    .photo-hint { font-size: 11.5px; color: #94a3b8; text-align: center; margin: 8px 0 4px; }
+
+    .photo-preview-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .photo-preview { position: relative; width: 62px; height: 62px; }
+    .photo-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+    .photo-preview .remove {
+      position: absolute; top: -6px; right: -6px; background: var(--danger); color: #fff;
+      border-radius: 999px; width: 20px; height: 20px; font-size: 12px;
+      display: flex; align-items: center; justify-content: center; border: 2px solid #fff;
+    }
+
+    .pdf-box {
+      display: none; margin-top: 12px; padding: 12px 14px; background: #eef6f1;
+      border: 1px solid #bfe3cd; border-radius: 12px; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .pdf-box.visible { display: flex; }
+    .pdf-box .pdf-info { font-weight: 700; color: #0a5c4a; font-size: 12.5px; }
+    .pdf-box .pdf-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .pdf-box .btn { padding: 8px 14px; font-size: 12.5px; width: auto; }
+
+    /* Detail sheet */
+    .detail-field { margin-bottom: 14px; }
+    .detail-field .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+    .detail-field .v { font-size: 15px; color: var(--text); }
+    .detail-amount { font-family: 'Space Grotesk'; font-size: 26px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+    .detail-photos-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .detail-photos-grid img { width: 78px; height: 78px; object-fit: cover; border-radius: 10px; border: 1px solid var(--hair); cursor: pointer; }
+    .edit-source-note { font-size: 12.5px; color: var(--muted); margin: -6px 0 14px; }
+
+    /* Lightbox */
+    .lightbox {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+      z-index: 80; align-items: center; justify-content: center; padding: 16px;
+      overflow: auto; touch-action: pinch-zoom;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 100%; max-height: 90vh; border-radius: 8px;
+      cursor: zoom-in; transition: transform .2s ease; transform-origin: center;
+    }
+    .lightbox img.zoomed { cursor: zoom-out; transform: scale(2.2); max-width: none; max-height: none; }
+    .lightbox-hint {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,255,255,0.7); font-size: 12px; background: rgba(255,255,255,0.08);
+      padding: 6px 14px; border-radius: 999px;
+    }
+    .lightbox-close { position: absolute; top: 18px; right: 18px; background: none; border: none; color: #fff; font-size: 26px; cursor: pointer; }
+
+    .toast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+      background: #0f172a; color: #fff; padding: 12px 20px; border-radius: 999px;
+      font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none;
+      transition: opacity .2s ease; z-index: 90; max-width: 85%; text-align: center;
+    }
+    .toast.show { opacity: 1; }
+
+    .loading-block { text-align: center; padding: 50px 20px; color: var(--muted); font-size: 13px; }
+
+    /* ================================================================
+       LAPTOP / PC LAYOUT (>=900px) — this is the real breakpoint that
+       decides "does this look like a phone app or a desktop dashboard".
+       Below 900px (any phone, and most resized narrow windows) nothing
+       in this block applies, so the compact mobile-app look above is
+       untouched. On a laptop/PC browser window (almost always well
+       over 900px, whatever the exact screen size) all of this kicks in
+       automatically the moment the window is wide enough — no device
+       detection needed, and it re-flows live if the window is resized.
+       ================================================================ */
+    @media (min-width: 900px) {
+      html, body { background: #E7EAF0; }
+
+      /* stop capping the shell to a phone-width column — let the
+         topbar and page background use the full window width */
+      #app { max-width: none; margin: 0; }
+      #loginScreen { max-width: none; }
+
+      .topbar { padding: 18px 32px; }
+      .search-bar { top: 70px; padding: 18px 32px 10px; }
+
+      /* the actual content still sits in a comfortably wide, centered
+         container — this is what makes it read as "dashboard" rather
+         than "one endless full-width strip" */
+      .search-bar-inner,
+      .stats-strip,
+      .mini-stat-row,
+      .list-container {
+        max-width: var(--content-max);
+        margin: 0 auto;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .stats-strip, .mini-stat-row { padding-left: 32px; padding-right: 32px; }
+
+      .list-container {
+        padding: 4px 32px 90px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 14px;
+        align-content: start;
+      }
+      .empty-state { grid-column: 1 / -1; }
+
+      .fab { right: 36px; bottom: 32px; }
+
+      /* modals: centered dialog instead of a mobile bottom sheet */
+      .sheet-overlay { max-width: none; }
+      .sheet-overlay.open {
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .sheet {
+        position: static;
+        width: 100%; max-width: 560px; max-height: 85vh;
+        border-radius: 18px;
+        animation: dialogIn .16s ease;
+      }
+      .sheet-handle { display: none; }
+
+      /* mouse-hover affordances (phones don't have real hover, so
+         these only show up for people actually on a laptop/PC) */
+      .entry-card:hover { border-color: var(--accent); box-shadow: 0 6px 16px rgba(15,23,42,0.08); }
+      .mini-stat-card:hover { border-color: var(--accent); }
+      .fab:hover, .btn-primary:hover { filter: brightness(1.08); }
+      .photo-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    }
+    @keyframes dialogIn { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Login screen — one link for everyone; username + password decide which dashboard opens -->
+  <div id="loginScreen">
+    <div class="brand-badge lg">VT</div>
+    <h1>VARDHMAN TRADERS</h1>
+    <p class="tag">Sign in to your dashboard</p>
+    <form class="login-card" id="loginForm">
+      <label for="usernameInput">Username</label>
+      <input type="text" id="usernameInput" placeholder="Enter your username" autocomplete="username" required>
+
+      <label for="passwordInput">Password</label>
+      <div class="pwd-field-wrap">
+        <input type="password" id="passwordInput" placeholder="Enter your password" autocomplete="current-password" required>
+        <button type="button" class="pwd-eye-btn" id="pwdEyeBtn" aria-label="Show password">👁</button>
+      </div>
+
+      <div class="login-error" id="loginError">Incorrect username or password. Try again.</div>
+      <button type="submit" class="login-btn" id="loginBtn">Login</button>
+    </form>
+  </div>
+
+  <!-- App shell -->
+  <div id="appShell">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="brand-badge sm">VT</div>
+        <div class="titles">
+          <h1>VT Purchase Report</h1>
+          <span class="role-badge" id="roleBadge">Godown</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="report-btn" id="refreshBtn" title="Refresh entries">⟳</button>
+        <button class="report-btn" id="reportBtn" title="Download date report">📄</button>
+        <button class="logout-btn" id="logoutBtn" title="Log out">⏻</button>
+      </div>
+    </div>
+
+    <div class="search-bar">
+      <div class="search-bar-inner">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" placeholder="Search vendor, invoice #, remarks…">
+        <button class="filter-btn" id="filterOpenBtn">Filters<span class="filter-dot" id="filterDot"></span></button>
+      </div>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stat-pill">
+        <div class="k">Entries</div>
+        <div class="v" id="statCount">0</div>
+      </div>
+      <div class="stat-pill">
+        <div class="k">Total ₹</div>
+        <div class="v" id="statTotal">0</div>
+      </div>
+    </div>
+
+    <div class="mini-stat-row" id="miniStatRow">
+      <div class="mini-stat-card" id="miniStatGodown" data-src="godown">
+        <div class="k">🏭 Godown</div>
+        <div class="v" id="miniStatGodownVal">0 · ₹0</div>
+      </div>
+      <div class="mini-stat-card" id="miniStatShop" data-src="shop">
+        <div class="k">🏬 Shop</div>
+        <div class="v" id="miniStatShopVal">0 · ₹0</div>
+      </div>
+    </div>
+
+    <div class="list-container" id="listContainer">
+      <div class="loading-block">Loading entries…</div>
+    </div>
+
+    <button class="fab" id="fabAdd">+</button>
+  </div>
+
+</div>
+
+<!-- Add/Edit Entry sheet -->
+<div class="sheet-overlay" id="addOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <h2 id="addSheetTitle">New Purchase Entry</h2>
+      <button class="sheet-close" id="addClose">×</button>
+    </div>
+    <div class="sheet-body">
+      <form id="entryForm">
+        <div class="form-group" id="addToGroup" style="display:none;">
+          <label>Add To</label>
+          <div class="source-toggle" id="addToToggle">
+            <button type="button" class="source-toggle-btn active" data-src="godown">🏭 Godown</button>
+            <button type="button" class="source-toggle-btn" data-src="shop">🏬 Shop</button>
+          </div>
+        </div>
+        <div class="edit-source-note" id="editSourceLabel" style="display:none;"></div>
+
+        <div class="form-group" style="position:relative;">
+          <label for="vendorName">Vendor Name</label>
+          <input type="text" id="vendorName" required placeholder="Start typing to search vendors…" autocomplete="off">
+          <div id="vendorSuggestions" class="vendor-suggestions"></div>
+          <div id="vendorNewNote" style="display:none;font-size:12px;color:var(--shop-dark,#0A4A3D);margin-top:4px;"></div>
+        </div>
+        <div class="row2">
+          <div class="form-group">
+            <label for="materialReceivedDate">Material Received</label>
+            <input type="date" id="materialReceivedDate" required>
+          </div>
+          <div class="form-group">
+            <label for="invoiceDate">Invoice Date</label>
+            <input type="date" id="invoiceDate" required>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="form-group">
+            <label for="invoiceNumber">Invoice Number</label>
+            <input type="text" id="invoiceNumber" required placeholder="INV-2025-042">
+          </div>
+          <div class="form-group">
+            <label for="invoiceAmount">Amount (₹)</label>
+            <input type="number" step="0.01" id="invoiceAmount" required placeholder="12500">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="remarks">Remarks</label>
+          <textarea id="remarks" rows="2" placeholder="Quality check passed..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Photos (Invoice / Delivery)</label>
+          <div class="photo-actions">
+            <button type="button" class="photo-action-btn" id="cameraBtn">
+              <span class="photo-action-icon">📷</span>
+              <span>Open Camera</span>
+            </button>
+            <button type="button" class="photo-action-btn" id="galleryBtn">
+              <span class="photo-action-icon">🖼️</span>
+              <span>From Gallery</span>
+            </button>
+          </div>
+          <div class="photo-hint">Take 4–5 photos — they'll auto-combine into a PDF</div>
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+          <input type="file" id="galleryInput" accept="image/*" multiple style="display:none">
+          <div id="photoPreviewContainer" class="photo-preview-grid"></div>
+          <div id="pdfBox" class="pdf-box">
+            <div>
+              <div class="pdf-info">📄 <span id="pdfPhotoCount">0</span> photos combined into a PDF</div>
+              <div class="pdf-sub">Ready to download</div>
+            </div>
+            <button type="button" class="btn btn-secondary" id="downloadPdfBtn">Download</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="saveBtn" style="margin-top:8px;">Save entry</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Detail sheet -->
+<div class="sheet-overlay" id="detailOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <h2>Entry Details</h2>
+      <button class="sheet-close" id="detailClose">×</button>
+    </div>
+    <div class="sheet-body" id="detailBody">
+      <!-- populated by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- Filter sheet -->
+<div class="sheet-overlay" id="filterOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <h2>Filters</h2>
+      <button class="sheet-close" id="filterClose">×</button>
+    </div>
+    <div class="sheet-body">
+      <div class="form-group" style="position:relative;">
+        <label for="filterVendor">Vendor / Party</label>
+        <input type="text" id="filterVendor" placeholder="All vendors" autocomplete="off">
+        <div id="filterVendorSuggestions" class="vendor-suggestions"></div>
+      </div>
+      <div class="row2">
+        <div class="form-group">
+          <label for="filterDateFrom">From Date</label>
+          <input type="date" id="filterDateFrom">
+        </div>
+        <div class="form-group">
+          <label for="filterDateTo">To Date</label>
+          <input type="date" id="filterDateTo">
+        </div>
+      </div>
+      <div class="form-group" id="filterSourceGroup" style="display:none;">
+        <label>Source</label>
+        <div class="source-toggle" id="filterSourceToggle">
+          <button type="button" class="source-toggle-btn active" data-src="all">All</button>
+          <button type="button" class="source-toggle-btn" data-src="godown">🏭 Godown</button>
+          <button type="button" class="source-toggle-btn" data-src="shop">🏬 Shop</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-primary" id="applyFilterBtn" style="margin-top:4px;">Apply Filters</button>
+      <button type="button" class="btn btn-secondary" id="clearFilterBtn" style="margin-top:10px;">Clear Filters</button>
+    </div>
+  </div>
+</div>
+
+<!-- Date report sheet -->
+<div class="sheet-overlay" id="reportOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <h2>Download Date Report</h2>
+      <button class="sheet-close" id="reportClose">×</button>
+    </div>
+    <div class="sheet-body">
+      <div class="form-group">
+        <label for="reportDate">Material Received Date</label>
+        <input type="date" id="reportDate">
+      </div>
+      <div id="reportPreviewText" style="font-size:13px; color:var(--muted); margin:-6px 0 16px;">Select a date to see matching entries</div>
+      <button type="button" class="btn btn-primary" id="generateReportBtn">Generate &amp; Download PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightboxClose">×</button>
+  <img id="lightboxImg" src="" alt="Photo">
+  <div class="lightbox-hint">Tap photo to zoom in</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // The vendor list is the shared party list (Setup > Dropdown values > Vendors), loaded when the page opens.
+  let VENDOR_LIST = [];
+  VT.run.withSuccessHandler(function (v) { VENDOR_LIST = v || []; }).getVendors();
+
+  const DASH_SHORT = { godown: 'Godown', shop: 'Shop', admin: 'Admin' };
+
+  let selectedDashboard = null;   // 'godown' | 'shop' | 'admin'
+  let currentPassword = null;
+  let entries = [];               // always has .source + .uid on every entry, for every dashboard
+  let searchTerm = '';
+  let filterState = { vendor: '', dateFrom: '', dateTo: '', source: 'all' };
+  let photoItems = []; // { type: 'new', full, upload } OR { type: 'existing', url }
+  let currentPdfDoc = null;
+  let editingEntry = null;   // null = adding a new entry, otherwise the entry object being edited
+  let addEntrySource = 'godown'; // which sheet a NEW entry goes to, when selectedDashboard === 'admin'
+
+  const $ = id => document.getElementById(id);
+
+  function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function setSourceToggle(containerId, value) {
+    document.querySelectorAll('#' + containerId + ' .source-toggle-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.src === value);
+    });
+  }
+
+  /* ---------------- Login (single form — username + password decide the dashboard) ---------------- */
+  $('pwdEyeBtn').addEventListener('click', function () {
+    const input = $('passwordInput');
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    $('pwdEyeBtn').textContent = showing ? '👁' : '🙈';
+    $('pwdEyeBtn').setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  });
+
+  $('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const username = $('usernameInput').value;
+    const pwd = $('passwordInput').value;
+    const btn = $('loginBtn');
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    $('loginError').classList.remove('show');
+
+    VT.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        btn.textContent = 'Login';
+        if (res && res.success) {
+          selectedDashboard = res.dashboard;
+          currentPassword = pwd;
+          document.body.setAttribute('data-dash', selectedDashboard);
+          $('roleBadge').textContent = DASH_SHORT[selectedDashboard];
+          $('loginScreen').style.display = 'none';
+          $('appShell').classList.add('visible');
+          $('usernameInput').value = '';
+          $('passwordInput').value = '';
+          $('passwordInput').type = 'password';
+          $('pwdEyeBtn').textContent = '👁';
+          setupDashboardUI();
+          loadEntries();
+          showToast('Logged in as ' + (res.username || username) + ' — ' + DASH_SHORT[selectedDashboard]);
+        } else {
+          $('loginError').classList.add('show');
+        }
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Login';
+        $('loginError').textContent = 'Could not reach the server. Try again.';
+        $('loginError').classList.add('show');
+      })
+      .login(username, pwd);
+  });
+
+  // Sign-in lives in the portal: log out means back to the portal.
+  $('logoutBtn').addEventListener('click', function () { window.VT.toPortal(); }, true);
+
+  $('logoutBtn').addEventListener('click', function () {
+    currentPassword = null;
+    entries = [];
+    filterState = { vendor: '', dateFrom: '', dateTo: '', source: 'all' };
+    searchTerm = '';
+    $('searchInput').value = '';
+    selectedDashboard = null;
+    document.body.removeAttribute('data-dash');
+    $('appShell').classList.remove('visible');
+    $('loginScreen').style.display = 'flex';
+  });
+
+  function setupDashboardUI() {
+    const isAdmin = selectedDashboard === 'admin';
+    $('miniStatRow').classList.toggle('visible', isAdmin);
+  }
+
+  /* ---------------- Load & render list ---------------- */
+  function gsGetAllEntries(type) {
+    return new Promise((resolve, reject) => {
+      VT.run.withSuccessHandler(resolve).withFailureHandler(reject).getAllEntries(type);
+    });
+  }
+
+  async function loadEntries() {
+    window.VT.run.withSuccessHandler(function (v) { VENDOR_LIST = v || VENDOR_LIST; }).getVendors();
+    $('listContainer').innerHTML = '<div class="loading-block">Loading entries…</div>';
+    try {
+      if (selectedDashboard === 'admin') {
+        const results = await Promise.all([gsGetAllEntries('godown'), gsGetAllEntries('shop')]);
+        entries = (results[0] || []).concat(results[1] || []);
+        entries.sort((a, b) => String(b.materialReceivedDate || '').localeCompare(String(a.materialReceivedDate || '')));
+      } else {
+        entries = await gsGetAllEntries(selectedDashboard);
+      }
+      renderList();
+    } catch (err) {
+      $('listContainer').innerHTML = '<div class="loading-block">Could not load entries: ' + err.message + '</div>';
+    }
+  }
+
+  $('refreshBtn').addEventListener('click', async function () {
+    const btn = $('refreshBtn');
+    if (btn.classList.contains('spinning')) return; // ignore taps while already refreshing
+    btn.classList.add('spinning');
+    btn.disabled = true;
+    try {
+      await loadEntries();
+      showToast('Entries refreshed');
+    } catch (err) {
+      showToast('Could not refresh: ' + err.message);
+    } finally {
+      btn.classList.remove('spinning');
+      btn.disabled = false;
+    }
+  });
+
+  function matchesSearchVendorDate(e) {
+    const term = searchTerm.trim().toLowerCase();
+    if (term) {
+      const hay = (String(e.vendorName || '') + ' ' + String(e.invoiceNumber || '') + ' ' + String(e.remarks || '')).toLowerCase();
+      if (!hay.includes(term)) return false;
+    }
+    if (filterState.vendor && !String(e.vendorName || '').toLowerCase().includes(filterState.vendor.toLowerCase())) return false;
+    if (filterState.dateFrom && String(e.materialReceivedDate || '') < filterState.dateFrom) return false;
+    if (filterState.dateTo && String(e.materialReceivedDate || '') > filterState.dateTo) return false;
+    return true;
+  }
+
+  function passesFilters(e) {
+    if (!matchesSearchVendorDate(e)) return false;
+    if (selectedDashboard === 'admin' && filterState.source !== 'all' && e.source !== filterState.source) return false;
+    return true;
+  }
+
+  function renderList() {
+    // "filtered" is exactly what ends up on screen — the top stat pills
+    // (Entries / Total ₹) are built from this SAME list, so they always
+    // match the cards below, whatever search/filters are active.
+    const filtered = entries.filter(passesFilters);
+
+    const total = filtered.reduce((s, e) => s + (parseFloat(e.invoiceAmount) || 0), 0);
+    $('statCount').textContent = filtered.length;
+    $('statTotal').textContent = total.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+
+    if (selectedDashboard === 'admin') {
+      // These two mini-cards respect search/vendor/date but deliberately
+      // ignore the current source toggle, so both Godown and Shop totals
+      // stay visible (and tappable) no matter which one is selected.
+      const baseForMini = entries.filter(matchesSearchVendorDate);
+      const godownList = baseForMini.filter(e => e.source === 'godown');
+      const shopList = baseForMini.filter(e => e.source === 'shop');
+      const godownTotal = godownList.reduce((s, e) => s + (parseFloat(e.invoiceAmount) || 0), 0);
+      const shopTotal = shopList.reduce((s, e) => s + (parseFloat(e.invoiceAmount) || 0), 0);
+      $('miniStatGodownVal').textContent = godownList.length + ' · ₹' + godownTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      $('miniStatShopVal').textContent = shopList.length + ' · ₹' + shopTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      $('miniStatGodown').classList.toggle('active', filterState.source === 'godown');
+      $('miniStatShop').classList.toggle('active', filterState.source === 'shop');
+    }
+
+    const container = $('listContainer');
+    container.innerHTML = '';
+
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No entries yet</h3><p>Tap the + button to add your first record</p></div>';
+      return;
+    }
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>No matches</h3><p>Nothing matches your search / filters</p></div>';
+      return;
+    }
+
+    filtered.forEach(function (e) {
+      const card = document.createElement('div');
+      card.className = 'entry-card';
+
+      let photoHint = '';
+      if (e.photos) {
+        const count = e.photos.split(' | ').filter(Boolean).length;
+        photoHint = '<span>📎 ' + count + (count === 1 ? ' photo' : ' photos') + '</span>';
+      }
+      const sourceChip = selectedDashboard === 'admin'
+        ? '<span class="source-badge ' + e.source + '">' + (e.source === 'godown' ? '🏭 Godown' : '🏬 Shop') + '</span>'
+        : '';
+
+      card.innerHTML =
+        '<div class="entry-card-top">' +
+          '<div class="entry-vendor">' + escapeHtml(e.vendorName || 'Unnamed vendor') + '</div>' +
+          '<div class="entry-amount">₹' + (parseFloat(e.invoiceAmount) || 0).toLocaleString('en-IN') + '</div>' +
+        '</div>' +
+        '<div class="entry-meta">' +
+          sourceChip +
+          '<span>📦 ' + escapeHtml(e.materialReceivedDate || '—') + '</span>' +
+          '<span>🧾 ' + escapeHtml(e.invoiceNumber || '—') + '</span>' +
+          photoHint +
+        '</div>' +
+        (e.remarks ? '<div class="entry-remarks">' + escapeHtml(e.remarks) + '</div>' : '') +
+        (selectedDashboard === 'admin' ? '<button class="entry-delete-icon" data-uid="' + e.uid + '">🗑</button>' : '');
+
+      card.addEventListener('click', function (ev) {
+        if (ev.target.closest('.entry-delete-icon')) return;
+        openDetail(e.uid);
+      });
+
+      const delBtn = card.querySelector('.entry-delete-icon');
+      if (delBtn) {
+        delBtn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          confirmDelete(e.uid, false);
+        });
+      }
+
+      container.appendChild(card);
+    });
+  }
+
+  $('searchInput').addEventListener('input', function (e) {
+    searchTerm = e.target.value;
+    renderList();
+  });
+
+  document.querySelectorAll('.mini-stat-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      const src = card.dataset.src;
+      filterState.source = (filterState.source === src) ? 'all' : src;
+      updateFilterDot();
+      renderList();
+    });
+  });
+
+  /* ---------------- Detail sheet ---------------- */
+  function openDetail(uid) {
+    const e = entries.find(x => x.uid === uid);
+    if (!e) return;
+
+    let photosHTML = '<p style="color:var(--muted);font-size:13px;">No photos attached</p>';
+    if (e.photos) {
+      const urls = e.photos.split(' | ').filter(Boolean);
+      photosHTML = '<div class="detail-photos-grid">' +
+        urls.map(u => '<img src="' + u + '" data-src="' + u + '">').join('') +
+        '</div>';
+    }
+
+    const sourceRow = selectedDashboard === 'admin'
+      ? '<div class="detail-field"><div class="k">Dashboard</div><div class="v"><span class="source-badge ' + e.source + '">' + (e.source === 'godown' ? '🏭 Godown' : '🏬 Shop') + '</span></div></div>'
+      : '';
+
+    $('detailBody').innerHTML =
+      '<div class="detail-amount">₹' + (parseFloat(e.invoiceAmount) || 0).toLocaleString('en-IN') + '</div>' +
+      sourceRow +
+      '<div class="detail-field"><div class="k">Vendor</div><div class="v">' + escapeHtml(e.vendorName || '—') + '</div></div>' +
+      '<div class="row2">' +
+        '<div class="detail-field"><div class="k">Material Received</div><div class="v">' + escapeHtml(e.materialReceivedDate || '—') + '</div></div>' +
+        '<div class="detail-field"><div class="k">Invoice Date</div><div class="v">' + escapeHtml(e.invoiceDate || '—') + '</div></div>' +
+      '</div>' +
+      '<div class="detail-field"><div class="k">Invoice Number</div><div class="v">' + escapeHtml(e.invoiceNumber || '—') + '</div></div>' +
+      '<div class="detail-field"><div class="k">Remarks</div><div class="v">' + escapeHtml(e.remarks || '—') + '</div></div>' +
+      '<div class="detail-field"><div class="k">Photos</div>' + photosHTML + '</div>' +
+      '<button class="btn btn-secondary" id="detailEditBtn" style="margin-top:6px;">✎ Edit Entry</button>' +
+      (selectedDashboard === 'admin' ? '<button class="btn btn-danger" id="detailDeleteBtn" style="margin-top:10px;">🗑 Delete Entry</button>' : '');
+
+    $('detailBody').querySelectorAll('.detail-photos-grid img').forEach(img => {
+      img.addEventListener('click', () => openLightbox(img.dataset.src));
+    });
+
+    $('detailEditBtn').addEventListener('click', () => {
+      $('detailOverlay').classList.remove('open');
+      openEditEntry(e.uid);
+    });
+
+    const delBtn = $('detailDeleteBtn');
+    if (delBtn) delBtn.addEventListener('click', () => confirmDelete(e.uid, true));
+
+    $('detailOverlay').classList.add('open');
+  }
+
+  $('detailClose').addEventListener('click', () => $('detailOverlay').classList.remove('open'));
+  $('detailOverlay').addEventListener('click', e => { if (e.target.id === 'detailOverlay') $('detailOverlay').classList.remove('open'); });
+
+  function gsDeleteEntry(type, rowId, adminPassword) {
+    return new Promise((resolve, reject) => {
+      VT.run.withSuccessHandler(resolve).withFailureHandler(reject).deleteEntry(type, rowId, adminPassword);
+    });
+  }
+
+  function confirmDelete(uid, fromDetail) {
+    if (selectedDashboard !== 'admin') return; // only the Admin dashboard can delete
+    const e = entries.find(x => x.uid === uid);
+    if (!e) return;
+    if (!confirm('Delete this entry? This cannot be undone.')) return;
+    gsDeleteEntry(e.source, e.rowId, currentPassword).then(function (res) {
+      if (res && res.success) {
+        entries = entries.filter(x => x.uid !== uid);
+        renderList();
+        if (fromDetail) $('detailOverlay').classList.remove('open');
+        showToast('Entry deleted');
+      } else {
+        showToast('Delete failed: ' + (res && res.message ? res.message : 'unknown error'));
+      }
+    }).catch(function (err) { showToast('Delete failed: ' + err.message); });
+  }
+
+  /* ---------------- Lightbox ---------------- */
+  function openLightbox(src) {
+    $('lightboxImg').src = src;
+    $('lightboxImg').classList.remove('zoomed');
+    $('lightbox').classList.add('open');
+  }
+  function closeLightbox() {
+    $('lightbox').classList.remove('open');
+    $('lightboxImg').src = '';
+    $('lightboxImg').classList.remove('zoomed');
+  }
+  $('lightboxClose').addEventListener('click', closeLightbox);
+  $('lightbox').addEventListener('click', e => { if (e.target.id === 'lightbox') closeLightbox(); });
+  $('lightboxImg').addEventListener('click', e => {
+    e.stopPropagation();
+    $('lightboxImg').classList.toggle('zoomed');
+  });
+
+  /* ---------------- Add / Edit entry sheet ---------------- */
+  function resetAddForm() {
+    editingEntry = null;
+    $('entryForm').reset();
+    photoItems = [];
+    currentPdfDoc = null;
+    $('addSheetTitle').textContent = 'New Purchase Entry';
+    $('saveBtn').textContent = 'Save entry';
+    renderPhotoPreviews();
+    updatePdf();
+    $('vendorSuggestions').classList.remove('open');
+
+    if (selectedDashboard === 'admin') {
+      $('addToGroup').style.display = 'block';
+      $('editSourceLabel').style.display = 'none';
+      addEntrySource = (filterState.source && filterState.source !== 'all') ? filterState.source : 'godown';
+      setSourceToggle('addToToggle', addEntrySource);
+    } else {
+      $('addToGroup').style.display = 'none';
+    }
+  }
+
+  function openEditEntry(uid) {
+    const e = entries.find(x => x.uid === uid);
+    if (!e) return;
+
+    editingEntry = e;
+    $('entryForm').reset();
+    $('vendorName').value = e.vendorName || '';
+    $('materialReceivedDate').value = e.materialReceivedDate || '';
+    $('invoiceDate').value = e.invoiceDate || '';
+    $('invoiceNumber').value = e.invoiceNumber || '';
+    $('invoiceAmount').value = e.invoiceAmount || '';
+    $('remarks').value = e.remarks || '';
+
+    photoItems = e.photos
+      ? e.photos.split(' | ').filter(Boolean).map(url => ({ type: 'existing', url }))
+      : [];
+    currentPdfDoc = null;
+    renderPhotoPreviews();
+    updatePdf();
+
+    if (selectedDashboard === 'admin') {
+      $('addToGroup').style.display = 'none';
+      $('editSourceLabel').style.display = 'block';
+      $('editSourceLabel').textContent = 'Editing a ' + (e.source === 'godown' ? '🏭 Godown' : '🏬 Shop') + ' entry';
+    }
+
+    $('addSheetTitle').textContent = 'Edit Purchase Entry';
+    $('saveBtn').textContent = 'Update Entry';
+    $('addOverlay').classList.add('open');
+  }
+
+  $('fabAdd').addEventListener('click', () => {
+    resetAddForm();
+    $('addOverlay').classList.add('open');
+  });
+  $('addClose').addEventListener('click', () => $('addOverlay').classList.remove('open'));
+  $('addOverlay').addEventListener('click', e => { if (e.target.id === 'addOverlay') $('addOverlay').classList.remove('open'); });
+
+  $('addToToggle').addEventListener('click', function (e) {
+    const btn = e.target.closest('.source-toggle-btn');
+    if (!btn) return;
+    setSourceToggle('addToToggle', btn.dataset.src);
+    addEntrySource = btn.dataset.src;
+  });
+
+  /* ---------------- Vendor autocomplete (reused for Add form + Filter sheet) ---------------- */
+  // allowNew: the Add form may use a name that is not on the list yet - it is offered as "+ Add ... as a new vendor", and a new
+  // name joins the shared vendor list (Setup > Dropdown values > Vendors) when the entry is saved.
+  function setupVendorAutocomplete(inputEl, boxEl, allowNew) {
+    const note = allowNew ? $('vendorNewNote') : null;
+    const isKnown = (t) => VENDOR_LIST.some(v => v.toLowerCase() === t.toLowerCase());
+    const showNote = () => {
+      if (!note) return;
+      const t = inputEl.value.trim().replace(/\s+/g, ' ');
+      const isNew = !!t && !isKnown(t);
+      note.style.display = isNew ? 'block' : 'none';
+      note.textContent = isNew ? '➕ New vendor — it will be added to the vendor list when you save, and an admin reviews it in Setup.' : '';
+    };
+    inputEl.addEventListener('input', () => {
+      showNote();
+      const term = inputEl.value.trim().toLowerCase();
+      if (!term) { boxEl.classList.remove('open'); boxEl.innerHTML = ''; return; }
+
+      const matches = VENDOR_LIST.filter(v => v.toLowerCase().includes(term)).slice(0, 8);
+      const typed = inputEl.value.trim().replace(/\s+/g, ' ');
+      const offerNew = allowNew && !isKnown(typed);
+      boxEl.innerHTML = matches.map(v => '<div class="vendor-suggestion-item">' + escapeHtml(v) + '</div>').join('') +
+        (offerNew ? '<div class="vendor-suggestion-new vendor-suggestion-item" style="font-weight:700;">➕ Add “' + escapeHtml(typed) + '” as a new vendor</div>'
+                  : (!matches.length ? '<div class="vendor-suggestion-empty">No match</div>' : ''));
+      boxEl.querySelectorAll('.vendor-suggestion-item').forEach((item) => {
+        item.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          if (!item.classList.contains('vendor-suggestion-new')) inputEl.value = item.textContent;
+          boxEl.classList.remove('open');
+          showNote();
+        });
+      });
+      boxEl.classList.add('open');
+    });
+
+    inputEl.addEventListener('focus', () => {
+      if (inputEl.value.trim() && boxEl.innerHTML) boxEl.classList.add('open');
+    });
+    inputEl.addEventListener('blur', () => {
+      setTimeout(() => boxEl.classList.remove('open'), 120);
+    });
+  }
+
+  setupVendorAutocomplete($('vendorName'), $('vendorSuggestions'), true);
+  setupVendorAutocomplete($('filterVendor'), $('filterVendorSuggestions'));
+
+  /* ---------------- Filter sheet ---------------- */
+  $('filterOpenBtn').addEventListener('click', () => {
+    $('filterVendor').value = filterState.vendor;
+    $('filterDateFrom').value = filterState.dateFrom;
+    $('filterDateTo').value = filterState.dateTo;
+    if (selectedDashboard === 'admin') {
+      $('filterSourceGroup').style.display = 'block';
+      setSourceToggle('filterSourceToggle', filterState.source);
+    } else {
+      $('filterSourceGroup').style.display = 'none';
+    }
+    $('filterOverlay').classList.add('open');
+  });
+  $('filterClose').addEventListener('click', () => $('filterOverlay').classList.remove('open'));
+  $('filterOverlay').addEventListener('click', e => { if (e.target.id === 'filterOverlay') $('filterOverlay').classList.remove('open'); });
+
+  $('filterSourceToggle').addEventListener('click', function (e) {
+    const btn = e.target.closest('.source-toggle-btn');
+    if (!btn) return;
+    setSourceToggle('filterSourceToggle', btn.dataset.src);
+  });
+
+  function updateFilterDot() {
+    const active = !!(filterState.vendor || filterState.dateFrom || filterState.dateTo || (filterState.source && filterState.source !== 'all'));
+    $('filterDot').style.display = active ? 'block' : 'none';
+  }
+
+  $('applyFilterBtn').addEventListener('click', () => {
+    filterState.vendor = $('filterVendor').value.trim();
+    filterState.dateFrom = $('filterDateFrom').value;
+    filterState.dateTo = $('filterDateTo').value;
+    if (selectedDashboard === 'admin') {
+      const activeBtn = document.querySelector('#filterSourceToggle .source-toggle-btn.active');
+      filterState.source = activeBtn ? activeBtn.dataset.src : 'all';
+    }
+    updateFilterDot();
+    $('filterOverlay').classList.remove('open');
+    renderList();
+  });
+
+  $('clearFilterBtn').addEventListener('click', () => {
+    filterState = { vendor: '', dateFrom: '', dateTo: '', source: 'all' };
+    $('filterVendor').value = '';
+    $('filterDateFrom').value = '';
+    $('filterDateTo').value = '';
+    setSourceToggle('filterSourceToggle', 'all');
+    updateFilterDot();
+    $('filterOverlay').classList.remove('open');
+    renderList();
+  });
+
+  /* ---------------- Photo capture / gallery / PDF ---------------- */
+  $('cameraBtn').addEventListener('click', () => $('cameraInput').click());
+  $('galleryBtn').addEventListener('click', () => $('galleryInput').click());
+  $('cameraInput').addEventListener('change', handlePhotoSelect);
+  $('galleryInput').addEventListener('change', handlePhotoSelect);
+
+  function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = ev => resolve(ev.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(dataUrl) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.src = dataUrl;
+    });
+  }
+
+  async function compressImage(dataUrl, maxW, quality) {
+    const img = await loadImage(dataUrl);
+    const scale = Math.min(1, maxW / img.width);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  }
+
+  function renderPhotoPreviews() {
+    const container = $('photoPreviewContainer');
+    container.innerHTML = '';
+    photoItems.forEach(item => {
+      const src = item.type === 'existing' ? item.url : item.full;
+      const div = document.createElement('div');
+      div.className = 'photo-preview';
+      div.innerHTML = '<img src="' + src + '"><div class="remove">×</div>';
+      div.querySelector('.remove').addEventListener('click', () => removePhoto(item));
+      container.appendChild(div);
+    });
+  }
+
+  function removePhoto(item) {
+    photoItems = photoItems.filter(p => p !== item);
+    renderPhotoPreviews();
+    updatePdf();
+  }
+
+  async function handlePhotoSelect(e) {
+    const files = Array.from(e.target.files);
+    for (const file of files) {
+      const full = await readFileAsDataURL(file);
+      const upload = await compressImage(full, 1800, 0.88);
+      photoItems.push({ type: 'new', full: upload, upload });
+    }
+    e.target.value = '';
+    renderPhotoPreviews();
+    updatePdf();
+  }
+
+  async function buildPdf(dataUrls) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 30;
+
+    for (let i = 0; i < dataUrls.length; i++) {
+      const img = await loadImage(dataUrls[i]);
+      const maxW = pageW - margin * 2;
+      const maxH = pageH - margin * 2;
+      const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+      const w = img.width * scale, h = img.height * scale;
+      const x = (pageW - w) / 2, y = (pageH - h) / 2;
+      if (i > 0) doc.addPage();
+      doc.addImage(dataUrls[i], 'JPEG', x, y, w, h);
+    }
+    return doc;
+  }
+
+  async function updatePdf() {
+    const pdfBox = $('pdfBox');
+    const newOnes = photoItems.filter(p => p.type === 'new');
+    if (newOnes.length === 0) {
+      pdfBox.classList.remove('visible');
+      currentPdfDoc = null;
+      return;
+    }
+    $('pdfPhotoCount').textContent = newOnes.length;
+    pdfBox.classList.add('visible');
+    currentPdfDoc = await buildPdf(newOnes.map(p => p.full));
+  }
+
+  $('downloadPdfBtn').addEventListener('click', () => {
+    if (!currentPdfDoc) return;
+    const vendor = ($('vendorName').value.trim() || 'purchase').replace(/[^a-z0-9]+/gi, '_');
+    const date = $('materialReceivedDate').value || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    currentPdfDoc.save(vendor + '_' + date + '.pdf');
+  });
+
+  function gsUploadPhoto(type, base64, mimeType, filename) {
+    return new Promise((resolve, reject) => {
+      VT.run.withSuccessHandler(resolve).withFailureHandler(reject).uploadPhoto(type, base64, mimeType, filename);
+    });
+  }
+  function gsSaveEntry(type, data) {
+    return new Promise((resolve, reject) => {
+      VT.run.withSuccessHandler(resolve).withFailureHandler(reject).saveEntry(type, data);
+    });
+  }
+  function gsUpdateEntry(type, rowId, data) {
+    return new Promise((resolve, reject) => {
+      VT.run.withSuccessHandler(resolve).withFailureHandler(reject).updateEntry(type, rowId, data);
+    });
+  }
+
+  $('entryForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const saveBtn = $('saveBtn');
+    saveBtn.disabled = true;
+
+    const targetType = editingEntry ? editingEntry.source : (selectedDashboard === 'admin' ? addEntrySource : selectedDashboard);
+
+    try {
+      const newItems = photoItems.filter(p => p.type === 'new');
+      const existingUrls = photoItems.filter(p => p.type === 'existing').map(p => p.url);
+      const uploadedUrls = [];
+
+      for (let i = 0; i < newItems.length; i++) {
+        saveBtn.textContent = 'Uploading photo ' + (i + 1) + ' of ' + newItems.length + '…';
+        const match = /^data:(image\/[a-zA-Z]+);base64,(.*)$/.exec(newItems[i].upload);
+        const mimeType = match ? match[1] : 'image/jpeg';
+        const base64 = match ? match[2] : newItems[i].upload;
+        const res = await gsUploadPhoto(targetType, base64, mimeType, 'photo_' + Date.now() + '_' + i + '.jpg');
+        if (!res || !res.success) throw new Error(res && res.message ? res.message : 'Photo upload failed');
+        uploadedUrls.push(res.url);
+      }
+
+      saveBtn.textContent = editingEntry ? 'Updating…' : 'Saving…';
+
+      const data = {
+        vendorName: $('vendorName').value,
+        materialReceivedDate: $('materialReceivedDate').value,
+        invoiceDate: $('invoiceDate').value,
+        invoiceNumber: $('invoiceNumber').value,
+        invoiceAmount: $('invoiceAmount').value,
+        remarks: $('remarks').value,
+        photos: existingUrls.concat(uploadedUrls).join(' | ')
+      };
+
+      const res = editingEntry ? await gsUpdateEntry(targetType, editingEntry.rowId, data) : await gsSaveEntry(targetType, data);
+
+      saveBtn.disabled = false;
+      saveBtn.textContent = editingEntry ? 'Update Entry' : 'Save entry';
+
+      if (res && res.success) {
+        $('addOverlay').classList.remove('open');
+        showToast(editingEntry ? 'Entry updated' : 'Entry added');
+        loadEntries();
+      } else {
+        alert('Error: ' + (res && res.message ? res.message : 'Could not save'));
+      }
+    } catch (err) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = editingEntry ? 'Update Entry' : 'Save entry';
+      alert('Error: ' + err.message);
+    }
+  });
+
+  /* ---------------- Date report PDF ---------------- */
+  $('reportBtn').addEventListener('click', function () {
+    $('reportDate').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    updateReportPreview();
+    $('reportOverlay').classList.add('open');
+  });
+  $('reportClose').addEventListener('click', () => $('reportOverlay').classList.remove('open'));
+  $('reportOverlay').addEventListener('click', e => { if (e.target.id === 'reportOverlay') $('reportOverlay').classList.remove('open'); });
+  $('reportDate').addEventListener('input', updateReportPreview);
+
+  function matchingForDate(dateStr) {
+    return entries.filter(e => e.materialReceivedDate === dateStr);
+  }
+
+  function updateReportPreview() {
+    const d = $('reportDate').value;
+    const matches = matchingForDate(d);
+    if (matches.length === 0) {
+      $('reportPreviewText').textContent = 'No entries found for this date';
+    } else if (selectedDashboard === 'admin') {
+      const g = matches.filter(m => m.source === 'godown').length;
+      const s = matches.filter(m => m.source === 'shop').length;
+      $('reportPreviewText').textContent = matches.length + ' entries found (' + g + ' Godown, ' + s + ' Shop)';
+    } else {
+      $('reportPreviewText').textContent = matches.length + (matches.length === 1 ? ' entry found for this date' : ' entries found for this date');
+    }
+    $('generateReportBtn').disabled = matches.length === 0;
+  }
+
+  function toDDMMYYYY(dateStr) {
+    if (!dateStr) return '-';
+    const parts = String(dateStr).split('-');
+    if (parts.length !== 3) return dateStr;
+    const [y, m, d] = parts;
+    return d + '-' + m + '-' + y;
+  }
+
+  function buildDateReportPdf(dateStr, rows) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+    const marginX = 40;
+    let y = 50;
+
+    const includeSource = selectedDashboard === 'admin';
+    const dashLabel = selectedDashboard === 'admin' ? 'Combined' : (selectedDashboard === 'shop' ? 'Shop' : 'Godown');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(14, 58, 97);
+    doc.text('VT Purchase Report — ' + dashLabel, marginX, y);
+    y += 20;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Material received on: ' + toDDMMYYYY(dateStr), marginX, y);
+    y += 26;
+
+    const cols = includeSource ? [
+      { key: 'sno', label: 'S.No', width: 30 },
+      { key: 'source', label: 'Dashboard', width: 65 },
+      { key: 'vendorName', label: 'Vendor Name', width: 150 },
+      { key: 'materialReceivedDate', label: 'Material Received', width: 85 },
+      { key: 'invoiceDate', label: 'Invoice Date', width: 80 },
+      { key: 'invoiceNumber', label: 'Invoice Number', width: 95 },
+      { key: 'invoiceAmount', label: 'Amount (Rs)', width: 90 },
+      { key: 'remarks', label: 'Remarks', width: 160 }
+    ] : [
+      { key: 'sno', label: 'S.No', width: 34 },
+      { key: 'vendorName', label: 'Vendor Name', width: 175 },
+      { key: 'materialReceivedDate', label: 'Material Received', width: 90 },
+      { key: 'invoiceDate', label: 'Invoice Date', width: 85 },
+      { key: 'invoiceNumber', label: 'Invoice Number', width: 100 },
+      { key: 'invoiceAmount', label: 'Amount (Rs)', width: 95 },
+      { key: 'remarks', label: 'Remarks', width: 180 }
+    ];
+    const amountColIndex = cols.findIndex(c => c.key === 'invoiceAmount');
+    const tableX = marginX;
+    const tableWidth = cols.reduce((s, c) => s + c.width, 0);
+    const rowHeight = 24;
+
+    function drawHeader() {
+      doc.setFillColor(14, 58, 97);
+      doc.rect(tableX, y, tableWidth, rowHeight, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      let x = tableX;
+      cols.forEach(c => { doc.text(c.label, x + 6, y + 15); x += c.width; });
+      y += rowHeight;
+    }
+
+    drawHeader();
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+
+    const lineHeight = 11;
+    const pageBottom = 565;
+    let total = 0;
+
+    rows.forEach((r, i) => {
+      const amount = parseFloat(r.invoiceAmount) || 0;
+      const values = includeSource
+        ? [i + 1, (r.source === 'godown' ? 'Godown' : 'Shop'), r.vendorName, toDDMMYYYY(r.materialReceivedDate), toDDMMYYYY(r.invoiceDate), r.invoiceNumber, 'Rs ' + amount.toLocaleString('en-IN'), r.remarks]
+        : [i + 1, r.vendorName, toDDMMYYYY(r.materialReceivedDate), toDDMMYYYY(r.invoiceDate), r.invoiceNumber, 'Rs ' + amount.toLocaleString('en-IN'), r.remarks];
+
+      const wrapped = values.map((v, idx) => doc.splitTextToSize(String(v || '-'), cols[idx].width - 10));
+      const maxLines = Math.max(1, ...wrapped.map(w => w.length));
+      const thisRowHeight = Math.max(24, maxLines * lineHeight + 10);
+
+      if (y + thisRowHeight > pageBottom) {
+        doc.addPage();
+        y = 50;
+        drawHeader();
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9.5);
+      }
+
+      const isException = String(r.remarks || '').trim().toLowerCase() !== 'received';
+      if (isException) {
+        doc.setFillColor(253, 226, 226);
+        doc.rect(tableX, y, tableWidth, thisRowHeight, 'F');
+      } else if (i % 2 === 1) {
+        doc.setFillColor(245, 247, 250);
+        doc.rect(tableX, y, tableWidth, thisRowHeight, 'F');
+      }
+
+      doc.setTextColor(30, 41, 59);
+      total += amount;
+      let x = tableX;
+      wrapped.forEach((lines, idx) => {
+        lines.forEach((line, li) => {
+          doc.text(line, x + 6, y + 14 + li * lineHeight);
+        });
+        x += cols[idx].width;
+      });
+      y += thisRowHeight;
+    });
+
+    doc.setFillColor(14, 58, 97);
+    doc.rect(tableX, y, tableWidth, rowHeight, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total', tableX + 6, y + 15);
+    let totalX = tableX;
+    for (let i = 0; i < amountColIndex; i++) totalX += cols[i].width;
+    doc.text('Rs ' + total.toLocaleString('en-IN'), totalX + 6, y + 15);
+
+    return doc;
+  }
+
+  $('generateReportBtn').addEventListener('click', function () {
+    const d = $('reportDate').value;
+    const matches = matchingForDate(d);
+    if (matches.length === 0) return;
+    const doc = buildDateReportPdf(d, matches);
+    doc.save('VT_Purchase_Report_' + selectedDashboard + '_' + d + '.pdf');
+    $('reportOverlay').classList.remove('open');
+    showToast('Report PDF downloaded');
+  });
+
+  /* ---- sign in with the portal session: the page's own login handler runs, the server says which dashboard this is ---- */
+  window.VT_MODULE = 'purchase';
+  $('loginScreen').style.display = 'none';
+  window.VT.boot('purchase', function () {
+    $('loginScreen').style.display = 'flex';
+    $('usernameInput').value = 'portal'; $('passwordInput').value = 'portal';
+    $('loginForm').dispatchEvent(new Event('submit', { cancelable: true }));
+    $('loginScreen').style.display = 'none';
+  });
+</script>
+</body>
+</html>

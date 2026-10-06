@@ -7,9 +7,6 @@
  */
 (function () {
   'use strict';
-  // Page access key -> the O2D screen it opens (the switcher in index.html uses the same names).
-  var VIEW_OF_PAGE = { o2d_overview: 'overview', o2d_shop: 'shop', o2d_godown: 'godown', o2d_shop_dispatch: 'shop_dispatch',
-    o2d_godown_dispatch: 'godown_dispatch', o2d_receiving: 'receiving' };
 
   var origLogout = window.logout;  // clears the auto-refresh timer; the redirect itself happens here instead
   window.logout = function () {
@@ -33,10 +30,15 @@
       // No session or a forced password change still pending: the portal is the only place that handles
       // those, so hand off to it rather than show a second sign-in here.
       if (!me || me.must_change_password) { toPortal(); return; }
-      var views = (me.pages || []).filter(function (p) { return VIEW_OF_PAGE[p]; }).map(function (p) { return VIEW_OF_PAGE[p]; });
+      // The screens this person may open come from the server (one list, kept in app/access.py).
+      var screens = me.o2d_views || [];
+      var views = screens.map(function (s) { return s.view; });
       // Signed in but not given any O2D screen: say so, and offer the way to ask for access (never a blank page).
       if (!views.length) { showNoAccess(token); return; }
       window.O2D_VIEWS = views;
+      window.O2D_SCREENS = screens;
+      window.O2D_PAGES = me.pages || [];
+      window.O2D_VIEW_ONLY = me.view_only_pages || [];
       window.CURRENT_TOKEN = token;
       window.CURRENT_ROLE = me.role;
       window.CURRENT_USER_NAME = me.display_name;

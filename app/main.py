@@ -12,7 +12,8 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import access, admin, admin_tools, auth, config, db, o2d_screens, reconcile, roles, timeline, doc_numbers
+from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage, o2d_reports,
+               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers)
 
 
 @asynccontextmanager
@@ -32,8 +33,18 @@ app = FastAPI(title="Vardhman Traders API", lifespan=lifespan,
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
+# The Payments / Delegation / Purchase screens keep their original look, which uses Tailwind, Chart.js, jsPDF, SheetJS and
+# Font Awesome. The scripts are served from this app (static/vendor), so script-src stays "self"; only stylesheets and fonts
+# may come from the two CDNs that host Font Awesome and Google Fonts.
+MODULE_PATHS = ("/payments", "/delegation", "/purchase")
+CSP_MODULE = ("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com "
+              "https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; "
+              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com; connect-src 'self'; frame-ancestors 'none'; "
+              "base-uri 'none'; form-action 'self'")
+
 CSP_INLINE = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'").replace(
-    "style-src 'self'", "style-src 'self' 'unsafe-inline'")
+    "style-src 'self'", "style-src 'self' 'unsafe-inline'").replace(
+    "img-src 'self' data:", "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com")  # order photos (signed R2 links)
 
 
 @app.middleware("http")
@@ -42,11 +53,13 @@ async def security_headers(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    # The O2D screens (static/sales) ship their own inline script/style, carried over unchanged from the
-    # Sheet-era HTML; only that path gets the relaxed policy. TODO: move to external files, then drop this.
-    response.headers["Content-Security-Policy"] = CSP_INLINE if request.url.path.startswith("/sales") else CSP
+    # The O2D screens (static/sales) ship their own inline script/style, kept as originally written;
+    # only that path gets the relaxed policy. TODO: move to external files, then drop this.
+    path = request.url.path
+    response.headers["Content-Security-Policy"] = (CSP_MODULE if path.startswith(MODULE_PATHS) else
+                                                   CSP_INLINE if path.startswith("/sales") else CSP)
     if request.url.path.startswith(("/auth", "/admin", "/access", "/orders", "/lookups", "/people", "/links",
-                                    "/o2d", "/sales")):
+                                    "/o2d", "/sales", "/payments", "/delegation", "/purchase")):
         response.headers["Cache-Control"] = "no-store"
     elif request.url.path.endswith((".js", ".css")):
         # No build-time hashing on these files, so without this a browser can keep running JS/CSS from
@@ -110,7 +123,9 @@ def me(user=Depends(auth.current_user)):
     # hardcoded assumption baked into the UI.
     return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"])),
             # pages this person may open; the portal and the O2D screens build their menus from this
-            "pages": sorted(access.effective_pages(user))}
+            "pages": sorted(access.effective_pages(user)),
+            "view_only_pages": sorted(k for k, v in access.effective_access(user).items() if v == "view"),
+            "o2d_views": access.o2d_screens_for(user), "modules": access.modules_for(user)}
 
 
 @app.post("/auth/change-password")
@@ -249,7 +264,7 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        cu.display_name AS created_by, lu.display_name AS last_updated_by,
        o.shipping_location, o.detailed_remarks, o.timestamp_created,
        o.material_delivery_datetime, rd.full_date AS date_of_receiving,
-       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled
+       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail
 """ + ORDER_FROM
 
 Money = Optional[Decimal]
@@ -267,6 +282,7 @@ class OrderFields(BaseModel):
     ready_by_person_key: Optional[int] = None
     colour_making_person_key: Optional[int] = None
     delivered_by_person_key: Optional[int] = None
+    delivered_by_detail: Optional[str] = Field(default=None, max_length=200)
     payment_status_key: Optional[int] = None
     shipping_location: Optional[str] = None
     detailed_remarks: Optional[str] = None
@@ -288,7 +304,7 @@ PLAIN_COLUMNS = {
     "dc_inv_no", "order_via_key", "submission_type_key", "delivery_status_key",
     "ready_by_person_key", "colour_making_person_key", "delivered_by_person_key",
     "payment_status_key", "shipping_location", "detailed_remarks",
-    "material_delivery_datetime", "amount_received", "cartage",
+    "material_delivery_datetime", "amount_received", "cartage", "delivered_by_detail",
 }
 # is_cancelled is never client-writable: it follows the delivery status.
 CANCELLED_SQL = ("COALESCE((SELECT lower(btrim(status_name)) = 'cancelled' "
@@ -385,8 +401,15 @@ def get_order(sl_no: int, archived: Optional[bool] = Query(default=None), user=D
 
 @app.post("/orders", status_code=201)
 def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+    return insert_order(body, user)
+
+
+def insert_order(body: OrderIn, user, *, check_fields: bool = True):
+    """The one create path. check_fields=False is for callers that already gated the person another way
+    (the O2D "missing number" entry, which is switched on per person under Setup > Access)."""
     fields = body.model_dump(exclude_unset=True)
-    _check_editable(fields, user)
+    if check_fields:
+        _check_editable(fields, user)
     _check_test_dc({"dc_inv_no": fields.get("dc_inv_no")} if roles.is_test_user(user) else {}, user)
     cols = _db_columns(fields)
     cols["created_by_user_key"] = cols["last_updated_by_user_key"] = user["user_key"]
@@ -480,6 +503,13 @@ def delete_order(sl_no: int, archived: bool | None = Query(default=None), admin=
 
 # ---------------------------------------------------------------- admin routes + portal pages
 app.include_router(o2d_screens.router)
+app.include_router(attachments.router)
+app.include_router(o2d_cartage.router)
+app.include_router(payments.router)
+app.include_router(delegation.router)
+app.include_router(purchase.router)
+app.include_router(module_admin.router)
+app.include_router(o2d_reports.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)
 app.include_router(reconcile.router)

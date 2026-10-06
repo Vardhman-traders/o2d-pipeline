@@ -8,7 +8,9 @@ ORDER_ROLES = {"shop", "godown", "shop_dispatch", "godown_dispatch", "receiving"
 # Setup -> Permissions (role_view_access table). "admin" itself always sees everything
 # regardless (see VISIBILITY below); "legacy" is disabled-login historical accounts,
 # never assignable.
-NO_ACCESS_ROLES = {"admin", "cashier", "accounts", "cartage", "legacy"}
+NO_ACCESS_ROLES = {"admin", "cashier", "accounts", "cartage", "legacy",
+                   # people who work in the other modules (Delegation, Purchase) and have no order screens
+                   "staff", "manager", "purchase_godown", "purchase_shop"}
 ALL_ROLES = ORDER_ROLES | NO_ACCESS_ROLES
 
 _DISPATCH = {"delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage"}

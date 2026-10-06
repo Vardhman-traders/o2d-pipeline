@@ -29,11 +29,19 @@ KINDS: dict[str, dict[str, Any]] = {
                         "label": "Delivery status", "protected": {"shop", "cancelled"}, "role": None, "maxlen": 50},
     "payment_status": {"table": "dim_payment_status", "key": "payment_status_key", "name": "status_name",
                        "label": "Payment status", "protected": set(), "role": None, "maxlen": 50},
+    "company": {"table": "dim_company", "key": "company_key", "name": "company_name", "label": "Companies (payments)",
+                "protected": set(), "role": None, "maxlen": 100},
+    "payment_mode": {"table": "dim_payment_mode", "key": "mode_key", "name": "mode_name", "label": "Payment modes",
+                     "protected": set(), "role": None, "maxlen": 50},
+    "txn_type": {"table": "dim_txn_type", "key": "txn_type_key", "name": "type_name", "label": "Payment transaction types",
+                 "protected": set(), "role": None, "maxlen": 50},
+    "party": {"table": "dim_party", "key": "party_key", "name": "party_name", "label": "Parties and vendors",
+              "protected": set(), "role": "party_kind", "maxlen": 150},
     "person": {"table": "dim_person", "key": "person_key", "name": "full_name",
                "label": "People (ready by, colour making, delivery)", "protected": set(), "role": "person_role",
                "maxlen": 100},
 }
-ROLE_LABEL = {"ready_by": "Ready by", "colour_making": "Colour making", "delivery": "Delivery"}
+ROLE_LABEL = {"ready_by": "Ready by", "colour_making": "Colour making", "delivery": "Delivery", "payment": "Payment parties", "vendor": "Vendors"}
 
 
 def _kind(kind: str) -> dict[str, Any]:

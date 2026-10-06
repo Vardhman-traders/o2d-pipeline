@@ -61,7 +61,7 @@ def test_role_defaults_keep_the_old_behaviour(client, db_conn, seed):
     shop, _ = login(client, db_conn, "shop")
     cashier, _ = login(client, db_conn, "cashier")
     assert pages(client, shop) == ["o2d_shop"]
-    assert pages(client, cashier) == []
+    assert pages(client, cashier) == ["pay_cashier"]    # the Payments entry page is the cashier's own starting point
     assert "dashboard_overview" in pages(client, admin) and "o2d_receiving" in pages(client, admin)
     assert client.get("/o2d/shop", headers=shop).status_code == 200
     assert client.get("/o2d/receiving", headers=shop).status_code == 403          # not their screen
@@ -77,7 +77,7 @@ def test_role_matrix_and_person_exceptions(client, db_conn, seed):
     c1, c1_key = login(client, db_conn, "cashier")
     c2, _ = login(client, db_conn, "cashier")
     m = client.get("/admin/access/matrix", headers=admin).json()
-    assert "cashier" in m["roles"] and "admin" not in m["roles"] and len(m["pages"]) == 8
+    assert "cashier" in m["roles"] and "admin" not in m["roles"] and len(m["pages"]) == 20
 
     assert client.put("/admin/access/matrix", headers=admin,
                       json={"page_key": "dashboard_orders", "role": "cashier", "allowed": True}).status_code == 200
@@ -123,7 +123,7 @@ def test_access_request_flow(client, db_conn, seed):
                        json={"page_key": "dashboard_overview", "reason": "again please"}).status_code == 409
     assert client.get("/admin/access/requests/count", headers=admin).json()["pending"] == before + 1
     mine = client.get("/access/pages", headers=me).json()
-    assert mine["requests"][0]["status"] == "pending" and mine["pages"] == []
+    assert mine["requests"][0]["status"] == "pending" and mine["pages"] == ["pay_account"]
 
     everything = client.get("/admin/access/requests", headers=admin).json()
     waiting = [x for x in everything if x["request_key"] == r.json()["request_key"]]

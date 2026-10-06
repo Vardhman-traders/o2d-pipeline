@@ -54,7 +54,7 @@ def test_sales_page_is_served_with_its_own_csp_and_others_stay_strict(client):
     assert sales.status_code == 200 and "Sales Portal" in sales.text
     assert "'unsafe-inline'" in sales.headers["content-security-policy"]
     assert "'unsafe-inline'" not in client.get("/").headers["content-security-policy"]
-    assert client.get("/sales/gas-shim.js").status_code == 200
+    assert client.get("/sales/api.js").status_code == 200
     assert client.get("/sales/autologin.js").status_code == 200
 
 
@@ -95,6 +95,6 @@ def test_no_apps_script_or_google_sheets_left_in_the_app():
         if path.suffix in (".py", ".js", ".html", ".css") and path.is_file():
             text = path.read_text(encoding="utf-8")
             # the shim deliberately defines window.google.script.run for the carried-over HTML; that is not Apps Script
-            text = text.replace("google.script.run", "") if path.name in ("gas-shim.js", "index.html") else text
+            text = text.replace("google.script.run", "") if path.name in ("api.js", "index.html") else text
             offenders += [f"{path.relative_to(ROOT)}: {m.group(0)}" for m in banned.finditer(text)]
     assert not offenders, offenders
