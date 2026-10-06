@@ -462,3 +462,10 @@ th.sorted .sort-arrow, th.sorted .sort-btn { opacity: 1; color: var(--accent); }
 .kpi.clickable:hover { border-color: var(--accent); }
 .kpi.clickable.selected { outline: 2px solid var(--accent); background: var(--surface-2, var(--surface)); }
 .kpi.k-match { border-left: 4px solid var(--series-2); }
+
+/* module KPI blocks in the admin overview */
+.module-kpis { margin-top: 22px; }
+.module-kpi-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.module-kpi-head h2 { font-size: 17px; margin: 0; }
+.module-kpi-head .note { flex: 1; min-width: 160px; }
+@media (max-width: 720px) { .module-kpi-head .btn { margin-left: auto; } }

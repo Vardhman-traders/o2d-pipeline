@@ -71,7 +71,8 @@ def test_values_are_alphabetical_with_usage_and_duplicates_are_suggested(client,
     assert sorted([a, b]) in pairs
     assert not any(c in p and (a in p or b in p) for p in pairs)
     overview = {o["kind"]: o for o in client.get(API, headers=admin).json()}
-    assert set(overview) == {"channel", "submission_type", "delivery_status", "payment_status", "person"}
+    assert set(overview) == {"channel", "submission_type", "delivery_status", "payment_status", "person",
+                             "company", "payment_mode", "txn_type", "party"}
     assert overview["person"]["possible_duplicates"] >= 1
 
 

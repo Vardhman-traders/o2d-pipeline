@@ -1,10 +1,9 @@
-/* Drop-in replacement for Apps Script's google.script.run, so the O2D screens (index.html) run unchanged
- * against this app's own API. No Apps Script and no Google Sheets are involved anywhere.
+/* The O2D screens' client for this app's own API.
  *
- *   google.script.run.withSuccessHandler(ok).withFailureHandler(err).getShopData(token)
+ *   VT.run.withSuccessHandler(ok).withFailureHandler(err).getShopData(token)
  *
- * keeps working; each named function below maps to one HTTP route (see app/o2d_screens.py) and returns the same
- * {ok, success, message, ...} shapes the screens already expect.
+ * Each named function below maps to one HTTP route (see app/o2d_screens.py) and returns the {ok, success, message, ...}
+ * shapes the screens expect.
  */
 (function () {
   'use strict';
@@ -51,7 +50,11 @@
   var fns = {
     getShopData: read('/o2d/shop'),
     getGodownData: read('/o2d/godown'),
-    getDispatchData: read('/o2d/dispatch'),          // role comes from the login token, not the argument
+    // role comes from the login token; only admin's "View as" is passed along (the server ignores it for anyone else)
+    getDispatchData: function (token, viewAs) {
+      return ask('GET', '/o2d/dispatch' + (viewAs ? '?view_as=' + encodeURIComponent(viewAs) : ''), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
     getReceivingData: read('/o2d/receiving'),
     getKanban: function (token, filters) {
       var qs = new URLSearchParams();
@@ -81,6 +84,43 @@
     },
     getMissingNumbersForWindow: read('/o2d/missing-numbers'),
     getAdminFormOptions: read('/o2d/admin/form-options'),
+    getMissingEntryOptions: read('/o2d/missing-entry/options'),
+    addMissingEntry: write('POST', function (form) { return { path: '/o2d/missing-entry', body: form }; }),
+    getOrderPhotos: function (token, slNo) {
+      return ask('GET', '/o2d/orders/' + slNo + '/photos', token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    // raw image body (already shrunk by the screen); resolves {ok, success, message}
+    uploadOrderPhoto: function (token, slNo, kind, blob) {
+      return fetch('/o2d/orders/' + slNo + '/photos?kind=' + encodeURIComponent(kind), {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': blob.type || 'image/jpeg' }, body: blob
+      }).then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (d) {
+          return res.ok ? d : { ok: true, success: false, message: detail({ data: d, status: res.status }) };
+        });
+      });
+    },
+    // downloads a PDF report: needs the login header, so fetch it as a blob and hand that to the browser
+    getCartageData: function (token, from, to, person) {
+      var qs = [];
+      if (from) qs.push('date_from=' + encodeURIComponent(from));
+      if (to) qs.push('date_to=' + encodeURIComponent(to));
+      if (person) qs.push('delivered_by=' + encodeURIComponent(person));
+      return ask('GET', '/o2d/cartage' + (qs.length ? '?' + qs.join('&') : ''), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    updateCartage: write('PUT', function (sl, form) { return { path: '/o2d/cartage/' + sl, body: form }; }),
+    downloadReport: function (token, kind, from, to, person) {
+      var qs = [];
+      if (person) qs.push('delivered_by=' + encodeURIComponent(person));
+      if (from) qs.push('date_from=' + encodeURIComponent(from));
+      if (to) qs.push('date_to=' + encodeURIComponent(to));
+      return fetch('/o2d/reports/' + kind + '.pdf' + (qs.length ? '?' + qs.join('&') : ''), { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(function (res) {
+          if (!res.ok) return res.json().catch(function () { return null; }).then(function (d) { return { ok: false, error: detail({ data: d, status: res.status }) }; });
+          var m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+          return res.blob().then(function (b) { return { ok: true, blob: b, filename: m ? m[1] : kind + '.pdf' }; });
+        });
+    },
     searchOrders: function (token, date, dcNo) {
       var qs = [];
       if (date) qs.push('date=' + encodeURIComponent(date));
@@ -117,6 +157,6 @@
     return runner;
   }
 
-  window.google = window.google || {};
-  window.google.script = { run: makeRunner(null, null) };
+  window.VT = window.VT || {};
+  window.VT.run = makeRunner(null, null);
 })();

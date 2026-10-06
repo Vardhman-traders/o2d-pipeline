@@ -98,6 +98,9 @@ def test_whatsapp_message_and_skip_without_credentials(monkeypatch):
     assert o2d_screens.send_dispatch_alert(order)["skipped"] is True
     monkeypatch.setenv("WHATSAPP_API_USERNAME", "u")
     monkeypatch.setenv("WHATSAPP_API_PASSWORD", "p")
+    monkeypatch.delenv("WHATSAPP_GROUP_ID", raising=False)
+    assert "group" in o2d_screens.send_dispatch_alert(order, post=None)["reason"]   # no built-in group: nothing is sent
+    monkeypatch.setenv("WHATSAPP_GROUP_ID", "12345@g.us")
     seen = {}
     out = o2d_screens.send_dispatch_alert(order, post=lambda url, body, headers: seen.update(h=headers) or (200, "ok"))
     assert out["code"] == 200 and seen["h"]["Authorization"] == "Basic dTpw"

@@ -3,7 +3,7 @@ Also the /links route every logged-in user calls to see which apps they may open
 import io
 import re
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -623,6 +623,8 @@ class PersonValueIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     full_name: str = Field(min_length=1, max_length=150)
     phone_number: Optional[str] = Field(default=None, max_length=30)
+    # which dispatch screen offers this person under "Delivered by" (only meaningful for the delivery list)
+    dispatch_scope: Literal["both", "shop", "godown"] = "both"
 
 
 @router.get("/people")
@@ -630,7 +632,7 @@ def admin_list_people(role: str = Query(...), admin=Depends(ADMIN)):
     if role not in PERSON_FK_COLUMN:
         raise HTTPException(422, f"role must be one of: {', '.join(PERSON_FK_COLUMN)}")
     with db.cursor() as cur:
-        cur.execute("SELECT person_key AS key, full_name, phone_number FROM dim_person "
+        cur.execute("SELECT person_key AS key, full_name, phone_number, dispatch_scope FROM dim_person "
                     "WHERE person_role = %s ORDER BY lower(full_name)", (role,))
         return cur.fetchall()
 
@@ -642,8 +644,9 @@ def admin_add_person(role: str = Query(...), body: PersonValueIn = ..., admin=De
     try:
         with db.cursor() as cur:
             cur.execute(
-                "INSERT INTO dim_person (full_name, phone_number, person_role) VALUES (%s, %s, %s) "
-                "RETURNING person_key AS key, full_name, phone_number", (body.full_name, body.phone_number, role))
+                "INSERT INTO dim_person (full_name, phone_number, person_role, dispatch_scope) VALUES (%s, %s, %s, %s) "
+                "RETURNING person_key AS key, full_name, phone_number, dispatch_scope",
+                (body.full_name, body.phone_number, role, body.dispatch_scope))
             row = cur.fetchone()
             audit(cur, admin, "person.add", f"{role}:{body.full_name}")
     except pgerr.UniqueViolation:
@@ -656,8 +659,9 @@ def admin_edit_person(person_key: int, body: PersonValueIn, admin=Depends(ADMIN)
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE dim_person SET full_name = %s, phone_number = %s WHERE person_key = %s RETURNING person_key",
-                (body.full_name, body.phone_number, person_key))
+                "UPDATE dim_person SET full_name = %s, phone_number = %s, dispatch_scope = %s "
+                "WHERE person_key = %s RETURNING person_key",
+                (body.full_name, body.phone_number, body.dispatch_scope, person_key))
             if not cur.fetchone():
                 raise HTTPException(404, "Person not found")
             audit(cur, admin, "person.edit", str(person_key), {"full_name": body.full_name})

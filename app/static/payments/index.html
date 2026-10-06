@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../modules/mobile.css">
+  <script src="../modules/api.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="../vendor/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --navy:#0f2d52;
+      --teal:#0a7c5c;
+      --accent:#3b82f6;
+      --accent-dark:#2563eb;
+      --purple:#7c3aed;
+      --pink:#db2777;
+      --orange:#ea580c;
+      --amber:#d97706;
+      --ink:#1e293b;
+      --muted:#64748b;
+      --line:#e2e8f0;
+      --bg:#f1f5f9;
+      --card:#ffffff;
+      --green:#16a34a;
+      --green-bg:#dcfce7;
+      --red:#dc2626;
+      --red-bg:#fee2e2;
+      --amber-bg:#fef3c7;
+      --orange-bg:#ffedd5;
+      --radius:14px;
+      --shadow:0 2px 12px rgba(15,45,82,0.10);
+      --shadow-lg:0 8px 32px rgba(15,45,82,0.18);
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{min-height:100vh;}
+    body{
+      font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
+    button,input,select{font-family:inherit;}
+    button:focus-visible,input:focus-visible,select:focus-visible{
+      outline:2px solid var(--accent);outline-offset:2px;
+    }
+
+    /* ===== LOGIN ===== */
+    #loginScreen{
+      min-height:100vh;
+      display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(135deg,#0f2d52 0%,#1e5ba8 40%,#0a7c5c 100%);
+      padding:20px;
+      position:relative;
+      overflow:hidden;
+    }
+    #loginScreen::before{
+      content:'';position:absolute;inset:0;
+      background:radial-gradient(ellipse at 20% 50%,rgba(59,130,246,0.18) 0%,transparent 60%),
+                 radial-gradient(ellipse at 80% 20%,rgba(124,58,237,0.15) 0%,transparent 60%);
+    }
+    .login-card{
+      background:rgba(255,255,255,0.97);
+      width:100%;max-width:400px;
+      border-radius:20px;
+      padding:40px 36px;
+      box-shadow:0 24px 64px rgba(15,45,82,0.40);
+      text-align:center;
+      position:relative;z-index:1;
+    }
+    .login-logo{
+      width:64px;height:64px;
+      background:linear-gradient(135deg,var(--navy),var(--teal));
+      border-radius:16px;
+      display:flex;align-items:center;justify-content:center;
+      margin:0 auto 16px;
+      font-size:26px;font-weight:800;color:#fff;letter-spacing:1px;
+    }
+    .login-card h1{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:4px;}
+    .login-card .sub{color:var(--muted);font-size:13px;margin-bottom:28px;}
+    .field{text-align:left;margin-bottom:16px;}
+    .field label{
+      display:block;font-size:11.5px;font-weight:700;
+      color:var(--muted);margin-bottom:6px;
+      text-transform:uppercase;letter-spacing:.06em;
+    }
+    .field input,.field select{
+      width:100%;padding:12px 14px;
+      border:1.5px solid var(--line);border-radius:10px;
+      font-size:14px;color:var(--ink);background:#fff;
+      transition:border-color .15s;
+    }
+    .field input:focus,.field select:focus{border-color:var(--accent);outline:none;}
+    .password-wrap{position:relative;}
+    .password-wrap input{padding-right:44px;}
+    .toggle-eye{
+      position:absolute;right:8px;top:50%;transform:translateY(-50%);
+      background:none;border:none;cursor:pointer;padding:6px;
+      color:var(--muted);border-radius:6px;display:flex;
+    }
+    .toggle-eye:hover{color:var(--accent);background:#f1f5f9;}
+    #loginError{
+      display:none;background:var(--red-bg);color:var(--red);
+      border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;text-align:left;
+    }
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:6px;
+      border:none;border-radius:10px;padding:11px 18px;
+      font-size:14px;font-weight:600;cursor:pointer;
+      transition:all .15s ease;
+    }
+    .btn:active{transform:translateY(1px);opacity:.92;}
+    .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;width:100%;padding:13px;}
+    .btn-primary:hover{box-shadow:0 4px 16px rgba(59,130,246,0.40);}
+    .btn-approve{background:linear-gradient(135deg,#22c55e,var(--green));color:#fff;}
+    .btn-approve:hover{box-shadow:0 3px 10px rgba(22,163,74,0.35);}
+    .btn-reject{background:linear-gradient(135deg,#f87171,var(--red));color:#fff;}
+    .btn-reject:hover{box-shadow:0 3px 10px rgba(220,38,38,0.35);}
+    .btn-edit{background:linear-gradient(135deg,#6366f1,var(--purple));color:#fff;}
+    .btn-edit:hover{box-shadow:0 3px 10px rgba(124,58,237,0.35);}
+    .btn-ghost{background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.35);}
+    .btn-ghost:hover{background:rgba(255,255,255,0.25);}
+    .btn-secondary{background:#fff;color:var(--navy);border:1.5px solid var(--line);}
+    .btn-secondary:hover{background:var(--bg);border-color:var(--accent);}
+    .btn-sm{padding:7px 13px;font-size:12.5px;}
+
+    /* ===== APP SHELL ===== */
+    #appScreen{display:none;min-height:100vh;}
+
+    /* Topbar */
+    header.topbar{
+      background:linear-gradient(100deg,var(--navy) 0%,#1e4d8c 50%,var(--teal) 100%);
+      color:#fff;padding:16px 28px;
+      display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+      box-shadow:0 4px 20px rgba(15,45,82,0.30);
+      position:sticky;top:0;z-index:50;
+    }
+    .topbar-left{display:flex;align-items:center;gap:14px;}
+    .topbar-logo{
+      width:42px;height:42px;
+      background:rgba(255,255,255,0.18);
+      border-radius:10px;display:flex;align-items:center;justify-content:center;
+      font-weight:800;font-size:15px;letter-spacing:.5px;
+    }
+    .topbar-title{display:flex;flex-direction:column;}
+    .topbar-title .brand{font-size:11px;font-weight:700;letter-spacing:.14em;opacity:.75;}
+    .topbar-title h2{font-size:18px;font-weight:800;margin-top:1px;}
+    .topbar-right{display:flex;align-items:center;gap:10px;}
+    .role-pill{
+      background:rgba(255,255,255,0.18);
+      padding:5px 14px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.04em;
+    }
+    .role-pill.role-admin{background:rgba(124,58,237,0.35);}
+    .role-pill.role-account{background:rgba(59,130,246,0.35);}
+    .role-pill.role-cashier{background:rgba(10,124,92,0.35);}
+
+    /* Main */
+    main{max-width:1300px;margin:0 auto;padding:24px 20px 60px;}
+
+    /* ===== SEARCH BAR ===== */
+    .search-bar{
+      background:#fff;border-radius:var(--radius);
+      padding:12px 16px;margin-bottom:12px;
+      box-shadow:var(--shadow);border:1.5px solid var(--line);
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    }
+    .search-bar label{
+      font-size:11.5px;font-weight:700;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;
+    }
+    .sb-input{
+      display:flex;align-items:center;gap:7px;
+      background:#f8fafc;border:1.5px solid var(--line);
+      border-radius:8px;padding:7px 11px;flex:1;min-width:170px;
+      transition:border-color .15s;
+    }
+    .sb-input:focus-within{border-color:var(--accent);background:#fff;}
+    .sb-input svg{color:var(--muted);flex-shrink:0;}
+    .sb-input input{border:none;outline:none;background:transparent;font-size:13.5px;color:var(--ink);width:100%;}
+    .sb-input input::placeholder{color:var(--muted);}
+    .sb-divider{width:1px;height:28px;background:var(--line);flex-shrink:0;}
+    .btn-search{
+      background:linear-gradient(135deg,var(--accent),var(--accent-dark));
+      color:#fff;border:none;border-radius:8px;
+      padding:9px 20px;font-size:13.5px;font-weight:700;cursor:pointer;
+      display:flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;
+    }
+    .btn-search:hover{box-shadow:0 3px 12px rgba(59,130,246,0.35);}
+    .btn-search-clear{
+      background:none;border:none;cursor:pointer;
+      color:var(--muted);font-size:14px;padding:4px 8px;
+      border-radius:6px;display:none;
+    }
+    .btn-search-clear:hover{background:var(--red-bg);color:var(--red);}
+
+    /* ===== TOOLBAR ===== */
+    .toolbar{
+      display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;
+    }
+    .toolbar .field{margin:0;min-width:160px;}
+    .tb-action-btn{
+      border:none;border-radius:10px;padding:10px 16px;
+      font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
+      transition:all .15s;color:#fff;
+    }
+    .tb-action-btn.blue{background:linear-gradient(135deg,var(--accent),var(--accent-dark));}
+    .tb-action-btn.blue:hover{box-shadow:0 4px 14px rgba(59,130,246,0.35);}
+    .tb-action-btn.green{background:linear-gradient(135deg,#0a7c5c,#10b981);}
+    .tb-action-btn.green:hover{box-shadow:0 4px 14px rgba(16,185,129,0.35);}
+
+    .scope-label{
+      font-size:12px;font-weight:700;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;
+    }
+
+    /* ===== ENTRY / ADD PARTY PANELS ===== */
+    .panel{
+      background:var(--card);border-radius:var(--radius);
+      border:1.5px solid var(--line);
+      padding:22px;margin-bottom:20px;
+      box-shadow:var(--shadow);
+    }
+    .panel-header{
+      display:flex;align-items:center;gap:10px;margin-bottom:18px;
+    }
+    .panel-header h3{margin:0;font-size:15px;font-weight:700;}
+    .panel-header .panel-icon{
+      width:34px;height:34px;border-radius:8px;
+      display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;
+    }
+    .form-grid{
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;
+    }
+    .form-grid .field{margin:0;}
+    .form-actions{margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+    #saveMsg,#editMsg,#addPartyMsg{font-size:13px;display:none;}
+    #saveMsg.ok,#editMsg.ok,#addPartyMsg.ok{color:var(--green);}
+    #saveMsg.err,#editMsg.err,#addPartyMsg.err{color:var(--red);}
+
+    /* ===== SUMMARY CARDS ===== */
+    .cards{
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));
+      gap:14px;margin-bottom:24px;
+    }
+    .card{
+      border-radius:var(--radius);padding:18px 20px;
+      cursor:pointer;transition:all .2s ease;
+      position:relative;overflow:hidden;
+      border:2px solid transparent;
+    }
+    .card::before{
+      content:'';position:absolute;right:-20px;top:-20px;
+      width:80px;height:80px;border-radius:50%;opacity:.12;
+    }
+    .card.active-card{border-color:rgba(255,255,255,0.6);transform:scale(1.03);}
+    .card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+    .card:active{transform:translateY(0);}
+    .card .label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.85;}
+    .card .value{font-size:22px;font-weight:800;margin-top:8px;}
+    .card .card-sub{font-size:11px;margin-top:4px;opacity:.75;}
+
+    .card-cyan   {background:linear-gradient(135deg,#0891b2,#06b6d4);color:#fff;}
+    .card-cyan::before{background:#fff;}
+    .card-blue   {background:linear-gradient(135deg,#2563eb,#60a5fa);color:#fff;}
+    .card-blue::before{background:#fff;}
+    .card-green  {background:linear-gradient(135deg,#16a34a,#4ade80);color:#fff;}
+    .card-green::before{background:#fff;}
+    .card-red    {background:linear-gradient(135deg,#dc2626,#f87171);color:#fff;}
+    .card-red::before{background:#fff;}
+    .card-purple {background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;}
+    .card-purple::before{background:#fff;}
+
+    /* ===== PENDING TYPE CARD ===== */
+    .pending-type-card{
+      background:var(--card);
+      border-radius:var(--radius);
+      border:1.5px solid #bfdbfe;
+      padding:14px 16px;
+      box-shadow:var(--shadow);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      cursor:default;
+      transition:all .2s ease;
+    }
+    .pending-type-card:hover{
+      box-shadow:var(--shadow-lg);
+      transform:translateY(-2px);
+    }
+    .ptc-top{
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .ptc-label{
+      font-size:11px;font-weight:700;text-transform:uppercase;
+      letter-spacing:.06em;color:var(--accent-dark);
+      display:flex;align-items:center;gap:6px;
+    }
+    .ptc-divider{height:1px;background:var(--line);}
+    .ptc-select-wrap{position:relative;}
+    .ptc-select{
+      width:100%;
+      border:1.5px solid #bfdbfe;
+      border-radius:8px;
+      padding:8px 32px 8px 10px;
+      font-size:12.5px;
+      font-weight:600;
+      color:var(--ink);
+      background:#eff6ff;
+      cursor:pointer;
+      appearance:none;
+      -webkit-appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 10px center;
+      background-color:#eff6ff;
+      transition:border-color .15s;
+    }
+    .ptc-select:focus{
+      outline:none;
+      border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(59,130,246,0.15);
+    }
+    .ptc-count-row{
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .ptc-count-sub{
+      font-size:11px;color:var(--accent-dark);margin-top:3px;font-weight:600;
+    }
+    .ptc-view-btn{
+      background:linear-gradient(135deg,var(--accent),var(--accent-dark));
+      color:#fff;border:none;border-radius:8px;
+      padding:7px 14px;font-size:12px;font-weight:700;
+      cursor:pointer;transition:all .15s;white-space:nowrap;
+    }
+    .ptc-view-btn:hover{
+      box-shadow:0 3px 10px rgba(59,130,246,0.40);
+      transform:translateY(-1px);
+    }
+
+    /* ===== TRANSACTION LIST PANEL ===== */
+    .list-panel{
+      background:var(--card);border-radius:var(--radius);
+      border:1.5px solid var(--line);
+      padding:20px;box-shadow:var(--shadow);
+      overflow:visible;
+    }
+    .list-header{
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;
+    }
+    .list-header h3{margin:0;font-size:15px;font-weight:700;flex:1;min-width:160px;}
+
+    /* Status tabs */
+    .tabbar{
+      display:flex;gap:4px;
+      background:var(--bg);border-radius:999px;padding:4px;
+    }
+    .tabbar button{
+      border:none;background:transparent;
+      padding:6px 14px;border-radius:999px;
+      font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;
+      transition:all .15s;
+    }
+    .tabbar button.active{background:var(--navy);color:#fff;}
+
+    /* Action links */
+    .action-link{
+      font-size:12.5px;color:var(--accent);cursor:pointer;font-weight:600;
+      display:inline-flex;align-items:center;gap:4px;
+      padding:5px 10px;border-radius:6px;
+      transition:background .15s;
+    }
+    .action-link:hover{background:rgba(59,130,246,0.08);}
+    .action-link.danger{color:var(--red);}
+    .action-link.danger:hover{background:rgba(220,38,38,0.08);}
+
+    /* Invoice sequence toggle button */
+    .btn-seq{
+      border:1.5px solid var(--amber);
+      background:transparent;color:var(--amber);
+      border-radius:8px;padding:5px 12px;
+      font-size:12.5px;font-weight:700;cursor:pointer;
+      transition:all .15s;white-space:nowrap;
+    }
+    .btn-seq:hover{background:var(--amber-bg);}
+    .btn-seq.seq-active{background:var(--amber);color:#fff;}
+    .btn-seq.seq-active:hover{background:var(--orange);}
+    #th_invoice.seq-on button{color:var(--amber);}
+
+    /* ===== TABLE ===== */
+    .table-wrap{
+      overflow-x:auto;
+      overflow-y:auto;
+      max-height:72vh;
+      border:1.5px solid var(--line);
+      border-radius:10px;
+      scrollbar-width:thin;
+      scrollbar-color:var(--accent) #e2e8f0;
+    }
+    .table-wrap::-webkit-scrollbar{width:6px;height:6px;}
+    .table-wrap::-webkit-scrollbar-track{background:#f1f5f9;border-radius:999px;}
+    .table-wrap::-webkit-scrollbar-thumb{background:var(--accent);border-radius:999px;}
+    .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--accent-dark);}
+    .table-wrap::-webkit-scrollbar-corner{background:#f1f5f9;}
+
+    table{width:100%;table-layout:auto;border-collapse:collapse;font-size:13px;}
+
+    col.c-sno     {width:42px;}
+    col.c-date    {width:68px;}
+    col.c-company {width:72px;}
+    col.c-type    {width:80px;}
+    col.c-invoice {width:52px;}
+    col.c-party   {width:18%;}
+    col.c-amount  {width:80px;}
+    col.c-mode    {width:58px;}
+    col.c-by      {width:58px;}
+    col.c-status  {width:30px;}
+    col.c-remarks {width:0;display:none;}
+    col.c-action  {width:108px;}
+
+    thead th{
+      position:sticky;top:0;z-index:10;
+      text-align:left;font-size:11.5px;font-weight:700;
+      text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+      border-bottom:2px solid var(--line);
+      padding:11px 9px;white-space:nowrap;
+      background:#fff;
+    }
+
+    tbody td{
+      padding:11px 9px;
+      border-bottom:1px solid var(--line);
+      vertical-align:middle;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      font-size:13.5px;
+    }
+    tbody tr:hover{background:#f8fafc;}
+    tbody tr.row-highlight{background:#eff6ff;}
+
+    td.c-party{
+      white-space:normal !important;
+      word-break:break-word;
+      line-height:1.4;
+      max-width:180px;
+      min-width:100px;
+      vertical-align:top;
+      padding-top:11px;
+    }
+    td.td-remarks{
+      white-space:normal !important;
+      word-break:break-word;
+      line-height:1.4;
+      max-width:160px;
+      min-width:100px;
+      vertical-align:top;
+      padding-top:11px;
+    }
+
+    td.c-sno{color:var(--muted);font-size:11.5px;font-weight:700;text-align:center;}
+    th.c-sno-th{text-align:center;}
+
+    .inv-sub{font-size:10.5px;color:var(--muted);font-weight:600;margin-top:2px;display:block;}
+
+    .row-actions{display:flex;gap:3px;flex-wrap:nowrap;align-items:center;}
+    tbody td strong{font-size:14px;font-weight:700;color:var(--ink);}
+    .txnid-label{font-size:9px;color:var(--muted);font-weight:600;margin-bottom:2px;letter-spacing:.02em;}
+    thead th:last-child{
+      position:sticky;right:0;z-index:15;
+      background:#fff;
+      box-shadow:-3px 0 8px rgba(15,45,82,0.09);
+    }
+    tbody td:last-child{
+      position:sticky;right:0;z-index:4;
+      background:#fff;
+      box-shadow:-3px 0 8px rgba(15,45,82,0.09);
+    }
+    tbody tr:hover td:last-child{background:#f8fafc;}
+
+    /* Pills */
+    .pill{
+      display:inline-flex;align-items:center;justify-content:center;
+      width:22px;height:22px;border-radius:50%;
+      font-size:10px;font-weight:800;
+    }
+    .pill-pending {background:var(--amber-bg);color:var(--amber);}
+    .pill-approved{background:var(--green-bg);color:var(--green);}
+    .pill-rejected{background:var(--red-bg);color:var(--red);}
+    .flag-backdated{
+      display:inline-block;margin-left:4px;padding:2px 6px;border-radius:999px;
+      background:var(--orange-bg);color:var(--orange);font-size:10px;font-weight:700;
+    }
+    .flag-locked{
+      display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;
+      background:var(--bg);color:var(--muted);font-size:10px;font-weight:700;
+    }
+    .row-actions .btn{padding:5px 10px;font-size:12px;white-space:nowrap;min-width:0;}
+    .small-note{color:var(--muted);font-size:12px;}
+    .empty-state{text-align:center;color:var(--muted);padding:40px 10px;font-size:13.5px;}
+    .empty-state .empty-icon{font-size:32px;margin-bottom:8px;}
+
+    /* Suggest list */
+    .suggest-list{
+      position:absolute;z-index:30;top:100%;left:0;right:0;
+      background:#fff;border:1.5px solid var(--line);border-radius:10px;
+      margin-top:4px;max-height:220px;overflow-y:auto;
+      box-shadow:var(--shadow-lg);display:none;
+    }
+    .suggest-list.open{display:block;}
+    .suggest-item{padding:9px 12px;font-size:13.5px;cursor:pointer;}
+    .suggest-item:hover{background:var(--bg);}
+    .suggest-empty{padding:9px 12px;font-size:12.5px;color:var(--muted);}
+
+    /* ===== MODAL ===== */
+    .modal-backdrop{
+      display:none;position:fixed;inset:0;
+      background:rgba(15,45,82,0.55);z-index:100;
+      align-items:center;justify-content:center;padding:20px;
+      backdrop-filter:blur(3px);
+    }
+    .modal-backdrop.open{display:flex;}
+    .modal-box{
+      background:#fff;border-radius:var(--radius);
+      max-width:660px;width:100%;max-height:90vh;overflow-y:auto;
+      padding:26px;box-shadow:var(--shadow-lg);
+    }
+    .modal-top{
+      display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;
+    }
+    .modal-top h3{margin:0;font-size:17px;font-weight:700;}
+    .modal-close{
+      background:none;border:none;cursor:pointer;
+      font-size:22px;color:var(--muted);line-height:1;
+      padding:4px 8px;border-radius:6px;
+    }
+    .modal-close:hover{background:var(--bg);color:var(--ink);}
+
+    /* ===== SEARCH HIGHLIGHT ===== */
+    mark{background:#fef08a;color:inherit;border-radius:2px;padding:0 2px;}
+
+    /* ===== RESPONSIVE ===== */
+    @media(max-width:640px){
+      header.topbar{padding:14px 16px;}
+      main{padding:14px 12px 40px;}
+      .cards{grid-template-columns:repeat(2,1fr);}
+      .panel{padding:16px;}
+      .list-panel{padding:14px;}
+    }
+
+    .clear-date-link{
+      font-size:12.5px;color:var(--red);cursor:pointer;font-weight:600;display:none;
+    }
+    .clear-date-link:hover{text-decoration:underline;}
+
+    .divider{height:1px;background:var(--line);margin:4px 0;}
+
+    /* ===== EXCEL-STYLE COLUMN FILTER ===== */
+    .col-filter-btn{
+      display:inline-flex;align-items:center;gap:4px;
+      background:none;border:none;cursor:pointer;
+      font-size:11px;font-weight:700;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.05em;
+      padding:2px 4px;border-radius:4px;width:100%;
+      justify-content:space-between;
+    }
+    .col-filter-btn:hover{background:rgba(59,130,246,.08);color:var(--accent);}
+    .col-filter-btn.active{color:var(--accent);}
+    .col-filter-btn .cf-arrow{font-size:9px;transition:transform .15s;flex-shrink:0;}
+    .col-filter-btn.open .cf-arrow{transform:rotate(180deg);}
+
+    .cf-popup{
+      display:none;position:fixed;z-index:200;
+      background:#fff;border:1.5px solid var(--line);border-radius:10px;
+      box-shadow:0 8px 32px rgba(15,45,82,0.22);
+      width:240px;font-size:13px;
+    }
+    .cf-popup.open{display:block;}
+    .cf-popup-title{padding:10px 14px 8px;font-weight:700;font-size:12px;color:var(--navy);border-bottom:1px solid var(--line);}
+    .cf-search-wrap{padding:8px 10px;border-bottom:1px solid var(--line);}
+    .cf-search-wrap input{
+      width:100%;border:1.5px solid var(--line);border-radius:7px;
+      padding:6px 10px;font-size:12.5px;color:var(--ink);outline:none;
+    }
+    .cf-search-wrap input:focus{border-color:var(--accent);}
+    .cf-select-row{display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--line);}
+    .cf-select-row a{font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;}
+    .cf-select-row a:hover{text-decoration:underline;}
+    .cf-list{max-height:200px;overflow-y:auto;padding:4px 0;}
+    .cf-item{display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;}
+    .cf-item:hover{background:var(--bg);}
+    .cf-item input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;}
+    .cf-item label{cursor:pointer;font-size:13px;color:var(--ink);flex:1;}
+    .cf-footer{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);}
+    .cf-ok{
+      flex:1;background:linear-gradient(135deg,var(--accent),var(--accent-dark));
+      color:#fff;border:none;border-radius:7px;
+      padding:8px;font-size:13px;font-weight:700;cursor:pointer;
+    }
+    .cf-ok:hover{box-shadow:0 2px 8px rgba(59,130,246,.35);}
+    .cf-cancel{
+      flex:1;background:#fff;color:var(--muted);
+      border:1.5px solid var(--line);border-radius:7px;
+      padding:8px;font-size:13px;font-weight:600;cursor:pointer;
+    }
+    .cf-cancel:hover{background:var(--bg);}
+    .cf-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:3px;vertical-align:middle;}
+
+    /* ===== PENDING MODE INDICATOR ===== */
+    .mode-pending-badge{
+      display:inline-block;padding:2px 7px;border-radius:999px;
+      background:var(--amber-bg);color:var(--amber);
+      font-size:10px;font-weight:800;letter-spacing:.04em;
+      vertical-align:middle;margin-left:3px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===================== LOGIN ===================== -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">VT</div>
+    <h1>Vardhman Traders</h1>
+    <p class="sub">Business Payment Dashboard</p>
+    <div id="loginError"></div>
+    <div class="field">
+      <label for="loginUsername">Username</label>
+      <input id="loginUsername" type="text" autocomplete="username" placeholder="account / cashier / admin">
+    </div>
+    <div class="field">
+      <label for="loginPassword">Password</label>
+      <div class="password-wrap">
+        <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••">
+        <button type="button" class="toggle-eye" onclick="togglePasswordVisibility()" aria-label="Show password">
+          <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="handleLogin()">Log in →</button>
+  </div>
+</div>
+
+<!-- ===================== APP ===================== -->
+<div id="appScreen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo">VT</div>
+      <div class="topbar-title">
+        <span class="brand">VARDHMAN TRADERS</span>
+        <h2>Payment Dashboard</h2>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="role-pill" id="roleBadge">—</span>
+      <span id="fullNameLabel" style="font-size:13px;opacity:.9;"></span>
+      <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Log out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- SEARCH BAR -->
+    <div class="search-bar">
+      <label>🔍 Search</label>
+      <div class="sb-input">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <input type="text" id="searchInvoice" placeholder="Invoice No. / Challan No. / Party…" onkeydown="if(event.key==='Enter')doSearch()">
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-input" style="min-width:140px;flex:0 0 auto;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <input type="date" id="searchDate" onkeydown="if(event.key==='Enter')doSearch()">
+      </div>
+      <button class="btn-search" onclick="doSearch()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search
+      </button>
+      <button class="btn-search-clear" id="searchClearBtn" onclick="clearSearch()">✕ Clear</button>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div class="toolbar" id="toolbar">
+      <div class="field" id="companyFilterField">
+        <label for="companyFilter">Company Filter</label>
+        <select id="companyFilter" onchange="onFilterChange()">
+          <option value="All Companies">All Companies</option>
+        </select>
+      </div>
+      <div class="field" id="dateFromField" style="display:none;max-width:150px;">
+        <label for="dateFrom">From Date</label>
+        <input type="date" id="dateFrom" onchange="onFilterChange()">
+      </div>
+      <div class="field" id="dateToField" style="display:none;max-width:150px;">
+        <label for="dateTo">To Date</label>
+        <input type="date" id="dateTo" onchange="onFilterChange()">
+      </div>
+      <div id="entryPanelWrap" style="display:none;">
+        <button class="tb-action-btn blue" id="entryToggleBtn" onclick="togglePanel('entryPanel','entryToggleBtn','+ New Transaction Entry')">+ New Transaction Entry</button>
+      </div>
+      <div id="addPartyPanelWrap" style="display:none;">
+        <button class="tb-action-btn green" id="addPartyToggleBtn" onclick="openAddPartyPanel()">+ Add New Party</button>
+      </div>
+      <button class="tb-action-btn blue" onclick="refreshAll()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Refresh
+      </button>
+      <span class="clear-date-link" id="clearDateLink" onclick="clearDateFilter()">Clear dates ✕</span>
+    </div>
+
+    <!-- ========== ENTRY PANEL ========== -->
+    <div id="entryPanel" class="panel" style="display:none;margin-bottom:20px;">
+      <div class="panel-header">
+        <div class="panel-icon" style="background:#eff6ff;color:var(--accent);">✏️</div>
+        <h3>New Transaction Entry</h3>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="f_date">Date</label>
+          <input type="date" id="f_date">
+        </div>
+        <div class="field">
+          <label for="f_type">Type</label>
+          <!-- CHANGE 1: "Sales Cash" option removed from New Entry dropdown -->
+          <!-- CHANGE v19: onchange added — party list reloads when Type changes -->
+          <select id="f_type" onchange="loadPartiesForTypeCompany()">
+            <option>Payment Received</option>
+            <option>Payment Paid</option>
+            <option>Sales</option>
+            <option>Expense</option>
+            <option>Cash Deposit</option>
+            <option>Cash Withdrawn</option>
+            <option>Sale Return</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f_company">Company</label>
+          <!-- CHANGE v19: onchange now calls combined type+company loader -->
+          <select id="f_company" onchange="loadPartiesForTypeCompany()"></select>
+        </div>
+        <div class="field">
+          <label for="f_invoice">Invoice / Challan No.</label>
+          <input type="text" id="f_invoice" placeholder="Invoice or Challan No.">
+        </div>
+        <div class="field" style="position:relative;">
+          <label for="f_party_input">Party</label>
+          <input type="text" id="f_party_input" autocomplete="off" placeholder="Type to search…"
+            oninput="onPartyInput()" onfocus="onPartyInput()" onblur="hidePartySuggestionsSoon()">
+          <div id="f_party_suggestions" class="suggest-list"></div>
+        </div>
+        <div class="field">
+          <label for="f_amount">Amount (₹)</label>
+          <input type="number" id="f_amount" min="0" step="0.01" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="f_mode">Mode</label>
+          <select id="f_mode" onchange="onModeChange()"></select>
+        </div>
+        <div class="field" style="grid-column:1/-1;">
+          <label for="f_remarks">Remarks</label>
+          <input type="text" id="f_remarks" placeholder="Optional note">
+        </div>
+      </div>
+      <div id="pendingModeHint" style="display:none;margin-top:10px;padding:9px 14px;background:var(--amber-bg);border-radius:8px;font-size:12.5px;color:var(--amber);font-weight:600;">
+        ⚠️ Mode "PENDING" selected — this entry will stay <strong>Pending</strong> until approved by Account.
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" style="width:auto;" onclick="handleSave()">Save Entry</button>
+        <div id="saveMsg"></div>
+      </div>
+    </div>
+
+    <!-- ADD PARTY PANEL -->
+    <div id="addPartyPanel" class="panel" style="display:none;margin-bottom:20px;">
+      <div class="panel-header">
+        <div class="panel-icon" style="background:#f0fdf4;color:var(--green);">👤</div>
+        <h3>Add New Party</h3>
+      </div>
+      <!-- CHANGE v19: TxnType dropdown added — party saved against specific type -->
+      <div class="form-grid">
+        <div class="field">
+          <label for="np_company">Company</label>
+          <select id="np_company"></select>
+        </div>
+        <div class="field">
+          <label for="np_txntype">Transaction Type</label>
+          <select id="np_txntype">
+            <option value="">All Types (General)</option>
+            <option>Payment Received</option>
+            <option>Payment Paid</option>
+            <option>Sales</option>
+            <option>Expense</option>
+            <option>Cash Deposit</option>
+            <option>Cash Withdrawn</option>
+            <option>Sale Return</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column:span 2;">
+          <label for="np_name">Party Name</label>
+          <input type="text" id="np_name" placeholder="New party name">
+        </div>
+      </div>
+      <p style="font-size:11.5px;color:var(--muted);margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:8px;">
+        💡 <strong>All Types (General)</strong> select karo toh party har type ke liye dikhegi. Specific type select karo toh sirf usi type mein dikhegi.
+      </p>
+      <div class="form-actions">
+        <button class="btn btn-primary" style="width:auto;" onclick="handleAddParty()">Add Party</button>
+        <div id="addPartyMsg"></div>
+      </div>
+    </div>
+
+    <!-- SCOPE LABEL -->
+    <p class="scope-label" id="scopeLabel">Summary</p>
+
+    <!-- SUMMARY CARDS -->
+    <div class="cards" id="cardsRow"></div>
+
+    <!-- TRANSACTION LIST -->
+    <div class="list-panel" id="txnListPanel">
+      <div class="list-header">
+        <h3 id="listTitle">Transaction List</h3>
+        <div class="tabbar" id="statusTabbar">
+          <button class="active" data-status="all" onclick="setStatusTab('all')">All</button>
+          <button data-status="Pending" onclick="setStatusTab('Pending')">Pending</button>
+          <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>
+        </div>
+        <span class="action-link danger" id="clearFilterLink" onclick="clearCardFilter()" style="display:none;">✕ Clear filter</span>
+        <button class="btn-seq" id="seqBtn" onclick="toggleInvoiceSeq()" title="Invoice numbers ko 1,2,3... sequence mein dikhao"># Seq</button>
+        <span class="action-link" onclick="exportFilteredPDF()">⬇ PDF</span>
+        <span class="action-link" onclick="exportFilteredExcel()">⬇ Excel</span>
+      </div>
+      <div class="table-wrap">
+        <table id="mainTable">
+          <colgroup>
+            <col class="c-date"><col class="c-company"><col class="c-type">
+            <col class="c-invoice"><col class="c-party"><col class="c-amount">
+            <col class="c-mode"><col class="c-by"><col class="c-status">
+            <col class="c-remarks"><col class="c-action">
+          </colgroup>
+          <thead>
+            <tr>
+              <th><button class="col-filter-btn" id="cfb_date"      onclick="openColFilter(event,'date'      )">Date<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_company"   onclick="openColFilter(event,'company'   )">Co.<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_type"      onclick="openColFilter(event,'type'      )">Type<span class="cf-arrow">▼</span></button></th>
+              <th id="th_invoice"><button class="col-filter-btn" id="cfb_invoice" onclick="openColFilter(event,'invoice')">Inv.<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_party"     onclick="openColFilter(event,'party'     )">Party<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_amount"    onclick="openColFilter(event,'amount'    )">Amt<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_mode"      onclick="openColFilter(event,'mode'      )">Mode<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_createdby" onclick="openColFilter(event,'createdby' )">By<span class="cf-arrow">▼</span></button></th>
+              <th><button class="col-filter-btn" id="cfb_status"    onclick="openColFilter(event,'status'    )">St.<span class="cf-arrow">▼</span></button></th>
+              <th class="th-remarks" style="display:none;"><button class="col-filter-btn" id="cfb_remarks" onclick="openColFilter(event,'remarks')">Remarks<span class="cf-arrow">▼</span></button></th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="txnBody">
+            <tr><td colspan="11"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="txnDebugLine" class="small-note" style="margin-top:10px;"></p>
+    </div>
+  </main>
+</div>
+
+<!-- Excel-style column filter popup -->
+<div class="cf-popup" id="cfPopup">
+  <div class="cf-popup-title" id="cfPopupTitle">Filter</div>
+  <div class="cf-search-wrap">
+    <input type="text" id="cfSearch" placeholder="Search values…" oninput="cfFilterList()">
+  </div>
+  <div class="cf-select-row">
+    <a onclick="cfSelectAll(true)">Select All</a>
+    <a onclick="cfSelectAll(false)">Clear All</a>
+  </div>
+  <div class="cf-list" id="cfList"></div>
+  <div class="cf-footer">
+    <button class="cf-ok"     onclick="cfApply()">OK</button>
+    <button class="cf-cancel" onclick="cfClose()">Cancel</button>
+  </div>
+</div>
+
+<!-- ========== EDIT MODAL ========== -->
+<div class="modal-backdrop" id="editModal">
+  <div class="modal-box">
+    <div class="modal-top">
+      <h3>Edit Entry — <span id="editTxnIdLabel" style="color:var(--accent);"></span></h3>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="e_date">Date</label>
+        <input type="date" id="e_date">
+      </div>
+      <div class="field">
+        <label for="e_type">Type</label>
+        <!-- CHANGE 1: "Sales Cash" option removed from Edit Modal dropdown too -->
+        <select id="e_type">
+          <option>Payment Received</option>
+          <option>Payment Paid</option>
+          <option>Sales</option>
+          <option>Expense</option>
+          <option>Cash Deposit</option>
+          <option>Cash Withdrawn</option>
+          <option>Sale Return</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="e_company">Company</label>
+        <select id="e_company" onchange="loadPartiesForEditCompany(this.value)"></select>
+      </div>
+      <div class="field">
+        <label for="e_invoice">Invoice / Challan No.</label>
+        <input type="text" id="e_invoice" placeholder="Invoice or Challan No.">
+      </div>
+      <div class="field" style="position:relative;">
+        <label for="e_party_input">Party</label>
+        <input type="text" id="e_party_input" autocomplete="off" placeholder="Type to search…"
+          oninput="onEditPartyInput()" onfocus="onEditPartyInput()" onblur="hideEditPartySuggestionsSoon()">
+        <div id="e_party_suggestions" class="suggest-list"></div>
+      </div>
+      <div class="field">
+        <label for="e_amount">Amount (₹)</label>
+        <input type="number" id="e_amount" min="0" step="0.01" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label for="e_mode">Mode</label>
+        <select id="e_mode"></select>
+      </div>
+      <div class="field" style="grid-column:1/-1;">
+        <label for="e_remarks">Remarks</label>
+        <input type="text" id="e_remarks" placeholder="Optional note">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" style="width:auto;" onclick="submitEdit()">Save Changes</button>
+      <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+      <div id="editMsg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let currentUser    = null;
+let companiesCache = [];
+let modesCache     = [];
+let lastTxnRows    = [];
+let currentFilterRows  = null;
+let currentFilterLabel = '';
+let activeCardKey      = null;
+let activeStatusTab    = 'all';
+let globalSearchQuery  = '';
+let autoRefreshTimer   = null;
+
+let invoiceSeqMode = false;
+
+let _callInFlight   = false;
+let _pendingRefresh = false;
+
+// Types, modes and companies - and what each one means for the totals - come from Setup > Dropdown values (bootstrap).
+let TXN_TYPES = [];
+let TYPE_META = {}, MODE_META = {}, COMPANY_META = {};
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('f_date').value = todayISO();
+  window.VT_MODULE = 'payments';
+  document.getElementById('loginScreen').style.display = 'none';
+  window.VT.boot('payments', function () {
+    VT.run.withSuccessHandler(function (res) {
+      currentUser = { username: res.username, role: res.role, fullName: res.fullName };
+      window.PAY_CAN_WRITE = res.canWrite !== false;
+      enterApp();
+    }).login();
+  });
+  document.getElementById('loginPassword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleLogin();
+  });
+  document.getElementById('f_party_suggestions').addEventListener('mousedown', e => {
+    const item = e.target.closest('.suggest-item');
+    if (item) { e.preventDefault(); selectPartySuggestion(item.dataset.name); }
+  });
+  document.getElementById('e_party_suggestions').addEventListener('mousedown', e => {
+    const item = e.target.closest('.suggest-item');
+    if (item) { e.preventDefault(); selectEditPartySuggestion(item.dataset.name); }
+  });
+});
+
+// today in India (toISOString() is UTC, which is still "yesterday" for the first five and a half hours of the day)
+function todayISO(){ return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); }
+
+// ============================================================
+// PASSWORD TOGGLE
+// ============================================================
+const EYE_OPEN = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/>';
+const EYE_OFF  = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.6 20.6 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.6 20.6 0 0 1-3.22 4.44M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>';
+function togglePasswordVisibility(){
+  const inp  = document.getElementById('loginPassword');
+  const icon = document.getElementById('eyeIcon');
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  icon.innerHTML = showing ? EYE_OPEN : EYE_OFF;
+}
+
+// ============================================================
+// LOGIN / LOGOUT
+// ============================================================
+function handleLogin(){
+  const u = document.getElementById('loginUsername').value.trim();
+  const p = document.getElementById('loginPassword').value;
+  const errBox = document.getElementById('loginError');
+  errBox.style.display = 'none';
+  if (!u || !p) { errBox.textContent = 'Enter both username and password.'; errBox.style.display = 'block'; return; }
+  VT.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        currentUser = { username: res.username, role: res.role, fullName: res.fullName };
+        sessionStorage.setItem('vt_user', JSON.stringify(currentUser));
+        enterApp();
+      } else { errBox.textContent = res.message || 'Login failed.'; errBox.style.display = 'block'; }
+    })
+    .withFailureHandler(err => { errBox.textContent = 'Server error: ' + err.message; errBox.style.display = 'block'; })
+    .login(u, p);
+}
+
+function handleLogout(){
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  window.VT.toPortal();
+  currentUser = null;
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+}
+
+// ============================================================
+// APP SHELL
+// ============================================================
+function enterApp(){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'block';
+
+  const badge = document.getElementById('roleBadge');
+  badge.textContent = currentUser.role;
+  badge.className = 'role-pill role-' + currentUser.role.toLowerCase();
+  document.getElementById('fullNameLabel').textContent = currentUser.fullName;
+
+  document.getElementById('entryPanelWrap').style.display = 'block';
+  document.getElementById('addPartyPanelWrap').style.display = 'block';
+  document.getElementById('entryPanel').style.display = 'none';
+  document.getElementById('addPartyPanel').style.display = 'none';
+  document.getElementById('entryToggleBtn').textContent = '+ New Transaction Entry';
+  document.getElementById('addPartyToggleBtn').textContent = '+ Add New Party';
+
+  const showFilters = currentUser.role !== 'Cashier';
+  document.getElementById('companyFilterField').style.display = showFilters ? 'block' : 'none';
+
+  const showDateFilter = (currentUser.role === 'Admin' || currentUser.role === 'Account');
+  document.getElementById('dateFromField').style.display = showDateFilter ? 'block' : 'none';
+  document.getElementById('dateToField').style.display   = showDateFilter ? 'block' : 'none';
+
+  clearCardFilter(true);
+  setStatusTab('all', true);
+  buildStatusTabs();
+
+  const showRemarksCol = (currentUser.role !== 'Cashier');
+  document.querySelectorAll('.th-remarks, col.c-remarks').forEach(el => {
+    el.style.display = showRemarksCol ? '' : 'none';
+    el.style.width   = showRemarksCol ? '160px' : '0';
+  });
+
+  loadBootstrapData();
+  refreshAll();
+
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => refreshAll(true), 30000);
+}
+
+function togglePanel(panelId, btnId, openLabel){
+  const panel  = document.getElementById(panelId);
+  const btn    = document.getElementById(btnId);
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  btn.textContent = isOpen ? openLabel : '✕ Close';
+  if (!isOpen) panel.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// ============================================================
+// OPEN ADD PARTY PANEL — pre-fills company AND txnType from entry form
+// CHANGE v19: np_txntype also synced from f_type
+// ============================================================
+function openAddPartyPanel(){
+  togglePanel('addPartyPanel', 'addPartyToggleBtn', '+ Add New Party');
+
+  const panel = document.getElementById('addPartyPanel');
+  const isNowOpen = panel.style.display !== 'none';
+
+  if (isNowOpen) {
+    // Sync Company from entry form
+    const entryCompany = document.getElementById('f_company')
+                          ? document.getElementById('f_company').value : '';
+    const npSel = document.getElementById('np_company');
+    if (npSel && entryCompany) npSel.value = entryCompany;
+
+    // CHANGE v19: Sync TxnType from entry form f_type → np_txntype
+    const entryType = document.getElementById('f_type')
+                        ? document.getElementById('f_type').value : '';
+    const npType = document.getElementById('np_txntype');
+    if (npType && entryType) npType.value = entryType;
+
+    // Clear previous message and party name
+    const msg = document.getElementById('addPartyMsg');
+    if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
+    const nameField = document.getElementById('np_name');
+    if (nameField) nameField.value = '';
+
+    // Focus party name input
+    setTimeout(() => { if (nameField) nameField.focus(); }, 120);
+  }
+}
+
+// ============================================================
+// PENDING MODE HINT (Cashier only)
+// ============================================================
+function onModeChange(){
+  if (!currentUser || currentUser.role !== 'Cashier') return;
+  const mode = document.getElementById('f_mode').value;
+  const hint = document.getElementById('pendingModeHint');
+  if (hint) hint.style.display = (MODE_META[mode] && MODE_META[mode].needsApproval) ? 'block' : 'none';
+}
+
+// ============================================================
+// BOOTSTRAP
+// ============================================================
+function loadBootstrapData(){
+  VT.run.withSuccessHandler(data => {
+    companiesCache = data.companies;
+    modesCache     = data.paymentModes || modesCache;
+    TXN_TYPES      = data.txnTypes || [];
+    TYPE_META = data.typeMeta || {}; MODE_META = data.modeMeta || {}; COMPANY_META = data.companyMeta || {};
+    const typeOpts = (list) => list.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    document.getElementById('f_type').innerHTML = typeOpts(data.entryTypes || TXN_TYPES);
+    document.getElementById('e_type').innerHTML = typeOpts(TXN_TYPES);
+    document.getElementById('np_txntype').innerHTML = '<option value="">All types</option>' + typeOpts(TXN_TYPES);
+    const pt = document.getElementById('pendingTypeSelect');
+    if (pt) pt.innerHTML = '<option value="all">All Types</option>' + typeOpts(TXN_TYPES);
+
+    const companyOptions = data.companies.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    document.getElementById('companyFilter').innerHTML =
+      '<option value="All Companies">All Companies</option>' + companyOptions;
+    document.getElementById('f_company').innerHTML  = companyOptions;
+    document.getElementById('np_company').innerHTML = companyOptions;
+    document.getElementById('e_company').innerHTML  = companyOptions;
+
+    const modeOptions = modesCache.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    document.getElementById('f_mode').innerHTML = modeOptions;
+    document.getElementById('e_mode').innerHTML = modeOptions;
+
+    // a company that is not on the list can be added right here; it is usable at once and an admin reviews it in Setup
+    ['f_company','np_company'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel || !currentUserCanWrite()) return;
+      sel.insertAdjacentHTML('beforeend', '<option value="__new__">➕ Add new company…</option>');
+      if (!sel.dataset.newCo) {
+        sel.dataset.newCo = '1';
+        sel.dataset.prev = sel.value;
+        sel.addEventListener('change', () => { if (sel.value === '__new__') addCompanyFlow(sel); else sel.dataset.prev = sel.value; });
+      }
+    });
+
+    if (data.companies.length) loadPartiesForTypeCompany();
+  }).withFailureHandler(err => console.error(err)).getBootstrapData();
+}
+
+// ============================================================
+// ADD A NEW COMPANY (from either company list)
+// ============================================================
+function currentUserCanWrite(){ return window.PAY_CAN_WRITE !== false; }
+function addCompanyFlow(sel){
+  const prev = sel.dataset.prev || (companiesCache[0] || '');
+  const name = (prompt('New company name') || '').trim();
+  if (!name) { sel.value = prev; return; }
+  VT.run.withSuccessHandler(res => {
+    if (res.company) {
+      companiesCache = companiesCache.includes(res.company) ? companiesCache : companiesCache.concat(res.company);
+      ['f_company','e_company','np_company','companyFilter'].forEach(id => {
+        const s = document.getElementById(id);
+        if (s && !Array.from(s.options).some(o => o.value === res.company)) {
+          const o = document.createElement('option'); o.value = o.textContent = res.company;
+          const marker = Array.from(s.options).find(x => x.value === '__new__');
+          s.insertBefore(o, marker || null);
+        }
+      });
+      sel.value = res.company; sel.dataset.prev = res.company;
+      loadPartiesForTypeCompany();
+    } else { sel.value = prev; }
+    alert(res.message);
+  }).withFailureHandler(err => { sel.value = prev; alert(err.message); }).addCompany(name);
+}
+
+// ============================================================
+// PARTY AUTOCOMPLETE — New entry
+// ============================================================
+let partiesCache = [];
+
+// CHANGE v19: reads both f_company AND f_type — sends both to backend
+// Called when either company OR type dropdown changes in New Entry form
+function loadPartiesForTypeCompany(){
+  const company = document.getElementById('f_company').value || '';
+  const txnType = document.getElementById('f_type').value   || '';
+  document.getElementById('f_party_input').value = '';
+  document.getElementById('f_party_suggestions').classList.remove('open');
+  partiesCache = [];
+  if (!company) return;
+  VT.run
+    .withSuccessHandler(names => { partiesCache = names || []; })
+    .withFailureHandler(() => { partiesCache = []; })
+    .getParties(company, txnType);
+}
+
+// Keep old function name as alias for bootstrap call compatibility
+function loadPartiesForCompany(company){
+  // Just trigger the combined loader (f_company will already be set)
+  loadPartiesForTypeCompany();
+}
+
+function onPartyInput(){
+  const input = document.getElementById('f_party_input');
+  const box   = document.getElementById('f_party_suggestions');
+  const q = input.value.trim().toLowerCase();
+  const matches = (q ? partiesCache.filter(n => n.toLowerCase().includes(q)) : partiesCache).slice(0,12);
+  box.innerHTML = matches.length
+    ? matches.map(n => `<div class="suggest-item" data-name="${esc(n)}">${esc(n)}</div>`).join('')
+    : `<div class="suggest-empty">${partiesCache.length ? 'No matching party.' : 'No parties for this company yet.'}</div>`;
+  box.classList.add('open');
+}
+function selectPartySuggestion(name){
+  document.getElementById('f_party_input').value = name;
+  document.getElementById('f_party_suggestions').classList.remove('open');
+}
+function hidePartySuggestionsSoon(){
+  setTimeout(() => document.getElementById('f_party_suggestions').classList.remove('open'), 150);
+}
+
+// ============================================================
+// PARTY AUTOCOMPLETE — Edit modal
+// ============================================================
+let editPartiesCache = [];
+
+function loadPartiesForEditCompany(company, keepValue){
+  const input = document.getElementById('e_party_input');
+  if (!keepValue) input.value = '';
+  document.getElementById('e_party_suggestions').classList.remove('open');
+  editPartiesCache = [];
+  VT.run
+    .withSuccessHandler(names => {
+      editPartiesCache = names || [];
+      if (keepValue) input.value = keepValue;
+    })
+    .withFailureHandler(() => { editPartiesCache = []; })
+    .getParties(company);
+}
+function onEditPartyInput(){
+  const input = document.getElementById('e_party_input');
+  const box   = document.getElementById('e_party_suggestions');
+  const q = input.value.trim().toLowerCase();
+  const matches = (q ? editPartiesCache.filter(n => n.toLowerCase().includes(q)) : editPartiesCache).slice(0,12);
+  box.innerHTML = matches.length
+    ? matches.map(n => `<div class="suggest-item" data-name="${esc(n)}">${esc(n)}</div>`).join('')
+    : `<div class="suggest-empty">${editPartiesCache.length ? 'No matching party.' : 'No parties loaded yet.'}</div>`;
+  box.classList.add('open');
+}
+function selectEditPartySuggestion(name){
+  document.getElementById('e_party_input').value = name;
+  document.getElementById('e_party_suggestions').classList.remove('open');
+}
+function hideEditPartySuggestionsSoon(){
+  setTimeout(() => document.getElementById('e_party_suggestions').classList.remove('open'), 150);
+}
+
+// ============================================================
+// ADD NEW PARTY
+// CHANGE v19: reads np_txntype and passes to backend
+// ============================================================
+function handleAddParty(){
+  const company = document.getElementById('np_company').value;
+  const name    = document.getElementById('np_name').value.trim();
+  const txnType = document.getElementById('np_txntype')
+                    ? document.getElementById('np_txntype').value : '';
+  const msg     = document.getElementById('addPartyMsg');
+  msg.style.display = 'none';
+  if (!company || !name) {
+    msg.className = 'err'; msg.style.display = 'block';
+    msg.textContent = 'Enter both a company and a party name.'; return;
+  }
+  VT.run
+    .withSuccessHandler(res => {
+      msg.className = res.success ? 'ok' : 'err';
+      msg.style.display = 'block'; msg.textContent = res.message;
+      if (res.success) {
+        document.getElementById('np_name').value = '';
+        // Reload party suggestions for current entry form's type+company combo
+        loadPartiesForTypeCompany();
+      }
+    })
+    .withFailureHandler(err => { msg.className='err'; msg.style.display='block'; msg.textContent='Server error: '+err.message; })
+    .addParty(name, company, currentUser.role, txnType);
+}
+
+// ============================================================
+// FILTERS & REFRESH
+// ============================================================
+function getDateRange(){
+  const from = document.getElementById('dateFrom') ? document.getElementById('dateFrom').value || '' : '';
+  const to   = document.getElementById('dateTo')   ? document.getElementById('dateTo').value   || '' : '';
+  document.getElementById('clearDateLink').style.display = (from || to) ? 'inline' : 'none';
+  return { from, to };
+}
+
+function resetSeqMode(){
+  if (!invoiceSeqMode) return;
+  invoiceSeqMode = false;
+  const btn = document.getElementById('seqBtn');
+  const th  = document.getElementById('th_invoice');
+  if (btn) { btn.textContent = '# Seq'; btn.classList.remove('seq-active'); }
+  if (th)  th.classList.remove('seq-on');
+}
+
+function clearDateFilter(){
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value   = '';
+  document.getElementById('clearDateLink').style.display = 'none';
+  resetSeqMode();
+  refreshAll();
+}
+function onFilterChange(){
+  resetSeqMode();
+  refreshAll();
+}
+function refreshAll(silent){
+  if (_callInFlight) { _pendingRefresh = true; return; }
+  _callInFlight = true;
+  _pendingRefresh = false;
+  loadDashboard_();
+  loadTransactions_(silent);
+}
+function _onCallsDone(){
+  _callInFlight = false;
+  if (_pendingRefresh) {
+    _pendingRefresh = false;
+    setTimeout(() => refreshAll(true), 200);
+  }
+}
+
+// ============================================================
+// SEARCH
+// ============================================================
+function doSearch(){
+  const inv  = (document.getElementById('searchInvoice').value || '').trim().toLowerCase();
+  const date = (document.getElementById('searchDate').value    || '').trim();
+  globalSearchQuery = JSON.stringify({ inv, date });
+  const hasQuery = inv || date;
+  document.getElementById('searchClearBtn').style.display = hasQuery ? 'inline-flex' : 'none';
+  renderCurrentView();
+}
+function clearSearch(){
+  document.getElementById('searchInvoice').value = '';
+  document.getElementById('searchDate').value    = '';
+  globalSearchQuery = '';
+  document.getElementById('searchClearBtn').style.display = 'none';
+  renderCurrentView();
+}
+function applyGlobalSearch(rows){
+  if (!globalSearchQuery) return rows;
+  let inv = '', dateQ = '';
+  try { const p = JSON.parse(globalSearchQuery); inv = p.inv||''; dateQ = p.date||''; } catch(e){ inv = globalSearchQuery; }
+  return rows.filter(r => {
+    const invOk  = !inv   || String(r.Invoice||'').toLowerCase().includes(inv)
+                          || String(r.Party||'').toLowerCase().includes(inv);
+    const dateOk = !dateQ || r.Date === dateQ;
+    return invOk && dateOk;
+  });
+}
+
+// ============================================================
+// COLUMN FILTERS
+// ============================================================
+const colFilters = {};
+const COL_VAL = {
+  date     : r => fmtDate(r.Date),
+  company  : r => r.Company,
+  type     : r => r.Type,
+  invoice  : r => String(r.Invoice||'—'),
+  party    : r => String(r.Party||'—'),
+  amount   : r => rupee(r.Amount),
+  mode     : r => r.Mode,
+  createdby: r => r.CreatedBy,
+  status   : r => r.Status,
+  remarks  : r => String(r.Remarks||'—'),
+};
+const COL_LABEL = {
+  date:'Date', company:'Company', type:'Type', invoice:'Invoice',
+  party:'Party', amount:'Amount', mode:'Mode', createdby:'Created By',
+  status:'Status', remarks:'Remarks'
+};
+
+let _cfActiveKey = null;
+let _cfTempSel   = null;
+let _cfAllVals   = [];
+
+function openColFilter(e, colKey){
+  e.stopPropagation();
+  const popup = document.getElementById('cfPopup');
+  const btn   = document.getElementById('cfb_' + colKey);
+  if (_cfActiveKey === colKey && popup.classList.contains('open')){ cfClose(); return; }
+  cfClose();
+  _cfActiveKey = colKey;
+  btn.classList.add('open');
+  document.getElementById('cfPopupTitle').textContent = 'Filter: ' + (COL_LABEL[colKey]||colKey);
+  document.getElementById('cfSearch').value = '';
+  const getVal = COL_VAL[colKey];
+  const seen = {};
+  _cfAllVals = [];
+  lastTxnRows.forEach(r => { const v = getVal(r); if (!seen[v]){ seen[v]=true; _cfAllVals.push(v); } });
+  _cfAllVals.sort((a,b) => a.localeCompare(b, 'en', {sensitivity:'base'}));
+  _cfTempSel = colFilters[colKey] ? new Set(colFilters[colKey]) : new Set(_cfAllVals);
+  cfRenderList(_cfAllVals);
+  const rect = btn.getBoundingClientRect();
+  popup.style.top  = (rect.bottom + 4) + 'px';
+  popup.style.left = Math.min(rect.left, window.innerWidth - 256) + 'px';
+  popup.classList.add('open');
+  updateFilterBtnStyle(colKey);
+}
+function cfRenderList(vals){
+  const q = document.getElementById('cfSearch').value.toLowerCase();
+  const filtered = q ? vals.filter(v => v.toLowerCase().includes(q)) : vals;
+  document.getElementById('cfList').innerHTML = filtered.map(v => `
+    <div class="cf-item">
+      <input type="checkbox" id="cfck_${esc(v)}" ${_cfTempSel.has(v)?'checked':''} onchange="cfToggle('${esc(v).replace(/'/g,"\'")}',this.checked)">
+      <label for="cfck_${esc(v)}">${esc(v)}</label>
+    </div>`).join('');
+}
+function cfFilterList(){ cfRenderList(_cfAllVals); }
+function cfToggle(val, checked){ if (checked) _cfTempSel.add(val); else _cfTempSel.delete(val); }
+function cfSelectAll(sel){
+  if (sel) _cfAllVals.forEach(v => _cfTempSel.add(v)); else _cfTempSel.clear();
+  cfRenderList(_cfAllVals);
+}
+function cfApply(){
+  if (!_cfActiveKey) return;
+  if (_cfTempSel.size === _cfAllVals.length){ delete colFilters[_cfActiveKey]; }
+  else { colFilters[_cfActiveKey] = new Set(_cfTempSel); }
+  updateFilterBtnStyle(_cfActiveKey);
+  cfClose();
+  renderCurrentView();
+}
+function cfClose(){
+  const popup = document.getElementById('cfPopup');
+  popup.classList.remove('open');
+  if (_cfActiveKey){ const btn = document.getElementById('cfb_' + _cfActiveKey); if (btn) btn.classList.remove('open'); }
+  _cfActiveKey = null; _cfTempSel = null;
+}
+function updateFilterBtnStyle(colKey){
+  const btn = document.getElementById('cfb_' + colKey);
+  if (!btn) return;
+  const isActive = !!colFilters[colKey];
+  btn.classList.toggle('active', isActive);
+  const existing = btn.querySelector('.cf-dot');
+  if (isActive && !existing){ const dot = document.createElement('span'); dot.className='cf-dot'; btn.insertBefore(dot, btn.querySelector('.cf-arrow')); }
+  else if (!isActive && existing){ existing.remove(); }
+}
+document.addEventListener('click', e => {
+  const popup = document.getElementById('cfPopup');
+  if (popup && popup.classList.contains('open') && !popup.contains(e.target)) cfClose();
+});
+function applyColFilters(rows){
+  return rows.filter(r => {
+    for (const [colKey, selSet] of Object.entries(colFilters)){
+      if (!selSet) continue;
+      const getVal = COL_VAL[colKey];
+      if (!getVal) continue;
+      if (!selSet.has(getVal(r))) return false;
+    }
+    return true;
+  });
+}
+
+// ============================================================
+// DASHBOARD CARDS
+// ============================================================
+function loadDashboard_(){
+  const companyFilter = document.getElementById('companyFilter').value || 'All Companies';
+  const range = getDateRange();
+  VT.run
+    .withSuccessHandler(d => {
+      _onCallsDone();
+      document.getElementById('scopeLabel').textContent = d.scopeLabel;
+
+      const pendingByType = d.pendingByType || { all: d.pendingEntries || 0 };
+
+      document.getElementById('cardsRow').innerHTML = `
+        <div class="card card-cyan ${activeCardKey==='cashInHand'?'active-card':''}" onclick="filterCard('cashInHand')">
+          <div class="label">💵 Cash in Hand</div><div class="value">${rupee(d.cashInHand)}</div>
+        </div>
+        <div class="card card-blue ${activeCardKey==='bankBalance'?'active-card':''}" onclick="filterCard('bankBalance')">
+          <div class="label">🏦 Bank Balance</div><div class="value">${rupee(d.bankBalance)}</div>
+          <div class="card-sub">Bank / UPI / Cheque / Card</div>
+        </div>
+        <div class="card card-green ${activeCardKey==='totalReceived'?'active-card':''}" onclick="filterCard('totalReceived')">
+          <div class="label">📥 Total Received</div><div class="value">${rupee(d.totalReceived)}</div>
+          <div class="card-sub">Payment Received only</div>
+        </div>
+        <div class="card card-red ${activeCardKey==='totalPaid'?'active-card':''}" onclick="filterCard('totalPaid')">
+          <div class="label">📤 Total Paid</div><div class="value">${rupee(d.totalPaid)}</div>
+          <div class="card-sub">Payment Paid + Expense</div>
+        </div>
+        <div class="card card-purple ${activeCardKey==='cashSales'?'active-card':''}" onclick="filterCard('cashSales')">
+          <div class="label">🛒 Cash Sales</div><div class="value">${rupee(d.cashSales)}</div>
+        </div>
+
+        <!-- 🔍 TYPE FILTER CARD -->
+        <div class="pending-type-card" id="pendingTypeCard">
+          <div class="ptc-top">
+            <div class="ptc-label">🔍 Filter by Type</div>
+          </div>
+          <div class="ptc-divider"></div>
+          <div class="ptc-select-wrap">
+            <select class="ptc-select" id="pendingTypeSelect">
+              <option value="all">All Types</option>
+              ${TXN_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ptc-count-row">
+            <div>
+              <div class="ptc-count-sub" id="pendingCountSub" style="font-size:11px;margin-top:4px;">Select a type &amp; click View</div>
+            </div>
+            <button class="ptc-view-btn" onclick="viewByType()">View →</button>
+          </div>
+        </div>`;
+    })
+    .withFailureHandler(err => { _onCallsDone(); console.error(err); })
+    .getDashboardData(currentUser.role, currentUser.username, companyFilter, range.from, range.to);
+}
+
+function viewByType(){
+  const sel = document.getElementById('pendingTypeSelect');
+  const val = sel ? sel.value : 'all';
+  const sub = document.getElementById('pendingCountSub');
+
+  resetSeqMode();
+
+  if (val === 'all') {
+    activeCardKey      = null;
+    currentFilterRows  = null;
+    currentFilterLabel = '';
+    document.getElementById('listTitle').textContent = defaultListTitle();
+    document.getElementById('clearFilterLink').style.display = 'none';
+    setStatusTab('all', true);
+    if (sub) sub.textContent = 'Showing all types';
+  } else {
+    activeCardKey      = 'typeFilter';
+    currentFilterRows  = lastTxnRows.filter(r => r.Type === val);
+    currentFilterLabel = val;
+    document.getElementById('listTitle').textContent = val + ' — Entries';
+    document.getElementById('clearFilterLink').style.display = 'inline';
+    setStatusTab('all', true);
+    if (sub) sub.textContent = `Showing: ${val}`;
+  }
+
+  renderCurrentView();
+  document.getElementById('txnListPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// ============================================================
+// TRANSACTIONS — load
+// ============================================================
+function loadTransactions_(silent){
+  const companyFilter = document.getElementById('companyFilter').value || 'All Companies';
+  const range = getDateRange();
+  const tbody = document.getElementById('txnBody');
+  if (!silent) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>`;
+  VT.run
+    .withSuccessHandler(res => {
+      const dbg = document.getElementById('txnDebugLine');
+      if (res && res.ok === false) {
+        if (!silent) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">Error: ${esc(res.error)}</div></td></tr>`;
+        return;
+      }
+      const rows = (res && res.rows) ? res.rows : [];
+      lastTxnRows = rows;
+      if (activeCardKey && CARD_FILTERS[activeCardKey]) {
+        currentFilterRows = lastTxnRows.filter(CARD_FILTERS[activeCardKey].test);
+      }
+      if (dbg) dbg.textContent = `Server ${res ? res.version : '?'} — database: ${res ? res.rawCount : '?'} records total; showing ${rows.length} after server filters.`;
+      renderCurrentView();
+    })
+    .withFailureHandler(err => {
+      if (!silent) document.getElementById('txnBody').innerHTML =
+        `<tr><td colspan="11"><div class="empty-state">Could not load: ${esc(err.message)}</div></td></tr>`;
+    })
+    .getTransactions(currentUser.role, currentUser.username, companyFilter, range.from, range.to);
+}
+
+// ============================================================
+// STATUS TAB
+// ============================================================
+function buildStatusTabs(){
+  const bar = document.getElementById('statusTabbar');
+  if (!bar) return;
+  if (currentUser.role === 'Admin') {
+    bar.innerHTML = `
+      <button class="active" data-status="all"      onclick="setStatusTab('all')">All</button>
+      <button data-status="Pending"  onclick="setStatusTab('Pending')">Pending</button>
+      <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>
+      <button data-status="Rejected" onclick="setStatusTab('Rejected')">Rejected</button>`;
+  } else {
+    bar.innerHTML = `
+      <button class="active" data-status="all"      onclick="setStatusTab('all')">All</button>
+      <button data-status="Pending"  onclick="setStatusTab('Pending')">Pending</button>
+      <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>`;
+  }
+  activeStatusTab = 'all';
+}
+function setStatusTab(status, silent){
+  activeStatusTab = status;
+  document.querySelectorAll('#statusTabbar button').forEach(b =>
+    b.classList.toggle('active', b.dataset.status === status));
+  if (!silent) { resetSeqMode(); renderCurrentView(); }
+}
+function applyStatusTab(rows){
+  if (activeStatusTab === 'all') return rows;
+  return rows.filter(r => r.Status === activeStatusTab);
+}
+
+// ============================================================
+// CARD DRILL-DOWN
+// ============================================================
+// What counts as what is set per list in Setup (type: money in/out, moves the bank, received/paid cards, cash sales;
+// mode: cash or not, needs approval; company: sales company) - the card lists use the same flags as the totals.
+const typeIs = (t, f) => !!(TYPE_META[t] && TYPE_META[t][f]);
+const modeIsCash = (m) => !!(MODE_META[m] && MODE_META[m].isCash);
+
+const CARD_FILTERS = {
+  // CHANGE 2: Bank Balance — only entries where Mode is a bank-type mode (not Cash)
+  // Excludes Cash Deposit / Cash Withdrawn (those are internal cash transfers)
+  bankBalance: {
+    label: 'Bank Balance',
+    test: r => {
+      return !modeIsCash(r.Mode) && typeIs(r.Type, 'affectsBank') && r.Status === 'Approved';
+    }
+  },
+
+  // CHANGE 3: Total Received — only "Payment Received" type entries
+  totalReceived: {
+    label: 'Total Received',
+    test: r => typeIs(r.Type, 'received') && r.Status === 'Approved'
+  },
+
+  // CHANGE 4: Total Paid — only "Payment Paid" and "Expense" type entries
+  totalPaid: {
+    label: 'Total Paid',
+    test: r => typeIs(r.Type, 'paid') && r.Status === 'Approved'
+  },
+
+  cashInHand: {
+    label: 'Cash in Hand',
+    test: r => modeIsCash(r.Mode) && r.Status === 'Approved'
+  },
+
+  cashSales: {
+    label: 'Cash Sales',
+    test: r => {
+      return !!(COMPANY_META[r.Company] && COMPANY_META[r.Company].isSales) && modeIsCash(r.Mode) && r.Status === 'Approved'
+        && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect);
+    }
+  },
+
+  pendingEntries: {
+    label: 'Pending Entries',
+    test: r => r.Status === 'Pending'
+  }
+};
+
+function filterCard(key){
+  const def = CARD_FILTERS[key];
+  if (!def) return;
+  activeCardKey = key;
+  currentFilterRows = lastTxnRows.filter(def.test);
+  currentFilterLabel = def.label;
+  document.getElementById('listTitle').textContent = `Transaction List — ${def.label}`;
+  document.getElementById('clearFilterLink').style.display = 'inline';
+  resetSeqMode();
+  renderCurrentView();
+  document.getElementById('txnListPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function clearCardFilter(silent){
+  activeCardKey = null; currentFilterRows = null; currentFilterLabel = '';
+  document.getElementById('clearFilterLink').style.display = 'none';
+  document.getElementById('listTitle').textContent = defaultListTitle();
+  if (!silent) { resetSeqMode(); renderCurrentView(); refreshAll(true); }
+}
+function defaultListTitle(){
+  return currentUser.role === 'Account' ? 'Pending Entries — Approve or Edit'
+       : currentUser.role === 'Admin'   ? 'All Transactions — Full History'
+       : "Today's Entries";
+}
+
+// ============================================================
+// INVOICE SEQUENCE MODE
+// ============================================================
+function toggleInvoiceSeq(){
+  invoiceSeqMode = !invoiceSeqMode;
+  const btn = document.getElementById('seqBtn');
+  const th  = document.getElementById('th_invoice');
+  if (invoiceSeqMode){ btn.textContent='# Seq ON — Reset'; btn.classList.add('seq-active'); if(th) th.classList.add('seq-on'); }
+  else               { btn.textContent='# Seq';            btn.classList.remove('seq-active'); if(th) th.classList.remove('seq-on'); }
+  renderCurrentView();
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function renderCurrentView(){
+  const base = (currentFilterRows !== null) ? currentFilterRows : lastTxnRows;
+  const filtered = applyGlobalSearch(applyColFilters(applyStatusTab(base)));
+  renderRows(filtered);
+}
+
+function highlight(text){
+  if (!globalSearchQuery || !text) return esc(text);
+  const escaped = esc(text);
+  let inv = '';
+  try { inv = JSON.parse(globalSearchQuery).inv||''; } catch(e){ inv = globalSearchQuery; }
+  if (!inv) return escaped;
+  const q = inv.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return escaped.replace(new RegExp(q,'gi'), m => `<mark>${m}</mark>`);
+}
+
+const TYPE_ABBR = {
+  'Payment Received':'Pmt Rcvd','Payment Paid':'Pmt Paid','Sales':'Sales',
+  'Sales Cash':'Sales$','Expense':'Expense','Cash Deposit':'C. Dep.',
+  'Cash Withdrawn':'C. Wdrl.','Sale Return':'Sal. Ret.',
+};
+function abbrevType(t){ return TYPE_ABBR[t] || t; }
+
+const MODE_ABBR = {
+  'Receiving Signed Copy':'RSC','Cash':'Cash','Bank':'Bank','UPI':'UPI',
+  'Cheque':'Cheque','Card':'Card','DEVU':'DEVU','PENDING':'PENDING','DIARY':'DIARY',
+};
+function abbrevMode(m){ return MODE_ABBR[m] || m; }
+
+function renderRows(rows){
+  const wrap  = document.querySelector('.table-wrap');
+  const saveT = wrap ? wrap.scrollTop  : 0;
+  const saveL = wrap ? wrap.scrollLeft : 0;
+
+  const tbody = document.getElementById('txnBody');
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">🔍</div>No entries found for this filter.</div></td></tr>`;
+    if (wrap) { wrap.scrollTop = saveT; wrap.scrollLeft = saveL; }
+    return;
+  }
+
+  let displayRows = rows.slice();
+  if (invoiceSeqMode) {
+    displayRows.sort((a, b) => {
+      const aNum = parseFloat(String(a.Invoice || '').replace(/[^\d.]/g, ''));
+      const bNum = parseFloat(String(b.Invoice || '').replace(/[^\d.]/g, ''));
+      const aHas = !isNaN(aNum) && String(a.Invoice || '').trim() !== '';
+      const bHas = !isNaN(bNum) && String(b.Invoice || '').trim() !== '';
+      if (aHas && bHas)  return aNum - bNum;
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
+      return 0;
+    });
+  }
+
+  tbody.innerHTML = displayRows.map((r, idx) => {
+    const backdatedFlag = r.IsBackdated === 'Yes'
+      ? '<span class="flag-backdated" title="Backdated entry">BD</span>' : '';
+
+    const statusPill =
+      r.Status === 'Pending'  ? '<span class="pill pill-pending"  title="Pending">P</span>'  :
+      r.Status === 'Approved' ? '<span class="pill pill-approved" title="Approved">A</span>' :
+                                '<span class="pill pill-rejected" title="Rejected">R</span>';
+
+    const isOwner = String(r.CreatedBy).toLowerCase() === String(currentUser.username).toLowerCase();
+    let canEdit = false;
+    if      (currentUser.role === 'Admin')   { canEdit = true; }
+    else if (currentUser.role === 'Account') { canEdit = (r.Status === 'Pending') || isOwner; }
+    else if (currentUser.role === 'Cashier') { canEdit = isOwner && r.IsToday; }
+
+    const lockedFlag = (!canEdit && isOwner && currentUser.role === 'Cashier' && !r.IsToday)
+      ? '<span class="flag-locked">🔒 Locked</span>' : '';
+
+    const modeDisplay = (MODE_META[r.Mode] && MODE_META[r.Mode].needsApproval)
+      ? `<span class="mode-pending-badge">${esc(r.Mode)}</span>`
+      : highlight(abbrevMode(r.Mode));
+
+    let actionParts = [];
+    if ((currentUser.role === 'Account' || currentUser.role === 'Admin') && r.Status === 'Pending') {
+      actionParts.push(`<button class="btn btn-approve btn-sm" title="Approve" onclick="decide('${esc(r.TxnID)}','Approved')">✓</button>`);
+      actionParts.push(`<button class="btn btn-reject  btn-sm" title="Reject"  onclick="decide('${esc(r.TxnID)}','Rejected')">✕</button>`);
+    }
+    if (canEdit) {
+      actionParts.push(`<button class="btn btn-edit btn-sm" title="Edit" onclick="openEditModal('${esc(r.TxnID)}')">✏️</button>`);
+    }
+    const action = actionParts.length
+      ? `<div class="row-actions">${actionParts.join('')}</div>`
+      : (r.ApprovedBy
+          ? `<span class="small-note">by ${esc(r.ApprovedBy)}</span>${lockedFlag}`
+          : `<span class="small-note">—</span>${lockedFlag}`);
+
+    const showRemarks = (currentUser && currentUser.role !== 'Cashier');
+
+    let invDisplay;
+    if (invoiceSeqMode) {
+      const hasInvoice = r.Invoice && String(r.Invoice).trim() !== '' && String(r.Invoice).trim() !== '—';
+      invDisplay = `<span style="font-weight:800;color:var(--amber);font-size:13px;">${idx + 1}</span>`
+        + (hasInvoice
+            ? `<span class="inv-sub" style="color:var(--muted);font-size:10px;">${esc(r.Invoice)}</span>`
+            : '');
+    } else {
+      invDisplay = highlight(r.Invoice || '—');
+    }
+
+    return `<tr>
+      <td title="${esc(fmtDate(r.Date))}">${highlight(fmtDate(r.Date))}${backdatedFlag}</td>
+      <td title="${esc(r.Company)}">${highlight(r.Company)}</td>
+      <td title="${esc(r.Type)}">${highlight(abbrevType(r.Type))}</td>
+      <td title="Invoice: ${esc(r.Invoice||'—')}">${invDisplay}</td>
+      <td class="c-party" title="${esc(r.Party||'—')}">${highlight(r.Party || '—')}</td>
+      <td><strong>${rupee(r.Amount)}</strong></td>
+      <td title="${esc(r.Mode)}">${modeDisplay}</td>
+      <td title="${esc(r.CreatedBy)}">${highlight(r.CreatedBy)}</td>
+      <td>${statusPill}</td>
+      ${showRemarks ? `<td class="td-remarks">${highlight(r.Remarks||'—')}</td>` : ''}
+      <td><div class="txnid-label">${esc(r.TxnID)}</div>${action}</td>
+    </tr>`;
+  }).join('');
+
+  if (wrap) { wrap.scrollTop = saveT; wrap.scrollLeft = saveL; }
+}
+
+// ============================================================
+// APPROVE / REJECT
+// ============================================================
+function decide(txnId, decision){
+  const idx = lastTxnRows.findIndex(r => r.TxnID === txnId);
+  if (idx !== -1) {
+    lastTxnRows[idx] = Object.assign({}, lastTxnRows[idx], { Status:decision, ApprovedBy:currentUser.username, ApprovedAt:new Date().toISOString() });
+    if (currentFilterRows) { const fi=currentFilterRows.findIndex(r=>r.TxnID===txnId); if(fi!==-1) currentFilterRows[fi]=lastTxnRows[idx]; }
+    renderCurrentView();
+  }
+  VT.run
+    .withSuccessHandler(res => {
+      if (res.success) { refreshAll(true); }
+      else {
+        if (idx !== -1) {
+          lastTxnRows[idx] = Object.assign({}, lastTxnRows[idx], { Status:'Pending', ApprovedBy:'', ApprovedAt:'' });
+          if (currentFilterRows) { const fi=currentFilterRows.findIndex(r=>r.TxnID===txnId); if(fi!==-1) currentFilterRows[fi]=lastTxnRows[idx]; }
+          renderCurrentView();
+        }
+        alert(res.message || 'Could not update this entry.');
+      }
+    })
+    .withFailureHandler(err => {
+      if (idx !== -1) {
+        lastTxnRows[idx] = Object.assign({}, lastTxnRows[idx], { Status:'Pending', ApprovedBy:'', ApprovedAt:'' });
+        if (currentFilterRows) { const fi=currentFilterRows.findIndex(r=>r.TxnID===txnId); if(fi!==-1) currentFilterRows[fi]=lastTxnRows[idx]; }
+        renderCurrentView();
+      }
+      alert('Server error: ' + err.message);
+    })
+    .approveTransaction(txnId, decision, currentUser.role, currentUser.username);
+}
+
+// ============================================================
+// SIGNED AMOUNT
+// ============================================================
+function signedAmount(r){ return OUT_TYPES.includes(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0); }
+
+// ============================================================
+// EXPORT PDF
+// ============================================================
+function exportFilteredPDF(){
+  const rows = applyGlobalSearch(applyColFilters(applyStatusTab(currentFilterRows || lastTxnRows)));
+  if (!rows || rows.length === 0) { alert('Nothing to export.'); return; }
+  const statusSuffix = activeStatusTab === 'all' ? '' : ` — ${activeStatusTab}`;
+  const title        = `VT — ${currentFilterLabel || 'Transaction List'}${statusSuffix}`;
+  const generatedAt  = new Date().toLocaleString('en-IN');
+  const totalAmount  = rows.reduce((s, r) => s + signedAmount(r), 0);
+  const tableRows = rows.map((r, idx) => `<tr>
+    <td style="text-align:center;">${idx+1}</td>
+    <td>${esc(fmtDate(r.Date))}</td><td>${esc(r.Company)}</td><td>${esc(r.Type)}</td>
+    <td>${esc(r.Invoice||'—')}</td><td>${esc(r.Party||'—')}</td>
+    <td style="text-align:right;">${OUT_TYPES.includes(r.Type)?'-':''}${rupee(r.Amount)}</td>
+    <td>${esc(r.Mode)}</td><td>${esc(r.Remarks||'—')}</td><td>${esc(r.Status)}</td>
+  </tr>`).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+    <style>body{font-family:Arial,sans-serif;padding:20px;color:#1e293b;}h1{font-size:17px;margin:0 0 4px;}
+    p.meta{font-size:11px;color:#64748b;margin:0 0 16px;}table{width:100%;border-collapse:collapse;font-size:11px;}
+    th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;}th{background:#0f2d52;color:#fff;}
+    tfoot td{font-weight:bold;border-top:2px solid #0f2d52;}</style></head><body>
+    <h1>${esc(title)}</h1>
+    <p class="meta">Vardhman Traders — Generated ${esc(generatedAt)} — ${rows.length} entr${rows.length===1?'y':'ies'}</p>
+    <table><thead><tr><th>#</th><th>Date</th><th>Company</th><th>Type</th><th>Invoice</th><th>Party</th><th>Amount</th><th>Mode</th><th>Remarks</th><th>Status</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+    <tfoot><tr><td colspan="7">Net Total</td><td style="text-align:right;">${totalAmount<0?'-':''}${rupee(Math.abs(totalAmount))}</td><td colspan="3"></td></tr></tfoot>
+    </table></body></html>`;
+  const win = window.open('', '_blank');
+  if (!win) { alert('Allow pop-ups for this site to download PDF.'); return; }
+  win.document.open(); win.document.write(html); win.document.close();
+  setTimeout(() => { win.focus(); win.print(); }, 300);
+}
+
+// ============================================================
+// EXPORT EXCEL
+// ============================================================
+function exportFilteredExcel(){
+  const rows = applyGlobalSearch(applyColFilters(applyStatusTab(currentFilterRows || lastTxnRows)));
+  if (!rows || rows.length === 0) { alert('Nothing to export.'); return; }
+  const data = rows.map((r, idx) => ({
+    'S.No'      : idx + 1,
+    'Date'      : fmtDate(r.Date),
+    'Type'      : r.Type,
+    'Company'   : r.Company,
+    'Party'     : r.Party     || '',
+    'Mode'      : r.Mode,
+    'Amount'    : OUT_TYPES.includes(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0),
+    'Invoice'   : r.Invoice   || '',
+    'Remarks'   : r.Remarks   || '',
+    'Created By': r.CreatedBy,
+    'Status'    : r.Status
+  }));
+  const total = rows.reduce((s, r) => s + signedAmount(r), 0);
+  data.push({
+    'S.No':'','Date':'','Type':'','Company':'','Party':'','Mode':'',
+    'Amount': total,
+    'Invoice':'','Remarks':'','Created By':'','Status':'NET TOTAL'
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+  const sfx = activeStatusTab === 'all' ? '' : `-${activeStatusTab}`;
+  XLSX.writeFile(wb, `VT-${(currentFilterLabel||'Transactions').replace(/\s+/g,'-')}${sfx}-${todayISO()}.xlsx`);
+}
+
+// ============================================================
+// EDIT MODAL
+// ============================================================
+let editingTxnId = null;
+
+function openEditModal(txnId){
+  const row = lastTxnRows.find(r => r.TxnID === txnId);
+  if (!row) { alert('Entry not found — try refreshing.'); return; }
+  editingTxnId = txnId;
+  document.getElementById('editTxnIdLabel').textContent = txnId;
+  document.getElementById('editMsg').style.display = 'none';
+  document.getElementById('e_date').value    = row.Date;
+  document.getElementById('e_type').value    = row.Type;
+  document.getElementById('e_company').value = row.Company;
+  document.getElementById('e_amount').value  = Number(row.Amount)||0;
+  document.getElementById('e_invoice').value = row.Invoice  || '';
+  document.getElementById('e_remarks').value = row.Remarks  || '';
+  document.getElementById('e_mode').value    = row.Mode;
+  loadPartiesForEditCompany(row.Company, row.Party || '');
+  document.getElementById('editModal').classList.add('open');
+}
+
+function closeEditModal(){
+  document.getElementById('editModal').classList.remove('open');
+  editingTxnId = null;
+}
+
+function submitEdit(){
+  if (!editingTxnId) return;
+  const payload = {
+    date    : document.getElementById('e_date').value,
+    type    : document.getElementById('e_type').value,
+    company : document.getElementById('e_company').value,
+    party   : document.getElementById('e_party_input').value.trim(),
+    mode    : document.getElementById('e_mode').value,
+    amount  : document.getElementById('e_amount').value,
+    invoice : document.getElementById('e_invoice').value,
+    remarks : document.getElementById('e_remarks').value
+  };
+  const msg = document.getElementById('editMsg');
+  msg.style.display = 'none';
+  if (!payload.date || !payload.type || !payload.company || !payload.amount) {
+    msg.className='err'; msg.style.display='block';
+    msg.textContent='Date, Type, Company and Amount are required.'; return;
+  }
+  VT.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeEditModal(); refreshAll(); }
+      else { msg.className='err'; msg.style.display='block'; msg.textContent=res.message||'Could not update.'; }
+    })
+    .withFailureHandler(err => { msg.className='err'; msg.style.display='block'; msg.textContent='Server error: '+err.message; })
+    .updateTransaction(editingTxnId, payload, currentUser.role, currentUser.username);
+}
+
+// ============================================================
+// SAVE NEW ENTRY
+// ============================================================
+function handleSave(){
+  const payload = {
+    date    : document.getElementById('f_date').value,
+    type    : document.getElementById('f_type').value,
+    company : document.getElementById('f_company').value,
+    party   : document.getElementById('f_party_input').value.trim(),
+    mode    : document.getElementById('f_mode').value,
+    amount  : document.getElementById('f_amount').value,
+    invoice : document.getElementById('f_invoice').value,
+    remarks : document.getElementById('f_remarks').value
+  };
+  const msg = document.getElementById('saveMsg');
+  msg.style.display = 'none';
+  if (!payload.date || !payload.type || !payload.company || !payload.amount) {
+    msg.className='err'; msg.style.display='block';
+    msg.textContent='Date, Type, Company and Amount are required.'; return;
+  }
+  VT.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        msg.className='ok'; msg.style.display='block';
+        msg.textContent = `Saved as ${res.txnId}` +
+          (res.autoApproved ? ' and approved.' : ' — pending Account approval.') +
+          (res.isBackdated ? ' Flagged as backdated.' : '');
+        clearForm(); refreshAll();
+      } else { msg.className='err'; msg.style.display='block'; msg.textContent=res.message||'Could not save.'; }
+    })
+    .withFailureHandler(err => { msg.className='err'; msg.style.display='block'; msg.textContent='Server error: '+err.message; })
+    .saveTransaction(payload, currentUser.role, currentUser.username);
+}
+
+function clearForm(){
+  document.getElementById('f_date').value = todayISO();
+  document.getElementById('f_party_input').value = '';
+  document.getElementById('f_amount').value = '';
+  document.getElementById('f_invoice').value = '';
+  document.getElementById('f_remarks').value = '';
+  const hint = document.getElementById('pendingModeHint');
+  if (hint) hint.style.display = 'none';
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function rupee(n){
+  n = Number(n) || 0;
+  return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+function fmtDate(d){
+  const dt = new Date(d);
+  if (isNaN(dt)) return '—';
+  return dt.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+}
+function esc(s){
+  return String(s===undefined||s===null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

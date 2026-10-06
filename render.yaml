@@ -15,5 +15,13 @@ services:
         sync: false       # paste the Postgres *Internal* Database URL
       - key: JWT_SECRET
         sync: false       # paste a long random string
+      - key: R2_ACCOUNT_ID
+        sync: false       # Cloudflare R2 (order photos); leave blank to hide the photo boxes
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
       - key: DB_POOL_MAX
         value: "15"   # raised now that both services are on paid plans with more connection headroom

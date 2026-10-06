@@ -1,13 +1,10 @@
-"""Server-side screens for the O2D (sales order) app - replaces everything Apps Script's Code.gs did.
-
-Code.gs was a thin proxy: it called this API, mapped names <-> keys, reshaped orders into camelCase for the
-HTML, applied the dashboard date window, computed missing DC/invoice numbers and sent the WhatsApp alert.
-All of that now lives here, in Python, next to the data. The order rules themselves (who may see or edit
+"""Server-side screens for the O2D (sales order) app: the screen data, the dashboard date window, the missing DC/invoice
+numbers and the WhatsApp alert, all computed here next to the data. The order rules themselves (who may see or edit
 what, the test-account guard, cancelled handling) are NOT duplicated: every write goes through
 `main.update_order` / `main.create_order`, so there is one implementation of them.
 
-Response shapes deliberately match what Code.gs returned ({ok, success, message, ...}, camelCase orders),
-so the existing HTML only needs its server calls pointed at these routes (see static/sales/gas-shim.js).
+Response shapes are {ok, success, message, ...} with camelCase orders, which is what the O2D screens read
+(see static/sales/api.js).
 """
 import base64
 import json
@@ -21,7 +18,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
-from . import access, auth, config, db, doc_numbers, roles
+from . import access, attachments, auth, config, db, doc_numbers, roles
 
 log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
@@ -33,7 +30,16 @@ MAX_ROWS = 200
 UNKNOWN_VALUE = "Unknown dropdown value selected. Please refresh and try again."
 
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "https://app.messageautosender.com/api/v1/message/create")
-WHATSAPP_GROUP_ID = os.environ.get("WHATSAPP_GROUP_ID", "120363410985827601@g.us")
+
+
+def _whatsapp_group() -> str:
+    """The group the dispatch alert goes to: setting 'whatsapp_group_id' (admin) first, else the WHATSAPP_GROUP_ID env var.
+    There is deliberately no built-in default - an unconfigured group means no alert, never a message to the wrong chat."""
+    try:
+        configured = config.get("whatsapp_group_id")
+    except Exception:  # the settings table is unreachable: fall back to the environment, never block the order save
+        configured = None
+    return (configured or os.environ.get("WHATSAPP_GROUP_ID") or "").strip()
 
 
 # ------------------------------------------------------------------ helpers
@@ -80,6 +86,7 @@ def map_order(o: dict) -> dict:
         "materialDeliveryDateTime": _iso_datetime(o["material_delivery_datetime"]),
         "dateOfReceiving": _iso_date(o["date_of_receiving"]), "paymentStatus": o["payment_status"] or "",
         "amountReceived": _num(o["amount_received"]), "deliveredByWhom": o["delivered_by"] or "",
+        "deliveredByDetail": o.get("delivered_by_detail") or "",
         "cartage": _num(o["cartage"]), "lastUpdatedBy": o["last_updated_by"] or "",
         "createdBy": o["created_by"] or "",
     }
@@ -92,10 +99,17 @@ def _lookup_rows(kind: str) -> list[dict]:
         return cur.fetchall()
 
 
-def _people_rows(person_role: str) -> list[dict]:
+DISPATCH_SCOPES = {"shop_dispatch": ("both", "shop"), "godown_dispatch": ("both", "godown")}
+
+
+def _people_rows(person_role: str, scopes: tuple | None = None) -> list[dict]:
+    """People for one dropdown. `scopes` limits the delivery list to those offered on one dispatch screen."""
+    sql, params = ("SELECT person_key AS key, full_name AS name FROM dim_person WHERE person_role = %s", [person_role])
+    if scopes:
+        sql += " AND dispatch_scope = ANY(%s)"
+        params.append(list(scopes))
     with db.cursor() as cur:
-        cur.execute("SELECT person_key AS key, full_name AS name FROM dim_person WHERE person_role = %s "
-                    "ORDER BY lower(full_name)", (person_role,))
+        cur.execute(sql + " ORDER BY lower(full_name)", params)
         return cur.fetchall()
 
 
@@ -114,10 +128,11 @@ def _key_by_name(rows, name) -> int | None:
 
 
 def _dropdowns(role: str) -> dict:
-    """The lists each role's form needs (same rule as Code.gs getRoleData_)."""
+    """The lists each role's form needs (by screen)."""
     out: dict[str, list] = {k: [] for k in (
         "orderVia", "typeOfSubmission", "readyByWhom", "colourMakingBy",
         "deliveryStatus", "paymentStatus", "deliveredByWhom")}
+    out["deliveredByCustomTerms"] = config.delivered_by_custom_terms()
     if role == "shop":
         out["orderVia"] = _names(_lookup_rows("channels"))
         out["typeOfSubmission"] = _names(_lookup_rows("submission-types"))
@@ -128,7 +143,7 @@ def _dropdowns(role: str) -> dict:
         out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
     elif role in ("godown_dispatch", "shop_dispatch"):
         out["deliveryStatus"] = _names(_lookup_rows("delivery-statuses"))
-        out["deliveredByWhom"] = _names(_people_rows("delivery"))
+        out["deliveredByWhom"] = _names(_people_rows("delivery", DISPATCH_SCOPES.get(role)))
         out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
     elif role == "receiving":
         out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
@@ -178,15 +193,19 @@ def godown_screen(user=Depends(access.require_page("o2d_godown"))):
 
 
 @router.get("/dispatch")
-def dispatch_screen(user=Depends(access.require_page("o2d_shop_dispatch", "o2d_godown_dispatch"))):
+def dispatch_screen(view_as: str | None = Query(default=None),
+                    user=Depends(access.require_page("o2d_shop_dispatch", "o2d_godown_dispatch"))):
+    # Admin has no dispatch role of its own: it picks which dispatch screen it is looking at ("View as").
+    # Everyone else always gets their own role's lists, whatever is passed.
+    role = view_as if user["role"] == "admin" and view_as in DISPATCH_SCOPES else user["role"]
     orders = _orders(user)
     pending = [o for o in orders if not o["materialDeliveryDateTime"]]
     completed = [o for o in orders
                  if o["materialDeliveryDateTime"] and (not o["dateOfReceiving"] or not o["paymentStatus"])]
     for o in completed:
         o["stuckReason"] = "Receiving pending"
-    return {"ok": True, "dropdowns": _dropdowns(user["role"]), "pending": pending, "completed": completed,
-            "dateWindow": dashboard_window()}
+    return {"ok": True, "dropdowns": _dropdowns(role), "pending": pending, "completed": completed,
+            "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
 
 
 @router.get("/receiving")
@@ -195,7 +214,7 @@ def receiving_screen(user=Depends(access.require_page("o2d_receiving"))):
     return {"ok": True, "dropdowns": _dropdowns("receiving"),
             "pending": [o for o in orders if not o["dateOfReceiving"] or not o["paymentStatus"]],
             "completed": [o for o in orders if o["dateOfReceiving"] and o["paymentStatus"]],
-            "dateWindow": dashboard_window()}
+            "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
 
 
 @router.get("/admin/orders")
@@ -392,7 +411,221 @@ def doc_gaps(user=Depends(ANY_VIEWER)):
     """Bill numbers nobody has punched: Challan per day (from 1), Invoice per financial year."""
     with db.cursor() as cur:
         out = doc_numbers.open_gaps(cur, today_ist())
-    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": user["role"] in roles.CREATE_ORDER_ROLES, **out}
+    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": _can_punch(user), **out}
+
+
+def _can_punch(user) -> bool:
+    """May this person click a missing number and enter it? The shop always could; anyone else only when an
+    admin has switched on the "o2d_missing_entry" page for their role or for them personally."""
+    if user["role"] in roles.CREATE_ORDER_ROLES and not access.is_view_only(user, "o2d_shop"):
+        return True
+    return access.effective_access(user).get("o2d_missing_entry") == "edit"
+
+
+@router.get("/missing-entry/options")
+def missing_entry_options(user=Depends(ANY_VIEWER)):
+    if not _can_punch(user):
+        raise HTTPException(403, access.NO_ACCESS_MESSAGE)
+    return {"ok": True, "orderVia": _names(_lookup_rows("channels")), "typeOfSubmission": _names(_lookup_rows("submission-types"))}
+
+
+# ------------------------------------------------------------------ write screens
+class Form(BaseModel):
+    """The camelCase form the HTML posts. Unknown keys are ignored (the HTML sends a few extras)."""
+    model_config = ConfigDict(extra="ignore")
+    orderRcvdDate: str | None = None
+    orderVia: str | None = None
+    dcNo: str | None = None
+    typeOfSubmission: str | None = None
+    shippingLocation: str | None = None
+    detailedRemarks: str | None = None
+    readyByWhom: str | None = None
+    colourMakingBy: str | None = None
+    deliveryStatus: str | None = None
+    materialDeliveryDateTime: str | None = None
+    deliveredByWhom: str | None = None
+    deliveredByDetail: str | None = None
+    viewAs: str | None = None  # admin only: the dispatch screen being acted on
+    cartage: Any = None
+    dateOfReceiving: str | None = None
+    paymentStatus: str | None = None
+    amountReceived: Any = None
+
+
+def _shop_payload(form: Form, channels, types) -> dict:
+    return {"order_received_date": form.orderRcvdDate, "order_via_key": _key_by_name(channels, form.orderVia),
+            "submission_type_key": _key_by_name(types, form.typeOfSubmission), "dc_inv_no": form.dcNo,
+            "shipping_location": form.shippingLocation or None, "detailed_remarks": form.detailedRemarks or None}
+
+
+def _missing_required(form: Form) -> list[str]:
+    need = [("orderRcvdDate", "Order Received Date"), ("orderVia", "Order Received Thru"),
+            ("dcNo", "DC/Inv No."), ("typeOfSubmission", "Type of Submission")]
+    return [label for attr, label in need if not getattr(form, attr)]
+
+
+@router.post("/orders")
+def add_order(form: Form, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+    from . import main
+    access.require_edit(user, "o2d_shop")
+    missing = _missing_required(form)
+    if missing:
+        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
+    payload = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
+    if not payload["order_via_key"] or not payload["submission_type_key"]:
+        return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
+    try:
+        row = main.create_order(main.OrderIn(**payload), user=user)
+    except HTTPException as e:
+        return {"ok": True, "success": False, "message": str(e.detail)}
+    return {"ok": True, "success": True, "slNo": row["sl_no"]}
+
+
+@router.put("/orders/{sl_no}/shop")
+def update_shop(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
+    access.require_edit(user, "o2d_shop")
+    missing = _missing_required(form)
+    if missing:
+        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
+    return _write(user, sl_no, _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types")))
+
+
+def _receiving_fields(form: Form, payments) -> dict:
+    p: dict = {}
+    if form.dateOfReceiving:
+        p["date_of_receiving"] = form.dateOfReceiving
+    if form.paymentStatus:
+        p["payment_status_key"] = _key_by_name(payments, form.paymentStatus)
+    if _has(form.amountReceived):
+        p["amount_received"] = float(form.amountReceived)
+    return p
+
+
+@router.put("/orders/{sl_no}/godown")
+def update_godown(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
+    access.require_edit(user, "o2d_godown")
+    p: dict = {}
+    if form.readyByWhom:
+        p["ready_by_person_key"] = _key_by_name(_people_rows("ready_by"), form.readyByWhom)
+    if form.colourMakingBy:
+        p["colour_making_person_key"] = _key_by_name(_people_rows("colour_making"), form.colourMakingBy)
+    if form.deliveryStatus:
+        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
+    if form.paymentStatus is not None or form.dateOfReceiving or _has(form.amountReceived):
+        p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
+    return _write(user, sl_no, p)
+
+
+def _delivered_by(p: dict, form: Form, scopes: tuple | None) -> str | None:
+    """Fill the delivered-by fields of an update. Returns an error message, or None when fine.
+    Porter / By Company / Transport (admin setting) need the free-text detail; every other person clears it."""
+    key = _key_by_name(_people_rows("delivery", scopes), form.deliveredByWhom)
+    if key is None:
+        return UNKNOWN_VALUE
+    p["delivered_by_person_key"] = key
+    if config.needs_delivered_by_detail(form.deliveredByWhom):
+        detail = " ".join((form.deliveredByDetail or "").split())
+        if not detail:
+            return f"Please fill in the details for '{form.deliveredByWhom}' (name / company / vehicle)."
+        p["delivered_by_detail"] = detail[:200]
+    else:
+        p["delivered_by_detail"] = None
+    return None
+
+
+@router.put("/orders/{sl_no}/dispatch")
+def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
+    access.require_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
+    before = None
+    if user["role"] == "godown_dispatch":
+        from . import main
+        try:
+            before = map_order(main.get_order(sl_no, archived=None, user=user))
+        except HTTPException:
+            before = None
+    p: dict = {}
+    if form.deliveryStatus:
+        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
+    if form.materialDeliveryDateTime:
+        p["material_delivery_datetime"] = form.materialDeliveryDateTime
+    if form.deliveredByWhom:
+        err = _delivered_by(p, form, DISPATCH_SCOPES.get(user["role"] if user["role"] != "admin" else form.viewAs))
+        if err:
+            return {"ok": True, "success": False, "message": err}
+    if _has(form.cartage):
+        p["cartage"] = float(form.cartage)
+    if form.paymentStatus is not None:  # payment inputs are only sent when this role is allowed them
+        p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
+    result = _write(user, sl_no, p)
+    if result["success"] and user["role"] == "godown_dispatch" and before is not None:
+        updated = result["order"]
+        was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
+        now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
+        if was_empty and now_filled:
+            try:
+                send_dispatch_alert(updated)
+            except Exception:  # the order is saved; a failed alert must never undo or fail that
+                log.exception("WhatsApp dispatch alert failed (order %s saved fine)", sl_no)
+    result.pop("order", None)
+    return result
+
+
+@router.put("/orders/{sl_no}/receiving")
+def update_receiving(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
+    access.require_edit(user, "o2d_receiving")
+    result = _write(user, sl_no, _receiving_fields(form, _lookup_rows("payment-statuses")))
+    result.pop("order", None)
+    return result
+
+
+@router.put("/orders/{sl_no}/admin")
+def update_admin(sl_no: int, form: Form, archived: bool = False, user=Depends(ADMIN_ONLY)):
+    p = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
+    p = {k: v for k, v in p.items() if v is not None}  # admin edits only what was filled in
+    if form.dcNo is not None:
+        p["dc_inv_no"] = form.dcNo
+    if form.shippingLocation is not None:  # admin may clear these two
+        p["shipping_location"] = form.shippingLocation or None
+    if form.detailedRemarks is not None:
+        p["detailed_remarks"] = form.detailedRemarks or None
+    if form.readyByWhom:
+        p["ready_by_person_key"] = _key_by_name(_people_rows("ready_by"), form.readyByWhom)
+    if form.colourMakingBy:
+        p["colour_making_person_key"] = _key_by_name(_people_rows("colour_making"), form.colourMakingBy)
+    if form.deliveryStatus:
+        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
+    if form.materialDeliveryDateTime:
+        p["material_delivery_datetime"] = form.materialDeliveryDateTime
+    if form.deliveredByWhom:
+        err = _delivered_by(p, form, None)
+        if err:
+            return {"ok": True, "success": False, "message": err}
+    if _has(form.cartage):
+        p["cartage"] = float(form.cartage)
+    p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
+    result = _write(user, sl_no, p, archived=True if archived else None)
+    result.pop("order", None)
+    return result
+
+
+@router.post("/missing-entry")
+def missing_entry(form: Form, user=Depends(ANY_VIEWER)):
+    """Enter an order for a missing bill number. Same rules as the shop's order form (all required fields,
+    no duplicate numbers); the only difference is who may use it, which is the admin-set page access."""
+    from . import main
+    if not _can_punch(user):
+        raise HTTPException(403, access.NO_ACCESS_MESSAGE)
+    missing = _missing_required(form)
+    if missing:
+        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
+    payload = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
+    if not payload["order_via_key"] or not payload["submission_type_key"]:
+        return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
+    try:
+        row = main.insert_order(main.OrderIn(**payload), user, check_fields=False)
+    except HTTPException as e:
+        return {"ok": True, "success": False, "message": str(e.detail)}
+    return {"ok": True, "success": True, "slNo": row["sl_no"]}
 
 
 class GapVoid(BaseModel):
@@ -408,6 +641,7 @@ def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
     """Close a missing number (or a run of them) that needs no punch, e.g. the bill was voided in BUSY."""
     if user["role"] not in GAP_RESOLVERS:
         raise HTTPException(403, "Only admin or the shop can close a missing number.")
+    access.require_edit(user, "o2d_shop")
     reason = body.reason.strip()
     if body.doc_type not in ("Challan", "Invoice"):
         raise HTTPException(422, "doc_type must be Challan or Invoice")
@@ -434,158 +668,7 @@ def doc_check(doc_type: str, date_: date = Query(alias="date"), number: int = Qu
         return {"ok": True, **doc_numbers.check_entry(cur, doc_type, date_, number)}
 
 
-# ------------------------------------------------------------------ write screens
-class Form(BaseModel):
-    """The camelCase form the HTML posts. Unknown keys are ignored (the HTML sends a few extras)."""
-    model_config = ConfigDict(extra="ignore")
-    orderRcvdDate: str | None = None
-    orderVia: str | None = None
-    dcNo: str | None = None
-    typeOfSubmission: str | None = None
-    shippingLocation: str | None = None
-    detailedRemarks: str | None = None
-    readyByWhom: str | None = None
-    colourMakingBy: str | None = None
-    deliveryStatus: str | None = None
-    materialDeliveryDateTime: str | None = None
-    deliveredByWhom: str | None = None
-    cartage: Any = None
-    dateOfReceiving: str | None = None
-    paymentStatus: str | None = None
-    amountReceived: Any = None
-
-
-def _shop_payload(form: Form, channels, types) -> dict:
-    return {"order_received_date": form.orderRcvdDate, "order_via_key": _key_by_name(channels, form.orderVia),
-            "submission_type_key": _key_by_name(types, form.typeOfSubmission), "dc_inv_no": form.dcNo,
-            "shipping_location": form.shippingLocation or None, "detailed_remarks": form.detailedRemarks or None}
-
-
-def _missing_required(form: Form) -> list[str]:
-    need = [("orderRcvdDate", "Order Received Date"), ("orderVia", "Order Received Thru"),
-            ("dcNo", "DC/Inv No."), ("typeOfSubmission", "Type of Submission")]
-    return [label for attr, label in need if not getattr(form, attr)]
-
-
-@router.post("/orders")
-def add_order(form: Form, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
-    from . import main
-    missing = _missing_required(form)
-    if missing:
-        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
-    payload = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
-    if not payload["order_via_key"] or not payload["submission_type_key"]:
-        return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
-    try:
-        row = main.create_order(main.OrderIn(**payload), user=user)
-    except HTTPException as e:
-        return {"ok": True, "success": False, "message": str(e.detail)}
-    return {"ok": True, "success": True, "slNo": row["sl_no"]}
-
-
-@router.put("/orders/{sl_no}/shop")
-def update_shop(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    missing = _missing_required(form)
-    if missing:
-        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
-    return _write(user, sl_no, _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types")))
-
-
-def _receiving_fields(form: Form, payments) -> dict:
-    p: dict = {}
-    if form.dateOfReceiving:
-        p["date_of_receiving"] = form.dateOfReceiving
-    if form.paymentStatus:
-        p["payment_status_key"] = _key_by_name(payments, form.paymentStatus)
-    if _has(form.amountReceived):
-        p["amount_received"] = float(form.amountReceived)
-    return p
-
-
-@router.put("/orders/{sl_no}/godown")
-def update_godown(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    p: dict = {}
-    if form.readyByWhom:
-        p["ready_by_person_key"] = _key_by_name(_people_rows("ready_by"), form.readyByWhom)
-    if form.colourMakingBy:
-        p["colour_making_person_key"] = _key_by_name(_people_rows("colour_making"), form.colourMakingBy)
-    if form.deliveryStatus:
-        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
-    if form.paymentStatus is not None or form.dateOfReceiving or _has(form.amountReceived):
-        p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
-    return _write(user, sl_no, p)
-
-
-@router.put("/orders/{sl_no}/dispatch")
-def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    before = None
-    if user["role"] == "godown_dispatch":
-        from . import main
-        try:
-            before = map_order(main.get_order(sl_no, archived=None, user=user))
-        except HTTPException:
-            before = None
-    p: dict = {}
-    if form.deliveryStatus:
-        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
-    if form.materialDeliveryDateTime:
-        p["material_delivery_datetime"] = form.materialDeliveryDateTime
-    if form.deliveredByWhom:
-        p["delivered_by_person_key"] = _key_by_name(_people_rows("delivery"), form.deliveredByWhom)
-    if _has(form.cartage):
-        p["cartage"] = float(form.cartage)
-    if form.paymentStatus is not None:  # payment inputs are only sent when this role is allowed them
-        p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
-    result = _write(user, sl_no, p)
-    if result["success"] and user["role"] == "godown_dispatch" and before is not None:
-        updated = result["order"]
-        was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
-        now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
-        if was_empty and now_filled:
-            try:
-                send_dispatch_alert(updated)
-            except Exception:  # the order is saved; a failed alert must never undo or fail that
-                log.exception("WhatsApp dispatch alert failed (order %s saved fine)", sl_no)
-    result.pop("order", None)
-    return result
-
-
-@router.put("/orders/{sl_no}/receiving")
-def update_receiving(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    result = _write(user, sl_no, _receiving_fields(form, _lookup_rows("payment-statuses")))
-    result.pop("order", None)
-    return result
-
-
-@router.put("/orders/{sl_no}/admin")
-def update_admin(sl_no: int, form: Form, archived: bool = False, user=Depends(ADMIN_ONLY)):
-    p = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
-    p = {k: v for k, v in p.items() if v is not None}  # admin edits only what was filled in
-    if form.dcNo is not None:
-        p["dc_inv_no"] = form.dcNo
-    if form.shippingLocation is not None:  # admin may clear these two
-        p["shipping_location"] = form.shippingLocation or None
-    if form.detailedRemarks is not None:
-        p["detailed_remarks"] = form.detailedRemarks or None
-    if form.readyByWhom:
-        p["ready_by_person_key"] = _key_by_name(_people_rows("ready_by"), form.readyByWhom)
-    if form.colourMakingBy:
-        p["colour_making_person_key"] = _key_by_name(_people_rows("colour_making"), form.colourMakingBy)
-    if form.deliveryStatus:
-        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
-    if form.materialDeliveryDateTime:
-        p["material_delivery_datetime"] = form.materialDeliveryDateTime
-    if form.deliveredByWhom:
-        p["delivered_by_person_key"] = _key_by_name(_people_rows("delivery"), form.deliveredByWhom)
-    if _has(form.cartage):
-        p["cartage"] = float(form.cartage)
-    p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
-    result = _write(user, sl_no, p, archived=True if archived else None)
-    result.pop("order", None)
-    return result
-
-
-# ------------------------------------------------------------------ WhatsApp alert (was Code.gs)
+# ------------------------------------------------------------------ WhatsApp alert
 def _fmt_date(iso: str) -> str:
     parts = str(iso or "").split("-")
     return f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else str(iso or "")
@@ -610,7 +693,10 @@ def send_dispatch_alert(o: dict, post=_http_post) -> dict:
     user, pwd = os.environ.get("WHATSAPP_API_USERNAME"), os.environ.get("WHATSAPP_API_PASSWORD")
     if not user or not pwd:
         return {"skipped": True, "reason": "WhatsApp credentials not set."}
-    body = json.dumps({"recipientIds": [WHATSAPP_GROUP_ID], "message": [build_dispatch_message(o)]}).encode()
+    group = _whatsapp_group()
+    if not group:
+        return {"skipped": True, "reason": "WhatsApp group not set."}
+    body = json.dumps({"recipientIds": [group], "message": [build_dispatch_message(o)]}).encode()
     headers = {"Content-Type": "application/json",
                "Authorization": "Basic " + base64.b64encode(f"{user}:{pwd}".encode()).decode()}
     code, text = post(WHATSAPP_API_URL, body, headers)

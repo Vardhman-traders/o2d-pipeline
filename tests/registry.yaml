@@ -149,3 +149,68 @@ entries:
     tests:
       - tests/test_access.py::test_order_timeline_records_each_step
       - tests/test_access.py::test_order_without_recorded_events_gets_a_reconstructed_timeline
+  - id: O2D-DELIV-1
+    what: Delivered-by lists differ per dispatch screen (admin "View as" gets them); Porter / By Company / Transport need details
+    speed: fast
+    tests:
+      - tests/test_o2d_features.py::test_delivered_by_detail_trigger
+      - tests/test_o2d_features.py::test_delivery_lists_differ_per_dispatch_screen_and_admin_view_as_gets_them
+      - tests/test_o2d_features.py::test_porter_needs_details_and_other_people_clear_them
+  - id: O2D-GAP-1
+    what: Clicking a missing number to enter it is an admin-switched page, and duplicates are still refused
+    speed: fast
+    tests: [tests/test_o2d_features.py::test_missing_number_entry_is_a_page_the_admin_switches_on]
+  - id: O2D-PHOTO-1
+    what: Order photos (R2) - off until configured, role/page gated, follow order visibility, capped per order
+    speed: fast
+    tests:
+      - tests/test_o2d_features.py::test_photos_are_off_until_storage_is_configured
+      - tests/test_o2d_features.py::test_photo_upload_and_listing_follow_order_visibility
+      - tests/test_o2d_features.py::test_photo_limit_per_order_and_kind
+  - id: O2D-REPORT-1
+    what: PDF reports need the Reports page and render for every report
+    speed: fast
+    tests:
+      - tests/test_o2d_features.py::test_pdf_has_title_created_by_and_approved_by
+      - tests/test_o2d_features.py::test_reports_need_the_page_and_list_only_open_orders
+  - id: ACCESS-3
+    what: View-only page access - the screen opens and reads, every save/enter/upload is refused
+    speed: fast
+    tests: [tests/test_o2d_features.py::test_view_only_page_access_opens_the_screen_but_blocks_every_save]
+  - id: PAY-1
+    what: Payments - roles come from pages; cashier entries wait for approval by the mode flag; locked-day and own-entry rules; view-only
+    speed: fast
+    tests:
+      - tests/test_modules.py::test_roles_come_from_pages_and_cashier_entries_follow_the_mode_flags
+      - tests/test_modules.py::test_cashier_edit_and_visibility_rules
+      - tests/test_modules.py::test_payments_view_only_cannot_save
+  - id: PAY-2
+    what: Payments dashboard totals follow the list flags (received/paid, bank, cash, sales companies); parties scoped by company and type
+    speed: fast
+    tests:
+      - tests/test_modules.py::test_dashboard_totals_follow_the_list_flags
+      - tests/test_modules.py::test_parties_are_scoped_by_company_and_type_and_added_on_first_use
+  - id: DELEG-1
+    what: Delegation - assign, complete, send back, approve; scoring, privacy, week classification and plan; extension counts red
+    speed: fast
+    tests:
+      - tests/test_modules.py::test_task_lifecycle_scoring_and_week
+      - tests/test_modules.py::test_missed_deadline_extension_costs_points_and_counts_red
+      - tests/test_modules.py::test_week_runs_from_the_configured_day
+  - id: DELEG-2
+    what: Delegation scoring rules are admin settings, not constants
+    speed: fast
+    tests: [tests/test_modules.py::test_delegation_scoring_rules_are_settings]
+  - id: PO-1
+    what: Purchase - sites by page, shared vendor list, admin-only delete checked on the server, photos attach/detach
+    speed: fast
+    tests:
+      - tests/test_modules.py::test_purchase_sites_and_admin_delete
+      - tests/test_modules.py::test_purchase_photos_attach_on_save_and_drop_when_removed
+  - id: MOD-1
+    what: Setup manages the module lists and sub-page access; module tiles follow access; admin overview shows module KPIs
+    speed: fast
+    tests:
+      - tests/test_modules.py::test_master_lists_are_managed_in_setup_and_protected_when_used
+      - tests/test_modules.py::test_new_pages_and_module_tiles_follow_access
+      - tests/test_modules.py::test_admin_overview_kpis

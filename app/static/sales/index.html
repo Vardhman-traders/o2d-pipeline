@@ -4,7 +4,7 @@
 <base target="_top">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vardhman Traders - Sales Portal</title>
-<script src="gas-shim.js"></script>
+<script src="api.js"></script>
 <style>
   :root {
     --navy: #10263d; --navy-2: #163a5e; --blue: #1c4f82; --blue-2: #2f6fed; --blue-light: #4d8fe0;
@@ -145,6 +145,30 @@
   .pill.blank     { background: rgba(107,118,128,0.12); color: var(--muted); }
   .empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
   .error-banner { background: rgba(216,67,63,0.1); border: 1px solid var(--red); color: var(--red); padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; white-space: pre-wrap; word-break: break-word; }
+  /* view-only: the screen stays readable, every way of saving is hidden (the server refuses them anyway) */
+  body.view-only button.small[onclick*="OpenEdit"], body.view-only #shop_newOrderCard, body.view-only #shop_editCard,
+  body.view-only #godown_editCard, body.view-only #dispatch_editCard, body.view-only #receiving_editCard { display: none !important; }
+  .view-only-note { display: none; background: rgba(201,138,18,0.12); border: 1px solid rgba(201,138,18,0.4); color: #8a5d0b; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+  body.view-only .view-only-note { display: block; }
+  .card.accent-cartage { border-left: 4px solid #c2410c; }
+  body.view-only #cartage_editCard { display: none !important; }
+  /* sortable tables (click a heading; sorts the rows on screen only) */
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--blue-2); }
+  th.sortable::after { content: ' 95'; opacity: 0.35; font-size: 10px; }
+  th.sortable[data-dir="asc"]::after { content: ' B2'; opacity: 1; }
+  th.sortable[data-dir="desc"]::after { content: ' BC'; opacity: 1; }
+  /* missing-number pills + entry dialog */
+  button.gap-pill { background: var(--red); color: #fff; border: none; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+  button.gap-pill:hover { filter: brightness(1.12); }
+  .mm-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,0.5); z-index: 2000; display: none; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 40px 12px; }
+  .mm-box { background: var(--panel); border-radius: 12px; width: 100%; max-width: 560px; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+  .mm-box h2 { margin: 0 0 14px 0; font-size: 16px; color: var(--navy); }
+  /* photos */
+  .photo-box { grid-column: 1 / -1; border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+  .photo-box .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .photo-box .thumbs a, .photo-box .thumbs span.t { display: block; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--panel-2); font-size: 10px; color: var(--muted); }
+  .photo-box .thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
 </style>
 </head>
 <body>
@@ -303,12 +327,6 @@
       <!-- Admin only: back to the main portal, and view as the overview or any of the 5 operating screens -->
       <button id="backToPortalBtn" class="btn-home" style="display:none;" onclick="window.location.href='/'">⌂ Back to Portal</button>
       <select id="adminViewSwitcher" style="display:none;height:28px;border-radius:6px;border:none;font-size:12px;font-weight:600;padding:0 6px;" onchange="adminSwitchView(this.value)">
-        <option value="overview">View as: Overview</option>
-        <option value="shop">View as: Shop</option>
-        <option value="godown">View as: Godown</option>
-        <option value="shop_dispatch">View as: Shop Dispatch</option>
-        <option value="godown_dispatch">View as: Godown Dispatch</option>
-        <option value="receiving">View as: Receiving</option>
       </select>
       <!-- Search bar -->
       <div id="topbar_search" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:5px 8px;">
@@ -354,6 +372,26 @@
         <div class="ov-row"><span class="ov-label">Filter by</span><span id="overview_filters" class="ov-row" style="margin:0;"></span></div>
       </div>
       <div id="overview_summary" class="ov-summary"></div>
+      <div class="card accent-godown" id="overview_reportsCard" style="margin-bottom:16px;display:none;">
+        <h2>📄 Reports (PDF)</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
+          <span style="font-size:12px;color:var(--muted);">Dates (optional)</span>
+          <input type="date" id="rep_from" aria-label="Report from date" style="width:auto;">
+          <input type="date" id="rep_to" aria-label="Report to date" style="width:auto;">
+          <select id="rep_person" aria-label="Delivery person for the cartage history report" style="width:auto;"><option value="">Delivery person (for cartage history)</option></select>
+          <span id="rep_msg" class="status-msg"></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <button type="button" class="ov-btn" onclick="downloadReport_('godown-pending', this)">⬇ Godown - pending orders</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('shop-dispatch-pending', this)">⬇ Shop Dispatch - pending orders</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('godown-dispatch-pending', this)">⬇ Godown Dispatch - pending orders</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-pending', this)">⬇ Godown Receiving - awaiting receiving</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-received', this)">⬇ Godown Receiving - received &amp; payments</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-detail', this, { from: 'rep_from', to: 'rep_to', msg: 'rep_msg', person: 'rep_person', need: 'person' })">⬇ Cartage history (one delivery boy)</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this)">⬇ Cartage - paid to each person</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">A4 landscape, ready to print. Cancelled orders are left out. Leave the dates empty for everything still open.</div>
+      </div>
       <div class="card accent-shop" style="margin-bottom:16px;">
         <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="overview_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ No missing bill numbers</div>
@@ -369,6 +407,7 @@
       <div id="overview_board" class="ov-board"></div>
     </div>
 
+    <div class="view-only-note">👁 View only: you can see everything on this screen, but changes cannot be saved from your login.</div>
     <div id="reminderBox" class="rem-box" style="display:none;" role="alert"></div>
 
     <div id="ovModal" class="ov-modal" style="display:none;" onclick="if(event.target===this)closeOrderModal()">
@@ -435,7 +474,7 @@
         </form>
       </div>
 
-      <div class="card accent-shop">
+      <div class="card accent-shop" id="shop_newOrderCard">
         <h2>🧾 New Order</h2>
         <form id="shopOrderForm">
           <div class="grid">
@@ -587,13 +626,17 @@
             </div>
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">3</span>Delivered By Whom<span class="required-star">*</span></label>
-              <select id="dispatch_deliveredByWhom" required><option value="">-- select --</option></select>
+              <select id="dispatch_deliveredByWhom" required onchange="dispatchToggleDetail()"><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="dispatch_deliveredByDetailField" style="display:none;">
+              <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">3a</span>Porter / Company / Transport details<span class="required-star">*</span></label>
+              <input type="text" id="dispatch_deliveredByDetail" maxlength="200" placeholder="Name, company or vehicle no.">
             </div>
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--dispatch-color);">4</span>Cartage (In Rupees)</label>
               <input type="number" id="dispatch_cartage" min="0" step="1">
             </div>
-            <!-- Shop Dispatch only fields -->
+            <!-- Shop Dispatch & Receiving only fields -->
             <div class="field" id="dispatch_dateOfReceivingField" style="display:none;">
               <label>Date of Receiving</label>
               <input type="text" class="dp-input" id="dispatch_dateOfReceiving" readonly placeholder="dd-mm-yyyy" onclick="openDatePicker('dispatch_dateOfReceiving')">
@@ -607,6 +650,8 @@
               <label>Amount Received (Rs)</label>
               <input type="number" id="dispatch_amountReceived" min="0" step="1" placeholder="0">
             </div>
+            <div class="photo-box" id="dispatchPhoto_box" style="display:none;"></div>
+            <div class="photo-box" id="dispatchRecvPhoto_box" style="display:none;"></div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="dispatch_saveBtn">Save</button>
@@ -638,6 +683,61 @@
       </div>
     </div>
 
+    <!-- ================= CARTAGE SECTION ================= -->
+    <div id="cartageSection" style="display:none;">
+      <div id="cartage_errorBanner" class="error-banner" style="display:none;"></div>
+
+      <div class="card accent-cartage">
+        <h2>🚚 Cartage History Report <span class="count" id="cartage_count">0</span></h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
+          <span style="font-size:12px;color:var(--muted);">Date of receiving - from</span>
+          <input type="date" id="cartage_from" aria-label="Cartage from date" style="width:auto;">
+          <span style="font-size:12px;color:var(--muted);">to</span>
+          <input type="date" id="cartage_to" aria-label="Cartage to date" style="width:auto;">
+          <select id="cartage_person" aria-label="Delivery boy" style="width:auto;"><option value="">All delivery people</option></select>
+          <button type="button" class="ov-btn" onclick="initCartage()">Apply</button>
+          <button type="button" class="ov-btn" onclick="document.getElementById('cartage_from').value='';document.getElementById('cartage_to').value='';initCartage()">Clear dates</button>
+          <span style="flex:1"></span>
+          <button type="button" class="ov-btn" onclick="cartageDetailPdf_(this)">⬇ Generate PDF (chosen delivery boy)</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this, CARTAGE_IDS)">⬇ Paid to each person (PDF)</button>
+          <span id="cartage_msg" class="status-msg"></span>
+        </div>
+        <div id="cartage_summary" class="ov-summary"></div>
+      </div>
+
+      <div class="card accent-cartage" id="cartage_editCard" style="display:none;">
+        <h2>✏️ Update Cartage <span id="cartage_editingInfo"></span></h2>
+        <form id="cartageEditForm">
+          <div class="grid">
+            <div class="field"><label>Cartage (In Rupees)</label><input type="number" id="cartage_amount" min="0" step="1"></div>
+            <div class="field"><label>Delivered By Whom</label><select id="cartage_deliveredBy"><option value="">-- select --</option></select></div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="cartage_saveBtn">Save</button>
+            <button type="button" class="ghost" onclick="cartageCloseEdit()">Cancel</button>
+            <span id="cartage_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-cartage">
+        <h2>👷 Paid to each delivery person</h2>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Delivery Person</th><th>Deliveries</th><th>With Cartage</th><th>Total Cartage (Rs)</th><th>Average per Paid Delivery (Rs)</th></tr></thead>
+          <tbody id="cartage_employeeBody"></tbody>
+        </table></div>
+      </div>
+
+      <div class="card accent-cartage">
+        <h2>📋 Deliveries and cartage <span style="font-size:12px;font-weight:400;color:var(--muted);">(full order details)</span></h2>
+        <div class="table-scroll"><table id="cartage_table" style="min-width:2400px;">
+          <thead id="cartage_head"></thead>
+          <tbody id="cartage_body"></tbody>
+        </table>
+        <div class="empty" id="cartage_empty" style="display:none;">No deliveries in this period.</div></div>
+      </div>
+    </div>
+
     <!-- ================= RECEIVING SECTION ================= -->
     <div id="receivingSection" style="display:none;">
       <div id="receiving_errorBanner" class="error-banner" style="display:none;"></div>
@@ -660,6 +760,7 @@
               <label class="with-badge"><span class="field-badge" style="background:var(--receiving-color);">3</span>Amount Rcvd</label>
               <input type="number" id="receiving_amountReceived" min="0" step="1">
             </div>
+            <div class="photo-box" id="receivingPhoto_box" style="display:none;"></div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="receiving_saveBtn">Save</button>
@@ -691,6 +792,27 @@
       </div>
     </div>
 
+    <div class="mm-backdrop" id="mm_backdrop" onclick="if(event.target===this)closeMissingEntry_()">
+      <div class="mm-box" role="dialog" aria-modal="true" aria-labelledby="mm_title">
+        <h2 id="mm_title">Enter missing number</h2>
+        <form id="mm_form">
+          <div class="grid">
+            <div class="field"><label>Order Received Date<span class="required-star">*</span></label><input type="date" id="mm_date" required></div>
+            <div class="field"><label>Order Received Thru<span class="required-star">*</span></label><select id="mm_via" required><option value="">-- select --</option></select></div>
+            <div class="field"><label>Type of Submission<span class="required-star">*</span></label><select id="mm_type" required><option value="">-- select --</option></select></div>
+            <div class="field"><label>DC / Inv No.<span class="required-star">*</span></label><input type="text" id="mm_dcNo" required readonly></div>
+          </div>
+          <div class="field" style="margin-top:10px;"><label>Shipping Location / Customer</label><input type="text" id="mm_loc" placeholder="e.g. Rohini, Pitampura"></div>
+          <div class="field" style="margin-top:10px;"><label>Detailed Remarks</label><textarea id="mm_remarks" placeholder="Full shipping address, contact number, rate notes, etc."></textarea></div>
+          <div class="actions">
+            <button type="submit" class="primary" id="mm_save">Save Order</button>
+            <button type="button" class="ghost" onclick="closeMissingEntry_()">Cancel</button>
+            <span id="mm_msg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div style="text-align:center;margin-top:10px;">
       <a href="#" onclick="loadDebugInfo();return false;" style="font-size:12px;color:var(--muted);">🔧 Debug info</a>
       <pre id="debugOutput" style="display:none;text-align:left;background:#111;color:#9fdc9f;font-size:11px;padding:14px;border-radius:8px;margin-top:10px;overflow:auto;max-height:300px;"></pre>
@@ -705,37 +827,41 @@
   var CURRENT_USER_NAME = null;
   var AUTO_REFRESH_TIMER = null;
 
+  // The screens (names, titles, which block each shows, whether the search bar applies) come from the server -
+  // one list in app/access.py - so adding or renaming a screen never needs a change here.
+  function screenOf_(view) { return (window.O2D_SCREENS || []).filter(function (s) { return s.view === view; })[0]; }
   function titleForRole(role) {
-    var prefix = IS_ADMIN ? 'Admin · ' : '';
-    if (role === 'overview')         return prefix + 'Overview';
-    if (role === 'shop')             return prefix + 'Shop Dashboard';
-    if (role === 'godown')           return prefix + 'Godown Dashboard';
-    if (role === 'shop_dispatch')    return prefix + 'Shop Dispatch Dashboard';
-    if (role === 'godown_dispatch')  return prefix + 'Godown Dispatch Dashboard';
-    if (role === 'receiving')        return prefix + 'Receiving Dashboard';
-    return prefix + 'Dashboard';
+    var s = screenOf_(role);
+    return (IS_ADMIN ? 'Admin · ' : '') + (s ? s.title : 'Dashboard');
   }
 
   // Admin has no operating screen of its own - it views (and can act on) any of the six, switchable here.
+  // View-only access (Setup > Access > "View only") for the screen being shown
+  function applyViewOnly_() {
+    var s = screenOf_(CURRENT_ROLE), page = s && s.view !== 'overview' ? s.page : null;
+    var on = !IS_ADMIN && !!page && (window.O2D_VIEW_ONLY || []).indexOf(page) !== -1;
+    document.body.classList.toggle('view-only', on);
+  }
+
   function adminSwitchView(role) {
     CURRENT_ROLE = role;
-    ['overviewSection', 'shopSection', 'godownSection', 'dispatchSection', 'receivingSection'].forEach(function(id) {
-      var el = document.getElementById(id);
+    (window.O2D_SCREENS || []).forEach(function(s) {
+      var el = document.getElementById(s.section);
       if (el) el.style.display = 'none';
     });
     var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
     if (section) section.style.display = 'block';
     document.body.classList.toggle('wide', CURRENT_ROLE === 'overview');
     document.getElementById('roleTitle').textContent = titleForRole(CURRENT_ROLE);
-    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
-    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    var scr = screenOf_(CURRENT_ROLE);
+    document.getElementById('topbar_search').style.display = scr && scr.search ? 'flex' : 'none';
     document.getElementById('adminViewSwitcher').value = CURRENT_ROLE;
     refreshCurrent();
   }
 
   function sectionIdForRole(role) {
-    if (role === 'shop_dispatch' || role === 'godown_dispatch') return 'dispatchSection';
-    return role + 'Section';
+    var s = screenOf_(role);
+    return s ? s.section : role + 'Section';
   }
 
   function formatDateDisplay(iso) {
@@ -801,12 +927,17 @@
   function gapRangeLabel_(r) { return r.from === r.to ? String(r.from) : r.from + '–' + r.to; }
 
   function gapRowHtml_(docType, seriesKey, r, data, prefix) {
+    var MAXPILLS = 30, pills = '';
+    for (var n = r.from; n <= r.to && n < r.from + MAXPILLS; n++) {
+      pills += data.canPunch
+        ? '<button type="button" class="gap-pill" title="Click to enter this number" onclick="openMissingEntry_(\'' + docType + '\',\'' + seriesKey + '\',' + n + ')">' + n + '</button> '
+        : '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + n + '</span> ';
+    }
+    if (r.count > MAXPILLS) pills += '<span style="font-size:12px;color:var(--muted);">+ ' + (r.count - MAXPILLS) + ' more (' + (r.from + MAXPILLS) + '–' + r.to + ')</span>';
     var btns = '';
     var args = "'" + docType + "','" + seriesKey + "'," + r.from + ',' + r.to;
-    if (prefix === 'shop' && data.canPunch) btns += '<button type="button" class="small" onclick="punchMissing_(' + args + ')">Punch now</button> ';
-    if (data.canResolve) btns += '<button type="button" class="small" style="background:var(--muted);" onclick="voidMissing_(' + args + ')">No bill / voided</button>';
-    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0;">' +
-      '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + gapRangeLabel_(r) + (r.count > 1 ? ' (' + r.count + ')' : '') + '</span>' +
+    if (data.canResolve) btns += '<button type="button" class="small" style="background:var(--muted);" onclick="voidMissing_(' + args + ')">' + (r.count > 1 ? 'None of these need a bill' : 'No bill / voided') + '</button>';
+    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0;">' + pills +
       (r.afterDate ? '<span style="font-size:12px;color:var(--muted);">after ' + (r.from - 1) + ' · ' + formatDateDisplay(r.afterDate) + '</span>' : '') +
       btns + '</div>';
   }
@@ -821,7 +952,7 @@
   }
 
   function initMissingNumbers(prefix) {
-    google.script.run
+    VT.run
       .withSuccessHandler(function (data) {
         if (!data || !data.ok) return;
         var ch = document.getElementById(prefix + '_missingContainer');
@@ -843,24 +974,57 @@
       .getDocGaps(CURRENT_TOKEN);
   }
 
-  // Fill the order form with a missing number so it can be punched straight away.
-  function punchMissing_(docType, seriesKey, from) {
-    var form = document.getElementById('shop_typeOfSubmission');
-    if (!form) return;
-    form.value = docType;
-    setDatePickerValue('shop_orderRcvdDate', docType === 'Challan' ? seriesKey : isoToday_());
-    document.getElementById('shop_dcNo').value = String(from);
-    document.getElementById('shop_dcNo').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    document.getElementById('shop_dcNo').focus();
-    shopCheckDocNumber();
+  // Click a missing number: a form opens with that number filled in, so the entry can be made right there.
+  // Who sees the numbers as clickable is an admin setting (Setup > Access: "Enter a missing bill number").
+  var MM_OPTS = null;
+  function openMissingEntry_(docType, seriesKey, number) {
+    var msg = document.getElementById('mm_msg');
+    msg.className = 'status-msg'; msg.textContent = '';
+    document.getElementById('mm_title').textContent = 'Enter ' + docType + ' ' + number;
+    document.getElementById('mm_dcNo').value = String(number);
+    document.getElementById('mm_date').value = docType === 'Challan' ? seriesKey : istToday_();
+    document.getElementById('mm_loc').value = '';
+    document.getElementById('mm_remarks').value = '';
+    function show() {
+      fillSelect_('mm_via', MM_OPTS.orderVia);
+      fillSelect_('mm_type', MM_OPTS.typeOfSubmission);
+      document.getElementById('mm_type').value = docType;
+      document.getElementById('mm_backdrop').style.display = 'flex';
+      document.getElementById('mm_via').focus();
+    }
+    if (MM_OPTS) { show(); return; }
+    VT.run.withSuccessHandler(function (o) {
+      if (!o || !o.ok) { alert((o && o.error) || 'Could not open the form.'); return; }
+      MM_OPTS = o; show();
+    }).getMissingEntryOptions(CURRENT_TOKEN);
   }
+  function closeMissingEntry_() { document.getElementById('mm_backdrop').style.display = 'none'; }
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('mm_form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('mm_save'), msg = document.getElementById('mm_msg');
+      if (btn.disabled) return;
+      btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
+      var form = { orderRcvdDate: document.getElementById('mm_date').value, orderVia: document.getElementById('mm_via').value,
+        typeOfSubmission: document.getElementById('mm_type').value, dcNo: document.getElementById('mm_dcNo').value,
+        shippingLocation: document.getElementById('mm_loc').value, detailedRemarks: document.getElementById('mm_remarks').value };
+      VT.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; return; }
+          closeMissingEntry_(); refreshCurrent();
+        })
+        .withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+        .addMissingEntry(CURRENT_TOKEN, form);
+    });
+  });
 
   function voidMissing_(docType, seriesKey, from, to) {
     var label = from === to ? String(from) : from + '–' + to;
     var reason = window.prompt('Close missing ' + docType + ' ' + label + ' - no bill needs punching.\nReason (e.g. "voided in BUSY"):');
     if (reason === null) return;
     if (reason.trim().length < 3) { alert('Please give a reason.'); return; }
-    google.script.run.withSuccessHandler(function (r) {
+    VT.run.withSuccessHandler(function (r) {
       if (!r || !r.ok) { alert((r && r.error) || 'Could not close it.'); return; }
       refreshCurrent();
     }).voidDocGap(CURRENT_TOKEN, { doc_type: docType, series_key: seriesKey, number_from: from, number_to: to, reason: reason.trim() });
@@ -876,7 +1040,7 @@
     if (!no || (type !== 'Challan' && type !== 'Invoice')) return;
     if (!/^\d+$/.test(no)) { warn.style.color = 'var(--red)'; warn.textContent = type + ' number must be digits only.'; return; }
     if (!date) return;
-    google.script.run.withSuccessHandler(function (d) {
+    VT.run.withSuccessHandler(function (d) {
       if (!d || !d.ok) return;
       if (document.getElementById('shop_dcNo').value.trim() !== no) return;  // typed on since
       if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = type + ' ' + no + ' is already used' + (type === 'Challan' ? ' for this date.' : ' this financial year.'); }
@@ -899,10 +1063,14 @@
     document.getElementById('appScreen').style.display = 'block';
     IS_ADMIN = CURRENT_ROLE === 'admin';
     var switcher = document.getElementById('adminViewSwitcher');
+    switcher.innerHTML = '';
+    (window.O2D_SCREENS || []).forEach(function(s) {
+      var o = document.createElement('option'); o.value = s.view; o.textContent = 'View as: ' + s.label; switcher.appendChild(o);
+    });
     if (IS_ADMIN) {
       switcher.style.display = 'inline-block';
       document.getElementById('backToPortalBtn').style.display = 'inline-block';
-      CURRENT_ROLE = 'overview';  // a screen to land on; admin can switch to any of the six above
+      CURRENT_ROLE = 'overview';  // a screen to land on; admin can switch to any screen in the list
     } else {
       // Everyone else sees only the screens they have been given (window.O2D_VIEWS, set by autologin.js from
       // their page access): their own role's screen by default, with a switcher when they have more than one.
@@ -910,7 +1078,6 @@
       document.getElementById('backToPortalBtn').style.display = 'inline-block';
       if (views.length) {
         if (views.indexOf(CURRENT_ROLE) === -1) CURRENT_ROLE = views[0];
-        Array.prototype.slice.call(switcher.options).forEach(function(o) { if (views.indexOf(o.value) === -1) switcher.removeChild(o); });
         if (views.length > 1) switcher.style.display = 'inline-block';
       }
     }
@@ -919,8 +1086,8 @@
     var section = document.getElementById(sectionIdForRole(CURRENT_ROLE));
     if (section) section.style.display = 'block';
     document.body.classList.toggle('wide', CURRENT_ROLE === 'overview');
-    var searchRoles = ['shop', 'godown', 'shop_dispatch', 'godown_dispatch', 'receiving'];
-    document.getElementById('topbar_search').style.display = searchRoles.indexOf(CURRENT_ROLE) !== -1 ? 'flex' : 'none';
+    var scr0 = screenOf_(CURRENT_ROLE);
+    document.getElementById('topbar_search').style.display = scr0 && scr0.search ? 'flex' : 'none';
     if (switcher.style.display !== 'none') switcher.value = CURRENT_ROLE;
     refreshCurrent();
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
@@ -928,11 +1095,13 @@
   }
 
   function refreshCurrent() {
+    applyViewOnly_();
     loadReminders();
     if (CURRENT_ROLE === 'overview')                                    initOverview();
     else if (CURRENT_ROLE === 'shop')                                   initShop();
     else if (CURRENT_ROLE === 'godown')                                  initGodown();
     else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
+    else if (CURRENT_ROLE === 'cartage')                                 initCartage();
     else if (CURRENT_ROLE === 'receiving')                               initReceiving();
   }
 
@@ -1076,7 +1245,7 @@
     document.getElementById('ovModal').style.display = 'flex';
   }
 
-  var REMIND_WHO = { 'Awaiting godown': 'Godown', 'Awaiting dispatch': 'Dispatch (shop and godown)', 'Awaiting receiving': 'Receiving' };
+  var REMIND_WHO = { 'Awaiting godown': 'Godown', 'Awaiting dispatch': 'Dispatch (shop and godown)', 'Awaiting receiving': 'Godown Receiving' };
   function buildRemindBox(o) {
     var host = document.getElementById('ovRemind');
     host.replaceChildren();
@@ -1088,7 +1257,7 @@
     var status = el_('span', { class: 'status-msg', style: 'margin-left:10px;' });
     btn.onclick = function () {
       btn.disabled = true; status.className = 'status-msg'; status.textContent = 'Sending\u2026';
-      google.script.run.withSuccessHandler(function (r) {
+      VT.run.withSuccessHandler(function (r) {
         btn.disabled = false;
         if (r && r.ok) status.textContent = '\u2713 Sent. It will pop up on the ' + REMIND_WHO[o.stage] + ' screen.';
         else { status.className = 'status-msg error'; status.textContent = (r && r.error) || 'Could not send.'; }
@@ -1103,7 +1272,7 @@
   function loadReminders() {
     var host = document.getElementById('reminderBox');
     if (CURRENT_ROLE === 'overview') { host.style.display = 'none'; return; }
-    google.script.run.withSuccessHandler(function (d) {
+    VT.run.withSuccessHandler(function (d) {
       host.replaceChildren();
       var list = (d && d.ok && d.reminders) || [];
       host.style.display = list.length ? 'block' : 'none';
@@ -1113,7 +1282,7 @@
         if (r.message) it.appendChild(el_('div', { class: 'm' }, r.message));
         it.appendChild(el_('div', { class: 's' }, r.stage + ' \u00B7 from ' + r.sentBy + ', ' + new Date(r.sentAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
         var ok = el_('button', { type: 'button', class: 'small' }, 'Got it');
-        ok.onclick = function () { google.script.run.withSuccessHandler(loadReminders).ackReminder(CURRENT_TOKEN, r.id); };
+        ok.onclick = function () { VT.run.withSuccessHandler(loadReminders).ackReminder(CURRENT_TOKEN, r.id); };
         it.appendChild(ok);
         host.appendChild(it);
       });
@@ -1122,7 +1291,39 @@
   function closeOrderModal() { document.getElementById('ovModal').style.display = 'none'; }
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeOrderModal(); });
 
+  // ---- PDF reports (admin, or anyone given the "Reports" page under Setup > Access)
+  function downloadReport_(kind, btn, ids) {
+    ids = ids || { from: 'rep_from', to: 'rep_to', msg: 'rep_msg' };
+    var msg = document.getElementById(ids.msg);
+    var from = document.getElementById(ids.from).value, to = document.getElementById(ids.to).value;
+    var person = ids.person ? document.getElementById(ids.person).value : '';
+    if (ids.need === 'person' && !person) { msg.className = 'status-msg error'; msg.textContent = 'Choose a delivery person first.'; return; }
+    if (from && to && from > to) { msg.className = 'status-msg error'; msg.textContent = '"From" must be on or before "To".'; return; }
+    msg.className = 'status-msg'; msg.textContent = 'Preparing PDF...'; btn.disabled = true;
+    VT.run.withSuccessHandler(function (r) {
+      btn.disabled = false;
+      if (!r || !r.ok) { msg.className = 'status-msg error'; msg.textContent = (r && r.error) || 'Could not create the report.'; return; }
+      var url = URL.createObjectURL(r.blob), a = document.createElement('a');
+      a.href = url; a.download = r.filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+      msg.textContent = 'Downloaded ' + r.filename;
+    }).withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+      .downloadReport(CURRENT_TOKEN, kind, from, to, person);
+  }
+
+  function fillReportPeople_() {
+    var sel = document.getElementById('rep_person');
+    if (!sel || sel.options.length > 1 || !(IS_ADMIN || (window.O2D_PAGES || []).indexOf('o2d_cartage') !== -1)) return;
+    VT.run.withSuccessHandler(function (d) {
+      if (!d || !d.ok) return;
+      d.people.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+    }).getCartageData(CURRENT_TOKEN, '', '', '');
+  }
+
   function initOverview() {
+    fillReportPeople_();
+    document.getElementById('overview_reportsCard').style.display =
+      (IS_ADMIN || (window.O2D_PAGES || []).indexOf('o2d_reports') !== -1) ? 'block' : 'none';
     var summaryEl = document.getElementById('overview_summary');
     var boardEl = document.getElementById('overview_board');
     var fromEl = document.getElementById('ov_from'), toEl = document.getElementById('ov_to');
@@ -1136,10 +1337,10 @@
     if (bad) return;
     if (!overviewFiltersBuilt) {
       overviewFiltersBuilt = true;
-      google.script.run.withSuccessHandler(function (d) { if (d && d.ok) buildOverviewFilters(d.dropdowns); else overviewFiltersBuilt = false; })
+      VT.run.withSuccessHandler(function (d) { if (d && d.ok) buildOverviewFilters(d.dropdowns); else overviewFiltersBuilt = false; })
         .getAdminFormOptions(CURRENT_TOKEN);
     }
-    google.script.run
+    VT.run
       .withSuccessHandler(function (data) {
         if (!data || !data.ok) {
           summaryEl.replaceChildren();
@@ -1206,7 +1407,7 @@
     banner.style.display = 'none';
     var shopDateIso = document.getElementById('shop_orderRcvdDate_iso');
     if (shopDateIso && !shopDateIso.value) setDatePickerValue('shop_orderRcvdDate', isoToday_());
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
@@ -1274,7 +1475,7 @@
       shippingLocation: document.getElementById('shopedit_shippingLocation').value,
       detailedRemarks: document.getElementById('shopedit_detailedRemarks').value
     };
-    google.script.run
+    VT.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save Changes';
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
@@ -1306,7 +1507,7 @@
       typeOfSubmission: document.getElementById('shop_typeOfSubmission').value,
       detailedRemarks: document.getElementById('shop_detailedRemarks').value
     };
-    google.script.run
+    VT.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save Order';
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
@@ -1324,7 +1525,7 @@
   function initGodown() {
     var banner = document.getElementById('godown_errorBanner');
     banner.style.display = 'none';
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
@@ -1403,7 +1604,7 @@
       colourMakingBy: document.getElementById('godown_colourMakingBy').value,
       deliveryStatus: document.getElementById('godown_deliveryStatus').value
     };
-    google.script.run
+    VT.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
@@ -1416,14 +1617,92 @@
 
   /* ================= DISPATCH ================= */
   var DISPATCH_ORDERS = {};
+  var DISPATCH_TERMS = [];
+
+  // Porter / By Company / Transport (admin-set list) open a free-text box for the details.
+  function needsDeliveredByDetail_(name) {
+    var terms = DISPATCH_TERMS.map(function (t) { return t.toLowerCase(); });
+    return String(name || '').replace(/,/g, '/').split('/').some(function (p) { p = p.trim().toLowerCase(); return p && terms.indexOf(p) !== -1; });
+  }
+  function dispatchToggleDetail() {
+    var on = needsDeliveredByDetail_(document.getElementById('dispatch_deliveredByWhom').value);
+    document.getElementById('dispatch_deliveredByDetailField').style.display = on ? 'block' : 'none';
+    document.getElementById('dispatch_deliveredByDetail').required = on;
+    if (!on) document.getElementById('dispatch_deliveredByDetail').value = '';
+  }
+
+  /* ---- order photos (Cloudflare R2 through the API) ----
+     Optional. The photo box only shows when the server says storage is set up. Photos are shrunk on the phone first. */
+  var PHOTOS_ENABLED = false;
+  function photoBoxInit_(prefix, label) {
+    var box = document.getElementById(prefix + '_box');
+    if (!box) return;
+    box.style.display = PHOTOS_ENABLED ? 'block' : 'none';
+    if (box.dataset.ready) return;
+    box.dataset.ready = '1';
+    box.innerHTML = '<label>' + label + ' <span style="font-weight:400;">(optional)</span></label>' +
+      '<input type="file" accept="image/*" multiple id="' + prefix + '_file" style="padding:6px;">' +
+      '<div class="thumbs" id="' + prefix + '_thumbs"></div>';
+  }
+  function photoShowExisting_(prefix, slNo, kind) {
+    var thumbs = document.getElementById(prefix + '_thumbs'), file = document.getElementById(prefix + '_file');
+    if (!thumbs) return;
+    thumbs.innerHTML = ''; if (file) file.value = '';
+    if (!PHOTOS_ENABLED) return;
+    VT.run.withSuccessHandler(function (d) {
+      if (!d || !d.ok || !d.enabled) return;
+      d.photos.filter(function (p) { return p.kind === kind; }).forEach(function (p) {
+        var a = document.createElement('a');
+        a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; a.title = 'Added by ' + p.uploadedBy;
+        var img = document.createElement('img'); img.src = p.url; img.alt = 'Order photo';
+        a.appendChild(img); thumbs.appendChild(a);
+      });
+    }).getOrderPhotos(CURRENT_TOKEN, slNo);
+  }
+  function shrinkPhoto_(file) {
+    return new Promise(function (resolve) {
+      if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { resolve(file); return; }   // HEIC etc. go up as they are
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var MAX = 1600, k = Math.min(1, MAX / Math.max(img.width, img.height));
+        var c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { resolve(b && b.size < file.size ? b : file); }, 'image/jpeg', 0.8);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+  // Uploads whatever was chosen in the box; resolves with a list of problems (empty = all fine).
+  function photoUploadAll_(prefix, slNo, kind) {
+    var input = document.getElementById(prefix + '_file');
+    var files = input && input.files ? Array.prototype.slice.call(input.files) : [];
+    if (!PHOTOS_ENABLED || !files.length) return Promise.resolve([]);
+    var problems = [];
+    return files.reduce(function (chain, f) {
+      return chain.then(function () {
+        return shrinkPhoto_(f).then(function (blob) {
+          return new Promise(function (resolve) {
+            VT.run
+              .withSuccessHandler(function (r) { if (!r || !r.success) problems.push((r && (r.message || r.error)) || 'no response'); resolve(); })
+              .withFailureHandler(function (err) { problems.push(err.message); resolve(); })
+              .uploadOrderPhoto(CURRENT_TOKEN, slNo, kind, blob);
+          });
+        });
+      });
+    }, Promise.resolve()).then(function () { if (input) input.value = ''; return problems; });
+  }
 
   function initDispatch() {
     var banner = document.getElementById('dispatch_errorBanner');
     banner.style.display = 'none';
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        DISPATCH_TERMS = data.dropdowns.deliveredByCustomTerms || [];
+        PHOTOS_ENABLED = !!data.photosEnabled;
         fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
         fillSelect_('dispatch_deliveredByWhom', data.dropdowns.deliveredByWhom);
         fillSelect_('dispatch_paymentStatus', data.dropdowns.paymentStatus);
@@ -1465,7 +1744,7 @@
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td>' + (o.dcNo||'') + '</td>' +
         '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + stuckBadgeHtml_(o.stuckReason) + '</td>' +
-        '<td>' + (o.deliveredByWhom||'') + '</td><td>' + (o.cartage||'') + '</td>' +
+        '<td>' + (o.deliveredByWhom||'') + (o.deliveredByDetail ? ' <span style="color:var(--muted);">(' + o.deliveredByDetail + ')</span>' : '') + '</td><td>' + (o.cartage||'') + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -1481,7 +1760,14 @@
     setDateTimeValue('dispatch_materialDeliveryDateTime', o.materialDeliveryDateTime || isoNowDateTime_());
     document.getElementById('dispatch_deliveryStatus').value = o.deliveryStatus || '';
     document.getElementById('dispatch_deliveredByWhom').value = o.deliveredByWhom || '';
+    dispatchToggleDetail();
+    document.getElementById('dispatch_deliveredByDetail').value = o.deliveredByDetail || '';
     document.getElementById('dispatch_cartage').value = o.cartage || '';
+    photoBoxInit_('dispatchPhoto', '📷 Dispatch photo');
+    photoShowExisting_('dispatchPhoto', slNo, 'dispatch');
+    photoBoxInit_('dispatchRecvPhoto', '📷 Receiving photo');
+    document.getElementById('dispatchRecvPhoto_box').style.display = PHOTOS_ENABLED && CURRENT_ROLE === 'shop_dispatch' ? 'block' : 'none';
+    if (CURRENT_ROLE === 'shop_dispatch') photoShowExisting_('dispatchRecvPhoto', slNo, 'receiving');
     var receivingField = document.getElementById('dispatch_dateOfReceivingField');
     var paymentField = document.getElementById('dispatch_paymentStatusField');
     var amountField = document.getElementById('dispatch_amountReceivedField');
@@ -1517,20 +1803,154 @@
       materialDeliveryDateTime: getDateTimeValue('dispatch_materialDeliveryDateTime'),
       deliveryStatus: document.getElementById('dispatch_deliveryStatus').value,
       deliveredByWhom: document.getElementById('dispatch_deliveredByWhom').value,
+      deliveredByDetail: document.getElementById('dispatch_deliveredByDetail').value,
+      viewAs: CURRENT_ROLE,
       cartage: document.getElementById('dispatch_cartage').value,
       dateOfReceiving: document.getElementById('dispatch_dateOfReceiving_iso').value,
       paymentStatus: document.getElementById('dispatch_paymentStatus').value,
       amountReceived: document.getElementById('dispatch_amountReceived').value
     };
-    google.script.run
+    VT.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
         if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
-        msg.textContent = 'Saved.'; dispatchCloseEdit(); initDispatch();
+        var jobs = photoUploadAll_('dispatchPhoto', slNo, 'dispatch');
+        if (CURRENT_ROLE === 'shop_dispatch') jobs = jobs.then(function (p1) { return photoUploadAll_('dispatchRecvPhoto', slNo, 'receiving').then(function (p2) { return p1.concat(p2); }); });
+        msg.textContent = 'Saved.';
+        jobs.then(function (problems) {
+          initDispatch();
+          if (problems.length) { msg.className = 'status-msg error'; msg.textContent = 'Order saved, but a photo did not upload: ' + problems[0]; return; }
+          dispatchCloseEdit();
+        });
       })
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
       .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, CURRENT_ROLE);
+  });
+
+  /* ================= CARTAGE ================= */
+  var CARTAGE_ORDERS = {};
+  var CARTAGE_CAN_EDIT = false;
+  var CARTAGE_IDS = { from: 'cartage_from', to: 'cartage_to', person: 'cartage_person', msg: 'cartage_msg' };
+  // The full order record, in the order the team reads it. [heading, field, kind]  (d = date, dt = date & time, n = amount)
+  var CARTAGE_COLS = [
+    ['Sl No', 'slNo'], ['Timestamp', 'timestamp', 'dt'], ['Order Received Date', 'orderDate', 'd'], ['Order Received Thru', 'orderVia'],
+    ['Shipping Location', 'shippingLocation'], ['DC/Inv No', 'dcNo'], ['Type of Submission', 'submissionType'], ['Detailed Remarks', 'remarks'],
+    ['Ready By Whom', 'readyBy'], ['Colour Making By Whom', 'colourMakingBy'], ['Delivery Status', 'deliveryStatus'],
+    ['Material Delivery Date & Time', 'deliveredOn', 'dt'], ['Date of Receiving', 'dateOfReceiving', 'd'], ['Mat. Payment Status', 'paymentStatus'],
+    ['Amount Rcvd', 'amountReceived', 'n'], ['Delivered By Whom', 'deliveredBy'], ['Cartage (In Rupees)', 'cartage', 'n'],
+    ['Last Updated By', 'lastUpdatedBy'], ['Last Updated At', 'lastUpdatedAt', 'dt'], ['Created By', 'createdBy']];
+
+  function cartageCell_(o, col) {
+    var v = o[col[1]];
+    if (v === null || v === undefined || v === '') return '';
+    if (col[2] === 'd') return formatDateDisplay(v);
+    if (col[2] === 'dt') return formatDateTimeDisplay(v);
+    if (col[2] === 'n') return formatAmount_(v);
+    return String(v);
+  }
+  function cartageMoney_(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  function initCartage() {
+    var banner = document.getElementById('cartage_errorBanner');
+    banner.style.display = 'none';
+    var fromEl = document.getElementById('cartage_from'), toEl = document.getElementById('cartage_to'), pEl = document.getElementById('cartage_person');
+    if (fromEl.value && toEl.value && fromEl.value > toEl.value) { banner.textContent = '"From" date must be on or before "To" date.'; banner.style.display = 'block'; return; }
+    VT.run
+      .withSuccessHandler(function (d) {
+        if (!d || !d.ok) { banner.textContent = 'Server error: ' + ((d && d.error) || 'no response'); banner.style.display = 'block'; return; }
+        fromEl.value = d.dateFrom; toEl.value = d.dateTo;
+        var chosen = pEl.value;
+        pEl.innerHTML = '<option value="">All delivery people</option>';
+        d.people.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; pEl.appendChild(o); });
+        pEl.value = chosen;
+        fillSelect_('cartage_deliveredBy', d.people);
+        CARTAGE_CAN_EDIT = !!d.canEdit;
+        cartageRender_(d);
+      })
+      .withFailureHandler(function (err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getCartageData(CURRENT_TOKEN, fromEl.value, toEl.value, pEl.value);
+  }
+
+  function cartageRender_(d) {
+    document.getElementById('cartage_count').textContent = d.summary.deliveries;
+    var cards = [['Total cartage', '₹ ' + cartageMoney_(d.summary.total)], ['Deliveries', d.summary.deliveries],
+                 ['With cartage', d.summary.withCartage], ['No cartage recorded', d.summary.withoutCartage]];
+    var sum = document.getElementById('cartage_summary'); sum.innerHTML = '';
+    cards.forEach(function (c) {
+      var el = document.createElement('div'); el.className = 'ov-card'; el.style.cursor = 'default'; el.style.setProperty('--c', '#c2410c');
+      var big = document.createElement('div'); big.className = 'n'; big.textContent = c[1];
+      var lab = document.createElement('div'); lab.className = 'l'; lab.textContent = c[0];
+      el.appendChild(big); el.appendChild(lab); sum.appendChild(el);
+    });
+    var eb = document.getElementById('cartage_employeeBody'); eb.innerHTML = '';
+    d.byEmployee.forEach(function (e) {
+      var tr = document.createElement('tr');
+      [e.employee, e.deliveries, e.withCartage, cartageMoney_(e.total), cartageMoney_(e.average)].forEach(function (v) {
+        var td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+      });
+      eb.appendChild(tr);
+    });
+    var head = document.getElementById('cartage_head'); head.innerHTML = '';
+    var htr = document.createElement('tr');
+    CARTAGE_COLS.forEach(function (c) { var th = document.createElement('th'); th.textContent = c[0]; htr.appendChild(th); });
+    htr.appendChild(document.createElement('th'));
+    head.appendChild(htr);
+    var body = document.getElementById('cartage_body'); body.innerHTML = '';
+    CARTAGE_ORDERS = {};
+    d.orders.forEach(function (o) {
+      CARTAGE_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      CARTAGE_COLS.forEach(function (c) { var td = document.createElement('td'); td.textContent = cartageCell_(o, c); tr.appendChild(td); });
+      var act = document.createElement('td');
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'small'; b.textContent = 'Edit';
+      b.setAttribute('onclick', 'cartageOpenEdit(' + o.slNo + ')');
+      act.appendChild(b); tr.appendChild(act);
+      body.appendChild(tr);
+    });
+    document.getElementById('cartage_empty').style.display = d.orders.length ? 'none' : 'block';
+    if (d.truncated) { var bn = document.getElementById('cartage_errorBanner'); bn.textContent = 'Showing the first ' + d.orders.length + ' deliveries only - narrow the dates.'; bn.style.display = 'block'; }
+  }
+
+  // Like the Archive portal: the history PDF is for one delivery boy, so one must be chosen first.
+  function cartageDetailPdf_(btn) {
+    if (!document.getElementById(CARTAGE_IDS.person).value) {
+      var m = document.getElementById(CARTAGE_IDS.msg); m.className = 'status-msg error'; m.textContent = 'Choose a delivery person first.'; return;
+    }
+    downloadReport_('cartage-detail', btn, CARTAGE_IDS);
+  }
+
+  function cartageOpenEdit(slNo) {
+    if (!CARTAGE_CAN_EDIT) return;
+    var o = CARTAGE_ORDERS[slNo];
+    document.getElementById('cartage_editCard').style.display = 'block';
+    document.getElementById('cartage_editingInfo').textContent = '- ' + (o.shippingLocation || '') + ' (DC ' + o.dcNo + ')';
+    document.getElementById('cartageEditForm').dataset.slNo = slNo;
+    document.getElementById('cartage_amount').value = o.cartage === null || o.cartage === undefined ? '' : o.cartage;
+    document.getElementById('cartage_deliveredBy').value = o.deliveredByName || '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function cartageCloseEdit() {
+    document.getElementById('cartage_editCard').style.display = 'none';
+    document.getElementById('cartage_statusMsg').textContent = '';
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('cartageEditForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('cartage_saveBtn'), msg = document.getElementById('cartage_statusMsg');
+      if (btn.disabled) return;
+      btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
+      var amt = document.getElementById('cartage_amount').value;
+      var form = { cartage: amt === '' ? null : Number(amt), deliveredByWhom: document.getElementById('cartage_deliveredBy').value };
+      VT.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; return; }
+          cartageCloseEdit(); initCartage();
+        })
+        .withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+        .updateCartage(CURRENT_TOKEN, Number(this.dataset.slNo), form);
+    });
   });
 
   /* ================= RECEIVING ================= */
@@ -1539,10 +1959,11 @@
   function initReceiving() {
     var banner = document.getElementById('receiving_errorBanner');
     banner.style.display = 'none';
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        PHOTOS_ENABLED = !!data.photosEnabled;
         fillSelect_('receiving_paymentStatus', data.dropdowns.paymentStatus);
         receivingRenderPending(data.pending);
         var noteEl = document.getElementById('receiving_dateWindowNote');
@@ -1594,6 +2015,8 @@
     setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || '');
     document.getElementById('receiving_paymentStatus').value = o.paymentStatus || '';
     document.getElementById('receiving_amountReceived').value = o.amountReceived || '';
+    photoBoxInit_('receivingPhoto', '📷 Receiving photo');
+    photoShowExisting_('receivingPhoto', slNo, 'receiving');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1615,12 +2038,17 @@
       paymentStatus: document.getElementById('receiving_paymentStatus').value,
       amountReceived: document.getElementById('receiving_amountReceived').value
     };
-    google.script.run
+    VT.run
       .withSuccessHandler(function(res) {
         saveBtn.disabled = false; saveBtn.textContent = 'Save';
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
         if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
-        msg.textContent = 'Saved.'; receivingCloseEdit(); initReceiving();
+        msg.textContent = 'Saved.';
+        photoUploadAll_('receivingPhoto', slNo, 'receiving').then(function (problems) {
+          initReceiving();
+          if (problems.length) { msg.className = 'status-msg error'; msg.textContent = 'Saved, but a photo did not upload: ' + problems[0]; return; }
+          receivingCloseEdit();
+        });
       })
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
       .updateReceivingFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME);
@@ -1637,7 +2065,7 @@
     panel.style.display = 'block';
     body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);font-size:12px;">Searching...</td></tr>';
     empty.style.display = 'none'; countEl.textContent = '';
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) {
         body.innerHTML = '';
         if (!data || !data.ok) { body.innerHTML = '<tr><td colspan="7" style="color:var(--red);font-size:12px;">Error</td></tr>'; return; }
@@ -1673,7 +2101,7 @@
   function loadDebugInfo() {
     var out = document.getElementById('debugOutput');
     out.style.display = 'block'; out.textContent = 'Loading...';
-    google.script.run
+    VT.run
       .withSuccessHandler(function(data) { out.textContent = JSON.stringify(data, null, 2); })
       .withFailureHandler(function(err) { out.textContent = 'ERROR: ' + err.message; })
       .debugInfo(CURRENT_TOKEN);
@@ -1683,6 +2111,7 @@
     document.getElementById('dpPopup').style.display = 'none';
   });
 </script>
+<script src="table-sort.js"></script>
 <script src="autologin.js"></script>
 </body>
 </html>

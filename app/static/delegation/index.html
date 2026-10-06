@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../modules/mobile.css">
+  <script src="../modules/api.js"></script>
+  <script src="../vendor/tailwind.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="../vendor/chart.umd.min.js"></script>
+  <style>
+    :root {
+      /* brand ink -> berry (the two ends of the header/button gradient) */
+      --vt-navy: #241B4E;
+      --vt-navy-light: #4C3494;
+      --vt-berry: #7C3AED;
+      --vt-accent: #7C3AED;
+      /* paint-swatch functional colors — each one means one thing, consistently */
+      --vt-success: #15A56A;
+      --vt-warn: #F5A524;
+      --vt-danger: #E11D48;
+      --vt-bg: #F8F7FB;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--vt-bg); }
+    .vt-display { font-family: 'Fraunces', serif; font-optical-sizing: auto; letter-spacing: -0.01em; }
+    .vt-gradient { background: linear-gradient(135deg, var(--vt-navy) 0%, var(--vt-berry) 100%); }
+    .vt-text-navy { color: var(--vt-navy); }
+    .vt-btn { background: linear-gradient(135deg, var(--vt-navy) 0%, var(--vt-berry) 100%); color: #fff; transition: filter .15s, transform .1s; box-shadow: 0 4px 14px -4px rgba(124,58,237,.45); }
+    .vt-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .vt-btn:active { transform: translateY(0); }
+    .vt-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .vt-ring:focus { outline: none; box-shadow: 0 0 0 2px var(--vt-accent); }
+    .vt-tab-active { color: var(--vt-berry) !important; border-bottom-color: var(--vt-berry) !important; }
+    /* paint-swatch chips: solid saturated fill + white text, like real paint chips, not pale tints */
+    .badge-role    { background: #EEF0FF; color: var(--vt-navy); font-weight: 700; }
+    .badge-ontime  { background: var(--vt-success); color: #fff; }
+    .badge-today   { background: var(--vt-warn); color: #fff; }
+    .badge-overdue { background: var(--vt-danger); color: #fff; }
+    .badge-late    { background: var(--vt-danger); color: #fff; }
+    .badge-done    { background: var(--vt-success); color: #fff; }
+    .vt-accent-bar { border-left: 4px solid transparent; }
+    .vt-accent-gold  { border-left-color: var(--vt-warn); }
+    .vt-accent-coral { border-left-color: var(--vt-danger); }
+    .vt-accent-berry { border-left-color: var(--vt-berry); }
+    .vt-accent-leaf  { border-left-color: var(--vt-success); }
+  </style>
+</head>
+<body class="text-slate-800">
+
+  <!-- LOGIN -->
+  <div id="loginSection" class="flex items-center justify-center min-h-screen p-4 vt-gradient">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
+      <div class="text-center mb-6">
+        <div class="inline-flex w-16 h-16 rounded-2xl vt-gradient text-white items-center justify-center text-2xl vt-display font-bold mb-4 shadow-lg">VT</div>
+        <h2 class="text-3xl vt-display font-bold text-slate-900">Vardhman Traders</h2>
+        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold mt-1">Delegation Hub — Sign in</p>
+        <div class="flex items-center justify-center gap-1.5 mt-4">
+          <span class="w-2.5 h-2.5 rounded-full" style="background:var(--vt-success)"></span>
+          <span class="w-2.5 h-2.5 rounded-full" style="background:var(--vt-warn)"></span>
+          <span class="w-2.5 h-2.5 rounded-full" style="background:var(--vt-danger)"></span>
+          <span class="w-2.5 h-2.5 rounded-full" style="background:var(--vt-berry)"></span>
+        </div>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">User ID</label>
+          <input type="text" id="userId" placeholder="Enter Staff ID" autocomplete="username"
+                 onkeydown="if(event.key==='Enter'){document.getElementById('password').focus();}"
+                 class="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm vt-ring">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Password</label>
+          <div class="relative">
+            <input type="password" id="password" placeholder="••••••••" autocomplete="current-password"
+                   onkeydown="if(event.key==='Enter'){login();}"
+                   class="w-full px-4 py-2.5 pr-11 rounded-xl border border-slate-200 bg-slate-50 text-sm vt-ring">
+            <button type="button" onclick="togglePasswordVisibility()" title="Show/Hide password"
+                    class="absolute right-0 top-0 h-full px-3 text-slate-400 hover:text-slate-600">
+              <i id="eyeIcon" class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        <button onclick="login()" id="loginBtn" class="w-full py-3 vt-btn font-semibold rounded-xl shadow flex items-center justify-center gap-2">
+          <span id="loginBtnText">Sign In</span>
+          <i id="loginSpinner" class="hidden fa-solid fa-spinner fa-spin"></i>
+        </button>
+        <p id="loginMsg" class="text-center text-xs font-medium min-h-[16px]"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboardSection" class="hidden min-h-screen flex flex-col">
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl vt-gradient text-white flex items-center justify-center text-sm vt-display font-bold">VT</div>
+          <div>
+            <h1 class="text-lg vt-display font-bold vt-text-navy">Vardhman Traders</h1>
+            <p class="text-xs text-slate-500">Delegation Hub</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="text-right">
+            <p id="userNameDisplay" class="text-sm font-semibold text-slate-900"></p>
+            <span id="userRoleDisplay" class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full badge-role"></span>
+          </div>
+          <button onclick="logout()" class="p-2 text-slate-400 hover:text-rose-600"><i class="fa-solid fa-right-from-bracket text-lg"></i></button>
+        </div>
+      </div>
+    </header>
+
+    <div class="bg-white border-b border-slate-200 px-4">
+      <div class="max-w-7xl mx-auto flex gap-4 text-sm font-semibold overflow-x-auto">
+        <button id="tabMineBtn" onclick="switchTab('mine')" class="py-3 whitespace-nowrap border-b-2 vt-tab-active">My Tasks</button>
+        <button id="tabAllPendingBtn" onclick="switchTab('allpending')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500">All Pending</button>
+        <button id="tabAllBtn" onclick="switchTab('all')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500">All Tasks</button>
+        <button id="tabWeekBtn" onclick="switchTab('week')" class="py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-calendar-week mr-1"></i>My Week</button>
+        <button onclick="openExtraWorkModal()" class="py-3 whitespace-nowrap text-slate-500 hover:text-slate-700"><i class="fa-solid fa-plus-circle mr-1"></i>Add Extra Work</button>
+        <button id="tabScoreboardBtn" onclick="switchTab('scoreboard')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-trophy mr-1"></i>Scoreboard</button>
+      </div>
+    </div>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6 space-y-6">
+
+      <div class="grid grid-cols-3 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="text-center">
+          <p class="text-xs text-slate-400 font-semibold uppercase">My Score</p>
+          <p id="myScoreTotal" class="text-3xl vt-display font-bold vt-text-navy">0</p>
+        </div>
+        <div class="text-center border-l border-slate-100">
+          <p class="text-xs text-slate-400 font-semibold uppercase">On Time</p>
+          <p id="myScoreOnTime" class="text-3xl vt-display font-bold" style="color:var(--vt-success)">0</p>
+        </div>
+        <div class="text-center border-l border-slate-100">
+          <p class="text-xs text-slate-400 font-semibold uppercase">Late</p>
+          <p id="myScoreLate" class="text-3xl vt-display font-bold" style="color:var(--vt-danger)">0</p>
+        </div>
+      </div>
+
+      <!-- DELEGATE A TASK -->
+      <div id="managerPanel" class="hidden bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 vt-accent-bar vt-accent-berry">
+        <div class="flex justify-between items-center border-b pb-3">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-tasks vt-text-navy mr-2"></i>Delegate a Task</h3>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Staff Member *</label>
+            <select id="assignName" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+              <option value="">-- Select Staff --</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Task Detail *</label>
+            <input type="text" id="taskDesc" placeholder="Describe task..." class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Deadline *</label>
+            <input type="date" id="taskDueDate" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button onclick="assignTask()" class="px-5 py-2.5 vt-btn font-medium text-sm rounded-xl shadow flex items-center gap-2">
+            <i class="fa-solid fa-paper-plane text-xs"></i> Delegate Task
+          </button>
+        </div>
+      </div>
+
+      <!-- FOLLOW UP — always-visible section, not a tab -->
+      <div id="followUpSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-coral">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-bell vt-text-navy mr-2"></i>Follow Up <span class="text-xs font-normal text-slate-400">— due today or overdue</span></h3>
+          <span id="followUpCount" class="px-2.5 py-1 text-xs font-bold rounded-full badge-overdue">0</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
+              <tr>
+                <th class="p-4">Date / ID</th><th class="p-4">Assigned To</th><th class="p-4">Task Detail</th>
+                <th class="p-4">Deadline</th><th class="p-4">Status</th><th class="p-4">Notes / Photo</th>
+                <th class="p-4 text-center">Score</th><th class="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="followUpList" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- NEEDS REVIEW — always-visible section, not a tab -->
+      <div id="needsReviewSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-gold">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-clipboard-check vt-text-navy mr-2"></i>Needs Review</h3>
+          <span id="needsReviewCount" class="px-2.5 py-1 text-xs font-bold rounded-full badge-today">0</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
+              <tr>
+                <th class="p-4">Date / ID</th><th class="p-4">Assigned To</th><th class="p-4">Task Detail</th>
+                <th class="p-4">Deadline</th><th class="p-4">Status</th><th class="p-4">Notes / Photo</th>
+                <th class="p-4 text-center">Score</th><th class="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="needsReviewList" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MAIN TABLE (tab-controlled: My Tasks / All Pending / All Tasks) -->
+      <div id="viewTaskTable" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b flex justify-between items-center flex-wrap gap-2">
+          <h3 id="taskTableTitle" class="vt-display font-bold text-slate-800 text-lg">My Tasks</h3>
+          <div class="flex items-center gap-2">
+            <input type="date" id="filterDate" onchange="applyFilterAndRender()" class="px-3 py-1.5 bg-slate-50 border rounded-lg text-xs" title="Filter by deadline">
+            <button onclick="loadDashboard()" class="px-3 py-1.5 badge-ontime font-semibold text-xs rounded-lg"><i class="fa-solid fa-rotate"></i></button>
+          </div>
+        </div>
+        <div id="adminSearchBar" class="hidden p-4 border-b grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input type="text" id="searchName" oninput="applyFilterAndRender()" placeholder="Search by name or ID..." class="px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+          <input type="text" id="searchTask" oninput="applyFilterAndRender()" placeholder="Search by task..." class="px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
+              <tr>
+                <th class="p-4">Date / ID</th><th class="p-4">Assigned To</th><th class="p-4">Task Detail</th>
+                <th class="p-4">Deadline</th><th class="p-4">Status</th><th class="p-4">Notes / Photo</th>
+                <th class="p-4 text-center">Score</th><th class="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="taskList" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SCOREBOARD (tab-controlled) -->
+      <div id="viewScoreboard" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-berry">
+        <div class="p-4 border-b">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-trophy vt-text-navy mr-2"></i>Scoreboard</h3>
+        </div>
+        <div class="p-4 border-b">
+          <canvas id="scoreboardChart" height="90"></canvas>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
+              <tr>
+                <th class="p-4">Rank</th><th class="p-4">Name</th>
+                <th class="p-4 text-center">Total Score</th><th class="p-4 text-center">On Time</th><th class="p-4 text-center">Late</th>
+              </tr>
+            </thead>
+            <tbody id="scoreboardList" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MY WEEK (tab-controlled) -->
+      <div id="viewWeekly" class="hidden space-y-6">
+
+        <div id="weeklyStaffPickerWrap" class="hidden bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3 flex-wrap">
+          <label class="text-xs font-semibold text-slate-500 uppercase">Reviewing</label>
+          <select id="weeklyStaffSelect" onchange="onWeeklyStaffChange()" class="flex-1 min-w-[200px] px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+            <option value="">-- Select a staff member --</option>
+          </select>
+        </div>
+
+        <div id="weeklyEmptyState" class="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm text-center text-slate-400 text-sm">
+          Select a team member above to review their week.
+        </div>
+
+        <div id="weeklyContent" class="hidden space-y-6">
+
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p class="text-xs text-slate-400 font-semibold uppercase">This Week's Progress</p>
+              <p id="weekRangeLabel" class="text-xl vt-display font-bold vt-text-navy">—</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="weekNav(-1)" title="Previous week" class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 hover:bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-chevron-left"></i></button>
+              <button onclick="weekNav(0)" class="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100">This Week</button>
+              <button onclick="weekNav(1)" title="Next week" class="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 hover:bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-center" style="border-top:4px solid var(--vt-success)">
+              <p id="weekGreenCount" class="text-3xl vt-display font-bold" style="color:var(--vt-success)">0</p>
+              <p class="text-[11px] text-slate-400 font-semibold uppercase mt-1"><i class="fa-solid fa-circle-check mr-1" style="color:var(--vt-success)"></i>On Time</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-center" style="border-top:4px solid var(--vt-warn)">
+              <p id="weekYellowCount" class="text-3xl vt-display font-bold" style="color:var(--vt-warn)">0</p>
+              <p class="text-[11px] text-slate-400 font-semibold uppercase mt-1"><i class="fa-solid fa-rotate mr-1" style="color:var(--vt-warn)"></i>1 Revision</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-center" style="border-top:4px solid var(--vt-danger)">
+              <p id="weekRedCount" class="text-3xl vt-display font-bold" style="color:var(--vt-danger)">0</p>
+              <p class="text-[11px] text-slate-400 font-semibold uppercase mt-1"><i class="fa-solid fa-triangle-exclamation mr-1" style="color:var(--vt-danger)"></i>Missed / 2+ Rev.</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm text-center" style="border-top:4px solid #cbd5e1">
+              <p id="weekPendingCount" class="text-3xl vt-display font-bold text-slate-500">0</p>
+              <p class="text-[11px] text-slate-400 font-semibold uppercase mt-1"><i class="fa-solid fa-clipboard-list text-slate-400 mr-1"></i>Pending</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h4 class="text-xs font-bold uppercase text-slate-500 mb-3">Actual Split</h4>
+              <canvas id="weeklyDonut" height="200"></canvas>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h4 class="text-xs font-bold uppercase text-slate-500 mb-3">Planned For This Week</h4>
+              <div id="weekPlannedReadout" class="text-sm text-slate-500">No plan was set for this week.</div>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 vt-accent-bar vt-accent-berry">
+            <div class="flex justify-between items-center flex-wrap gap-2">
+              <div>
+                <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-flag-checkered vt-text-navy mr-2"></i>Set Next Week's Planned Score</h3>
+                <p id="nextWeekRangeLabel" class="text-xs text-slate-400 mt-0.5">—</p>
+              </div>
+              <button onclick="saveNextWeekPlan()" class="px-5 py-2.5 vt-btn font-medium text-sm rounded-xl shadow">Save</button>
+            </div>
+            <p class="text-xs text-slate-500">Enter the expected split for next week's tasks. Green + Yellow + Red must total 100%.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:var(--vt-success)"></span>Green %</label>
+                <input type="number" id="planGreen" min="0" max="100" value="0" oninput="onPlanGreenYellowChange()" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+              </div>
+              <div>
+                <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:var(--vt-warn)"></span>Yellow %</label>
+                <input type="number" id="planYellow" min="0" max="100" value="0" oninput="onPlanGreenYellowChange()" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+              </div>
+              <div>
+                <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-1"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:var(--vt-danger)"></span>Red %</label>
+                <input type="number" id="planRed" min="0" max="100" value="0" oninput="updatePlanTotal()" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+              </div>
+            </div>
+            <p id="planTotalLabel" class="text-sm font-semibold text-slate-500">Total: 0%</p>
+            <p id="weeklyPlanMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- MODAL: ADD EXTRA WORK -->
+  <div id="extraWorkModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-slate-800"><i class="fa-solid fa-plus-circle vt-text-navy mr-2"></i>Add Extra Work</h3>
+        <button onclick="closeExtraWorkModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div>
+        <textarea id="extraWorkDesc" rows="4" placeholder="Describe the extra work you did..." class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+        <p class="text-[11px] text-slate-400 mt-1"><i class="fa-solid fa-microphone mr-1"></i>Tip: tap the mic icon on your phone's keyboard to speak this instead of typing.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Photo (optional)</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="document.getElementById('extraWorkPhotoGallery').click()" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-image"></i> Choose File
+          </button>
+          <button type="button" onclick="document.getElementById('extraWorkPhotoCamera').click()" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-camera"></i> Take Photo
+          </button>
+        </div>
+        <input type="file" id="extraWorkPhotoGallery" accept="image/*" class="hidden" onchange="handlePhotoSelect('extraWorkPhotoGallery','extraWorkPhotoCamera','extraWorkPhotoPreview')">
+        <input type="file" id="extraWorkPhotoCamera" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelect('extraWorkPhotoCamera','extraWorkPhotoGallery','extraWorkPhotoPreview')">
+        <p id="extraWorkPhotoPreview" class="text-xs text-slate-500 mt-1.5"></p>
+      </div>
+      <button onclick="submitExtraWork()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Submit</button>
+      <p id="extraWorkMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
+  <!-- MODAL: MARK TASK COMPLETE -->
+  <div id="completeTaskModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-slate-800"><i class="fa-solid fa-circle-check vt-text-navy mr-2"></i>Mark Task Complete</h3>
+        <button onclick="closeCompleteModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <input type="hidden" id="completeTaskId">
+      <div>
+        <textarea id="completeNotes" rows="3" placeholder="Any notes about the completed work (optional)" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+        <p class="text-[11px] text-slate-400 mt-1"><i class="fa-solid fa-microphone mr-1"></i>Tip: tap the mic icon on your phone's keyboard to speak this instead of typing.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Proof Photo (optional)</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="document.getElementById('completePhotoGallery').click()" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-image"></i> Choose File
+          </button>
+          <button type="button" onclick="document.getElementById('completePhotoCamera').click()" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 flex items-center justify-center gap-1.5">
+            <i class="fa-solid fa-camera"></i> Take Photo
+          </button>
+        </div>
+        <input type="file" id="completePhotoGallery" accept="image/*" class="hidden" onchange="handlePhotoSelect('completePhotoGallery','completePhotoCamera','completePhotoPreview')">
+        <input type="file" id="completePhotoCamera" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelect('completePhotoCamera','completePhotoGallery','completePhotoPreview')">
+        <p id="completePhotoPreview" class="text-xs text-slate-500 mt-1.5"></p>
+      </div>
+      <button onclick="submitCompleteTask()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Submit for Review</button>
+      <p id="completeTaskMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
+  <!-- MODAL: MANAGER REVIEW -->
+  <div id="reviewModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 id="reviewModalTitle" class="font-bold text-slate-800">Review Task</h3>
+        <button onclick="closeReviewModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <input type="hidden" id="reviewTaskId">
+      <input type="hidden" id="reviewAction">
+      <p id="reviewHint" class="text-xs text-slate-500"></p>
+      <textarea id="reviewRemark" rows="3" placeholder="Remark (optional)" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+      <button onclick="submitReview()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Confirm</button>
+      <p id="reviewMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
+  <!-- MODAL: REVISE (EXTEND) A MISSED DEADLINE — from Follow Up -->
+  <div id="extendModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-slate-800"><i class="fa-solid fa-calendar-days vt-text-navy mr-2"></i>Revise Deadline</h3>
+        <button onclick="closeExtendModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <input type="hidden" id="extendTaskId">
+      <p class="text-xs text-slate-500">This task missed its deadline. Set a new one — <span class="font-semibold text-rose-600" id="extendPenaltyLabel">-5 points</span> will be applied for missing the original deadline.</p>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">New Deadline *</label>
+        <input type="date" id="extendNewDueDate" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+      </div>
+      <textarea id="extendRemark" rows="2" placeholder="Remark (optional)" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+      <button onclick="submitExtendDeadline()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Confirm New Deadline</button>
+      <p id="extendMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="hidden fixed bottom-5 right-5 z-[60] px-4 py-3 rounded-xl shadow-2xl text-sm font-semibold text-white max-w-xs"></div>
+
+  <script>
+    // ====================== STATE ======================
+    var currentUser = null;   // { id, name, role }
+    var currentTab = 'mine';
+    var allTasksCache = [];
+    var scoreChart = null;
+    var weeklyStaffId = null;
+    var weeklyAnchorDate = null;
+    var weeklyDonutChart = null;
+    var weeklyReviewData = null;
+
+    // ====================== HELPERS ======================
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function showToast(msg, type) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'fixed bottom-5 right-5 z-[60] px-4 py-3 rounded-xl shadow-2xl text-sm font-semibold text-white max-w-xs ' + (type === 'error' ? 'bg-rose-600' : 'bg-emerald-600');
+      t.classList.remove('hidden');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(function () { t.classList.add('hidden'); }, 4000);
+    }
+
+    function onGenericError(err) {
+      console.error(err);
+      showToast('Something went wrong: ' + (err && err.message ? err.message : 'Could not reach the server.'), 'error');
+    }
+
+    function isPrivileged() {
+      return currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Manager');
+    }
+
+    function fileToDataUrl(file) { return window.VT.shrinkImage(file); }   // shrunk before sending (phone photos are big)
+
+    // ====================== LOGIN ======================
+    function togglePasswordVisibility() {
+      var pwd = document.getElementById('password');
+      var icon = document.getElementById('eyeIcon');
+      if (pwd.type === 'password') {
+        pwd.type = 'text';
+        icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash');
+      } else {
+        pwd.type = 'password';
+        icon.classList.remove('fa-eye-slash'); icon.classList.add('fa-eye');
+      }
+    }
+
+    function setLoginMsg(msg, isError) {
+      var el = document.getElementById('loginMsg');
+      el.textContent = msg || '';
+      el.className = 'text-center text-xs font-medium min-h-[16px] ' + (isError ? 'text-rose-500' : 'text-emerald-600');
+    }
+
+    function setLoginLoading(loading) {
+      document.getElementById('loginBtn').disabled = loading;
+      document.getElementById('loginBtnText').textContent = loading ? 'Signing in...' : 'Sign In';
+      document.getElementById('loginSpinner').classList.toggle('hidden', !loading);
+    }
+
+    function login() {
+      var id = document.getElementById('userId').value.trim();
+      var pass = document.getElementById('password').value;
+
+      if (!id || !pass) {
+        setLoginMsg('Please enter both User ID and Password.', true);
+        return;
+      }
+
+      setLoginMsg('', false);
+      setLoginLoading(true);
+
+      VT.run
+        .withSuccessHandler(onLoginSuccess)
+        .withFailureHandler(onLoginFailure)
+        .checkLogin(id, pass);
+    }
+
+    function onLoginSuccess(res) {
+      setLoginLoading(false);
+      if (!res || !res.success) {
+        setLoginMsg((res && res.message) ? res.message : 'Invalid User ID or Password.', true);
+        return;
+      }
+      currentUser = { id: res.id, name: res.name, role: res.role };
+      document.getElementById('loginSection').classList.add('hidden');
+      document.getElementById('dashboardSection').classList.remove('hidden');
+      initDashboardForRole();
+    }
+
+    function onLoginFailure(error) {
+      setLoginLoading(false);
+      setLoginMsg('Could not sign in — ' + (error && error.message ? error.message : 'server did not respond. Check your internet connection and try again.'), true);
+    }
+
+    function logout() {
+      currentUser = null;
+      allTasksCache = [];
+      weeklyStaffId = null;
+      weeklyAnchorDate = null;
+      weeklyReviewData = null;
+      if (weeklyDonutChart) { weeklyDonutChart.destroy(); weeklyDonutChart = null; }
+      document.getElementById('dashboardSection').classList.add('hidden');
+      document.getElementById('loginSection').classList.remove('hidden');
+      document.getElementById('userId').value = '';
+      document.getElementById('password').value = '';
+      setLoginMsg('', false);
+      document.getElementById('userId').focus();
+    }
+
+    // ====================== DASHBOARD INIT ======================
+    function initDashboardForRole() {
+      document.getElementById('userNameDisplay').textContent = currentUser.name;
+      document.getElementById('userRoleDisplay').textContent = currentUser.role;
+
+      var privileged = isPrivileged();
+      document.getElementById('managerPanel').classList.toggle('hidden', !privileged);
+      document.getElementById('tabAllPendingBtn').classList.toggle('hidden', !privileged);
+      document.getElementById('tabAllBtn').classList.toggle('hidden', !privileged);
+      document.getElementById('tabMineBtn').classList.toggle('hidden', !pageOn_('deleg_mine'));
+      document.getElementById('tabWeekBtn').classList.toggle('hidden', !pageOn_('deleg_week'));
+      document.getElementById('tabScoreboardBtn').classList.toggle('hidden', !pageOn_('deleg_scoreboard'));
+      document.getElementById('followUpSection').classList.toggle('hidden', !privileged);
+      document.getElementById('needsReviewSection').classList.toggle('hidden', !privileged);
+      document.getElementById('weeklyStaffPickerWrap').classList.toggle('hidden', !privileged);
+
+      if (privileged) {
+        weeklyStaffId = null;
+        loadWeeklyStaffOptions();
+      } else {
+        weeklyStaffId = currentUser.id;
+      }
+
+      if (privileged) loadAssignableStaffDropdown();
+
+      switchTab(firstTab_());
+    }
+
+    // ---- sub pages and scoring rules come from the server (Setup > Access, Setup > Module settings)
+    var DELEG_PAGES = null, DELEG_SCORING = { revise: -3, extend: -5 };
+    function pageOn_(p) { return !DELEG_PAGES || DELEG_PAGES.indexOf(p) !== -1; }
+    function firstTab_() {
+      if (pageOn_('deleg_mine')) return 'mine';
+      if (isPrivileged()) return 'allpending';
+      if (pageOn_('deleg_week')) return 'week';
+      return pageOn_('deleg_scoreboard') ? 'scoreboard' : 'mine';
+    }
+    function pts_(n) { return (n > 0 ? '+' : '') + n + ' point' + (Math.abs(n) === 1 ? '' : 's'); }
+
+    // ====================== TABS ======================
+    function switchTab(tab) {
+      currentTab = tab;
+      var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabScoreboardBtn'];
+      ids.forEach(function (id) {
+        var el = document.getElementById(id);
+        el.classList.remove('vt-tab-active');
+        el.classList.add('border-transparent', 'text-slate-500');
+      });
+      var activeMap = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn' };
+      var activeBtn = document.getElementById(activeMap[tab]);
+      activeBtn.classList.add('vt-tab-active');
+      activeBtn.classList.remove('border-transparent', 'text-slate-500');
+
+      document.getElementById('viewTaskTable').classList.toggle('hidden', tab === 'scoreboard' || tab === 'week');
+      document.getElementById('viewScoreboard').classList.toggle('hidden', tab !== 'scoreboard');
+      document.getElementById('viewWeekly').classList.toggle('hidden', tab !== 'week');
+      document.getElementById('adminSearchBar').classList.toggle('hidden', !(tab === 'all' && isPrivileged()));
+
+      var titles = { mine: 'My Tasks', allpending: 'All Pending Tasks', all: 'All Tasks', week: 'My Week', scoreboard: 'Scoreboard' };
+      document.getElementById('taskTableTitle').textContent = titles[tab] || 'Tasks';
+
+      loadDashboard();
+    }
+
+    // ====================== LOAD DATA ======================
+    function loadDashboard() {
+      if (!currentUser) return;
+
+      VT.run
+        .withSuccessHandler(function (list) {
+          allTasksCache = list || [];
+          if (isPrivileged()) {
+            renderFollowUp(allTasksCache);
+            renderNeedsReview(allTasksCache);
+          }
+          applyFilterAndRender();
+        })
+        .withFailureHandler(onGenericError)
+        .getTasksForUser(currentUser.role, currentUser.name, currentUser.id, null);
+
+      VT.run
+        .withSuccessHandler(renderMyScore)
+        .withFailureHandler(onGenericError)
+        .getMyScore(currentUser.id);
+
+      if (currentTab === 'scoreboard') loadScoreboard();
+      if (currentTab === 'week') loadWeeklyReview();
+    }
+
+    function renderMyScore(score) {
+      document.getElementById('myScoreTotal').textContent = (score && score.totalScore) || 0;
+      document.getElementById('myScoreOnTime').textContent = (score && score.onTime) || 0;
+      document.getElementById('myScoreLate').textContent = (score && score.late) || 0;
+    }
+
+    function applyFilterAndRender() {
+      if (!currentUser || currentTab === 'scoreboard') return;
+      var source = allTasksCache.slice();
+
+      if (currentTab === 'mine') {
+        source = source.filter(function (t) { return t.assignedId === currentUser.id; });
+      } else if (currentTab === 'allpending') {
+        source = source.filter(function (t) { return t.status === 'Pending'; });
+      }
+
+      var dateVal = document.getElementById('filterDate').value;
+      if (dateVal) source = source.filter(function (t) { return t.dueDate === dateVal; });
+
+      if (isPrivileged() && currentTab === 'all') {
+        var nameQ = document.getElementById('searchName').value.trim().toLowerCase();
+        var taskQ = document.getElementById('searchTask').value.trim().toLowerCase();
+        if (nameQ) source = source.filter(function (t) {
+          return (t.assignedName || '').toLowerCase().indexOf(nameQ) !== -1 || (t.assignedId || '').toLowerCase().indexOf(nameQ) !== -1;
+        });
+        if (taskQ) source = source.filter(function (t) {
+          return (t.taskDesc || '').toLowerCase().indexOf(taskQ) !== -1;
+        });
+      }
+
+      renderTaskTable(source, 'taskList');
+    }
+
+    // ====================== ROW RENDERING ======================
+    function statusBadgeHtml(t) {
+      var map = { ontime: 'badge-ontime', today: 'badge-today', overdue: 'badge-overdue', late: 'badge-late', done: 'badge-done' };
+      var cls = map[t.deadlineState] || 'badge-role';
+      return '<span class="px-2 py-1 rounded-full text-[11px] font-bold ' + cls + '">' + escapeHtml(t.status) + '</span>';
+    }
+
+    function buildRow(t, context) {
+      var privileged = isPrivileged();
+      var actions;
+
+      if (!privileged && t.status === 'Pending' && t.assignedId === currentUser.id) {
+        actions = '<button onclick="openCompleteModal(\'' + t.taskId + '\')" class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700">Mark Complete</button>';
+      } else if (privileged && t.status === 'Completed By Staff') {
+        actions =
+          '<div class="flex gap-1.5 justify-end flex-wrap">' +
+            '<button onclick="openReviewModal(\'' + t.taskId + '\',\'Approved\')" class="px-2.5 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700">Approve</button>' +
+            '<button onclick="openReviewModal(\'' + t.taskId + '\',\'Revise\')" class="px-2.5 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600">Revise</button>' +
+            '<button onclick="openReviewModal(\'' + t.taskId + '\',\'Rejected\')" class="px-2.5 py-1.5 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700">Reject</button>' +
+          '</div>';
+      } else if (privileged && context === 'followup' && t.status === 'Pending') {
+        actions = '<button onclick="openExtendModal(\'' + t.taskId + '\')" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600">Revise Date</button>';
+      } else {
+        actions = '<span class="text-slate-300">—</span>';
+      }
+
+      var notesHtml = '';
+      if (t.extraWork) notesHtml += '<p class="text-xs text-slate-500 mb-1">' + escapeHtml(t.extraWork) + '</p>';
+      if (t.photoUrl && /^https?:\/\//.test(t.photoUrl)) {
+        notesHtml += '<a href="' + t.photoUrl + '" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline"><i class="fa-solid fa-image mr-1"></i>Photo</a>';
+      }
+      if (t.remark) notesHtml += '<p class="text-xs text-rose-500 mt-1"><i class="fa-solid fa-comment-dots mr-1"></i>' + escapeHtml(t.remark) + '</p>';
+      if (!notesHtml) notesHtml = '<span class="text-slate-300">—</span>';
+
+      var scoreHtml = (t.score === null || t.score === undefined || t.score === '')
+        ? '<span class="text-slate-300">—</span>'
+        : '<span class="font-bold ' + (t.score > 0 ? 'text-emerald-600' : 'text-rose-600') + '">' + (t.score > 0 ? '+' : '') + t.score + '</span>';
+
+      return (
+        '<tr>' +
+          '<td class="p-4 align-top"><p class="font-medium text-slate-700">' + escapeHtml(t.date) + '</p><p class="text-[11px] text-slate-400">' + escapeHtml(t.taskId) + '</p></td>' +
+          '<td class="p-4 align-top"><p class="font-medium text-slate-700">' + escapeHtml(t.assignedName) + '</p><p class="text-[11px] text-slate-400">' + escapeHtml(t.assignedId) + '</p></td>' +
+          '<td class="p-4 align-top max-w-xs">' + escapeHtml(t.taskDesc) + '</td>' +
+          '<td class="p-4 align-top">' + escapeHtml(t.dueDate) + '</td>' +
+          '<td class="p-4 align-top">' + statusBadgeHtml(t) + '</td>' +
+          '<td class="p-4 align-top">' + notesHtml + '</td>' +
+          '<td class="p-4 align-top text-center">' + scoreHtml + '</td>' +
+          '<td class="p-4 align-top text-right">' + actions + '</td>' +
+        '</tr>'
+      );
+    }
+
+    function renderTaskTable(list, containerId, context) {
+      var el = document.getElementById(containerId);
+      if (!list.length) {
+        el.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400 text-sm">No tasks found.</td></tr>';
+        return;
+      }
+      el.innerHTML = list.map(function (t) { return buildRow(t, context); }).join('');
+    }
+
+    function renderFollowUp(list) {
+      var fu = list.filter(function (t) { return t.status === 'Pending' && (t.deadlineState === 'overdue' || t.deadlineState === 'today'); });
+      document.getElementById('followUpCount').textContent = fu.length;
+      renderTaskTable(fu, 'followUpList', 'followup');
+    }
+
+    function renderNeedsReview(list) {
+      var nr = list.filter(function (t) { return t.status === 'Completed By Staff'; });
+      document.getElementById('needsReviewCount').textContent = nr.length;
+      renderTaskTable(nr, 'needsReviewList');
+    }
+
+    // ====================== DELEGATE A TASK ======================
+    function loadAssignableStaffDropdown() {
+      var sel = document.getElementById('assignName');
+      sel.innerHTML = '<option value="">Loading...</option>';
+      VT.run
+        .withSuccessHandler(function (list) {
+          if (!list.length) { sel.innerHTML = '<option value="">No staff added yet</option>'; return; }
+          sel.innerHTML = '<option value="">-- Select Staff --</option>' +
+            list.map(function (s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.name) + '</option>'; }).join('');
+        })
+        .withFailureHandler(onGenericError)
+        .getAssignableStaff();
+    }
+
+    function assignTask() {
+      var sel = document.getElementById('assignName');
+      var staffId = sel.value;
+      var staffName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+      var desc = document.getElementById('taskDesc').value.trim();
+      var dueDate = document.getElementById('taskDueDate').value;
+
+      if (!staffId || !desc || !dueDate) {
+        showToast('Please fill Staff, Task Detail and Deadline.', 'error');
+        return;
+      }
+
+      VT.run
+        .withSuccessHandler(function (msg) {
+          showToast(msg);
+          document.getElementById('taskDesc').value = '';
+          document.getElementById('taskDueDate').value = '';
+          loadDashboard();
+        })
+        .withFailureHandler(onGenericError)
+        .assignTask(staffId, staffName, desc, dueDate);
+    }
+
+
+    function handlePhotoSelect(inputId, otherInputId, previewId) {
+      var input = document.getElementById(inputId);
+      var other = document.getElementById(otherInputId);
+      var preview = document.getElementById(previewId);
+      if (other) other.value = ''; // only one source active at a time
+      var file = input.files[0];
+      if (file) {
+        preview.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i>' + escapeHtml(file.name) +
+          ' <button type="button" onclick="clearPhotoSelection(\'' + inputId + '\',\'' + otherInputId + '\',\'' + previewId + '\')" class="text-rose-500 hover:underline ml-1">Remove</button>';
+      } else {
+        preview.textContent = '';
+      }
+    }
+
+    function clearPhotoSelection(inputId, otherInputId, previewId) {
+      document.getElementById(inputId).value = '';
+      if (otherInputId) document.getElementById(otherInputId).value = '';
+      document.getElementById(previewId).textContent = '';
+    }
+
+    function getSelectedPhotoFile(galleryId, cameraId) {
+      var g = document.getElementById(galleryId).files[0];
+      var c = document.getElementById(cameraId).files[0];
+      return g || c || null;
+    }
+
+    // ====================== EXTRA WORK ======================
+    function openExtraWorkModal() {
+      document.getElementById('extraWorkDesc').value = '';
+      document.getElementById('extraWorkPhotoGallery').value = '';
+      document.getElementById('extraWorkPhotoCamera').value = '';
+      document.getElementById('extraWorkPhotoPreview').textContent = '';
+      document.getElementById('extraWorkMsg').textContent = '';
+      document.getElementById('extraWorkModal').classList.remove('hidden');
+    }
+    function closeExtraWorkModal() {
+      document.getElementById('extraWorkModal').classList.add('hidden');
+    }
+
+    function submitExtraWork() {
+      var desc = document.getElementById('extraWorkDesc').value.trim();
+      var msgEl = document.getElementById('extraWorkMsg');
+      if (!desc) { msgEl.textContent = 'Please describe the work.'; msgEl.className = 'text-xs text-center font-medium text-rose-500'; return; }
+
+      var file = getSelectedPhotoFile('extraWorkPhotoGallery', 'extraWorkPhotoCamera');
+      var send = function (photoDataUrl) {
+        VT.run
+          .withSuccessHandler(function (msg) { showToast(msg); closeExtraWorkModal(); })
+          .withFailureHandler(onGenericError)
+          .logExtraWork(currentUser.id, currentUser.name, currentUser.role, desc, photoDataUrl || '');
+      };
+
+      if (file) {
+        fileToDataUrl(file).then(send).catch(function (e) { onGenericError(e); });
+      } else {
+        send('');
+      }
+    }
+
+    // ====================== MARK TASK COMPLETE ======================
+    function openCompleteModal(taskId) {
+      document.getElementById('completeTaskId').value = taskId;
+      document.getElementById('completeNotes').value = '';
+      document.getElementById('completePhotoGallery').value = '';
+      document.getElementById('completePhotoCamera').value = '';
+      document.getElementById('completePhotoPreview').textContent = '';
+      document.getElementById('completeTaskMsg').textContent = '';
+      document.getElementById('completeTaskModal').classList.remove('hidden');
+    }
+    function closeCompleteModal() {
+      document.getElementById('completeTaskModal').classList.add('hidden');
+    }
+
+    function submitCompleteTask() {
+      var taskId = document.getElementById('completeTaskId').value;
+      var notes = document.getElementById('completeNotes').value.trim();
+      var file = getSelectedPhotoFile('completePhotoGallery', 'completePhotoCamera');
+
+      var send = function (photoDataUrl) {
+        VT.run
+          .withSuccessHandler(function (msg) { showToast(msg); closeCompleteModal(); loadDashboard(); })
+          .withFailureHandler(onGenericError)
+          .updateTaskStatus(taskId, notes, photoDataUrl || '');
+      };
+
+      if (file) {
+        fileToDataUrl(file).then(send).catch(function (e) { onGenericError(e); });
+      } else {
+        send('');
+      }
+    }
+
+    // ====================== MANAGER REVIEW ======================
+    function openReviewModal(taskId, action) {
+      document.getElementById('reviewTaskId').value = taskId;
+      document.getElementById('reviewAction').value = action;
+      document.getElementById('reviewRemark').value = '';
+      document.getElementById('reviewMsg').textContent = '';
+
+      var titles = { Approved: 'Approve Task', Rejected: 'Reject Task', Revise: 'Send Back for Revision' };
+      var hints = {
+        Approved: 'This marks the task as approved. The score stays as submitted.',
+        Rejected: 'This marks the task as rejected.',
+        Revise: 'This sends the task back to Pending and applies a ' + Math.abs(DELEG_SCORING.revise) + '-point penalty.'
+      };
+      document.getElementById('reviewModalTitle').textContent = titles[action] || 'Review Task';
+      document.getElementById('reviewHint').textContent = hints[action] || '';
+      document.getElementById('reviewModal').classList.remove('hidden');
+    }
+    function closeReviewModal() { document.getElementById('reviewModal').classList.add('hidden'); }
+
+    function submitReview() {
+      var taskId = document.getElementById('reviewTaskId').value;
+      var action = document.getElementById('reviewAction').value;
+      var remark = document.getElementById('reviewRemark').value.trim();
+
+      VT.run
+        .withSuccessHandler(function (msg) { showToast(msg); closeReviewModal(); loadDashboard(); })
+        .withFailureHandler(onGenericError)
+        .managerReview(taskId, action, remark);
+    }
+
+    // ====================== FOLLOW UP: REVISE (EXTEND) A MISSED DEADLINE ======================
+    function openExtendModal(taskId) {
+      document.getElementById('extendTaskId').value = taskId;
+      var dateInput = document.getElementById('extendNewDueDate');
+      dateInput.value = '';
+      dateInput.min = formatDateLocal(new Date()); // can't pick a date that's already in the past
+      document.getElementById('extendRemark').value = '';
+      document.getElementById('extendMsg').textContent = '';
+      document.getElementById('extendPenaltyLabel').textContent = pts_(DELEG_SCORING.extend);
+      document.getElementById('extendModal').classList.remove('hidden');
+    }
+    function closeExtendModal() { document.getElementById('extendModal').classList.add('hidden'); }
+
+    function submitExtendDeadline() {
+      var taskId = document.getElementById('extendTaskId').value;
+      var newDate = document.getElementById('extendNewDueDate').value;
+      var remark = document.getElementById('extendRemark').value.trim();
+      var msgEl = document.getElementById('extendMsg');
+
+      if (!newDate) {
+        msgEl.textContent = 'Please pick a new deadline.';
+        msgEl.className = 'text-xs text-center font-medium text-rose-500';
+        return;
+      }
+
+      VT.run
+        .withSuccessHandler(function (msg) { showToast(msg); closeExtendModal(); loadDashboard(); })
+        .withFailureHandler(onGenericError)
+        .extendTaskDeadline(taskId, newDate, remark);
+    }
+
+    // ====================== SCOREBOARD ======================
+    function loadScoreboard() {
+      VT.run.withSuccessHandler(renderScoreboard).withFailureHandler(onGenericError).getScoreboard();
+    }
+
+    function renderScoreboard(list) {
+      list = list || [];
+      var tbody = document.getElementById('scoreboardList');
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-slate-400 text-sm">No scores yet.</td></tr>';
+      } else {
+        tbody.innerHTML = list.map(function (s, i) {
+          var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+          return (
+            '<tr>' +
+              '<td class="p-4 font-bold text-slate-700">' + medal + '</td>' +
+              '<td class="p-4 font-medium text-slate-700">' + escapeHtml(s.name) + '</td>' +
+              '<td class="p-4 text-center font-bold ' + (s.totalScore >= 0 ? 'text-emerald-600' : 'text-rose-600') + '">' + s.totalScore + '</td>' +
+              '<td class="p-4 text-center text-emerald-600">' + s.onTime + '</td>' +
+              '<td class="p-4 text-center text-rose-600">' + s.late + '</td>' +
+            '</tr>'
+          );
+        }).join('');
+      }
+
+      var ctx = document.getElementById('scoreboardChart');
+      if (ctx && window.Chart) {
+        if (scoreChart) scoreChart.destroy();
+        scoreChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: list.map(function (s) { return s.name; }),
+            datasets: [{ label: 'Total Score', data: list.map(function (s) { return s.totalScore; }), backgroundColor: '#7C3AED', borderRadius: 6 }]
+          },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+      }
+    }
+
+    // ====================== MY WEEK (weekly RAG: planned vs actual, Green/Yellow/Red) ======================
+    function loadWeeklyStaffOptions() {
+      VT.run
+        .withSuccessHandler(function (list) {
+          var sel = document.getElementById('weeklyStaffSelect');
+          sel.innerHTML = '<option value="">-- Select a staff member --</option>' +
+            list.map(function (s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.name) + '</option>'; }).join('');
+        })
+        .withFailureHandler(onGenericError)
+        .getAssignableStaff();
+    }
+
+    function onWeeklyStaffChange() {
+      weeklyStaffId = document.getElementById('weeklyStaffSelect').value || null;
+      weeklyAnchorDate = null;
+      loadWeeklyReview();
+    }
+
+    function formatDateLocal(d) {
+      var y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    }
+
+    function formatDateRangeDisplay(startStr, endStr) {
+      function fmt(s) {
+        var d = new Date(s + 'T00:00:00');
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      }
+      var endYear = endStr ? endStr.slice(0, 4) : '';
+      return fmt(startStr) + ' – ' + fmt(endStr) + ', ' + endYear;
+    }
+
+    function weekNav(direction) {
+      if (direction === 0) {
+        weeklyAnchorDate = null;
+      } else {
+        var base = weeklyAnchorDate ? new Date(weeklyAnchorDate + 'T00:00:00') : new Date();
+        base.setDate(base.getDate() + (direction * 7));
+        weeklyAnchorDate = formatDateLocal(base);
+      }
+      loadWeeklyReview();
+    }
+
+    function loadWeeklyReview() {
+      if (currentTab !== 'week') return;
+
+      if (!weeklyStaffId) {
+        document.getElementById('weeklyEmptyState').classList.remove('hidden');
+        document.getElementById('weeklyContent').classList.add('hidden');
+        return;
+      }
+      document.getElementById('weeklyEmptyState').classList.add('hidden');
+      document.getElementById('weeklyContent').classList.remove('hidden');
+
+      VT.run
+        .withSuccessHandler(renderWeeklyReview)
+        .withFailureHandler(onGenericError)
+        .getWeeklyReview(weeklyStaffId, weeklyAnchorDate);
+    }
+
+    function renderWeeklyReview(data) {
+      weeklyReviewData = data;
+      var c = data.counts;
+
+      document.getElementById('weekRangeLabel').textContent = formatDateRangeDisplay(data.weekStart, data.weekEnd);
+      document.getElementById('weekGreenCount').textContent = c.green;
+      document.getElementById('weekYellowCount').textContent = c.yellow;
+      document.getElementById('weekRedCount').textContent = c.red;
+      document.getElementById('weekPendingCount').textContent = c.pending;
+
+      var ctx = document.getElementById('weeklyDonut');
+      if (ctx && window.Chart) {
+        if (weeklyDonutChart) weeklyDonutChart.destroy();
+        weeklyDonutChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['On Time', '1 Revision', 'Missed / 2+ Rev.', 'Pending'],
+            datasets: [{ data: [c.green, c.yellow, c.red, c.pending], backgroundColor: ['#15A56A', '#F5A524', '#E11D48', '#cbd5e1'], borderWidth: 0 }]
+          },
+          options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } }
+        });
+      }
+
+      var readout = document.getElementById('weekPlannedReadout');
+      if (data.plan) {
+        readout.innerHTML =
+          '<div class="flex items-center justify-between text-sm mb-1"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>Green</span><span class="font-semibold">' + data.plan.green + '%</span></div>' +
+          '<div class="flex items-center justify-between text-sm mb-1"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>Yellow</span><span class="font-semibold">' + data.plan.yellow + '%</span></div>' +
+          '<div class="flex items-center justify-between text-sm"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>Red</span><span class="font-semibold">' + data.plan.red + '%</span></div>';
+      } else {
+        readout.innerHTML = '<p class="text-sm text-slate-400">No plan was set for this week.</p>';
+      }
+
+      document.getElementById('nextWeekRangeLabel').textContent = 'For ' + formatDateRangeDisplay(data.nextWeekStart, data.nextWeekEnd);
+      document.getElementById('planGreen').value = data.nextPlan ? data.nextPlan.green : 0;
+      document.getElementById('planYellow').value = data.nextPlan ? data.nextPlan.yellow : 0;
+      document.getElementById('planRed').value = data.nextPlan ? data.nextPlan.red : 0;
+      document.getElementById('weeklyPlanMsg').textContent = '';
+      updatePlanTotal();
+    }
+
+    function onPlanGreenYellowChange() {
+      var g = Number(document.getElementById('planGreen').value) || 0;
+      var y = Number(document.getElementById('planYellow').value) || 0;
+      document.getElementById('planRed').value = Math.max(0, 100 - g - y);
+      updatePlanTotal();
+    }
+
+    function updatePlanTotal() {
+      var g = Number(document.getElementById('planGreen').value) || 0;
+      var y = Number(document.getElementById('planYellow').value) || 0;
+      var r = Number(document.getElementById('planRed').value) || 0;
+      var total = g + y + r;
+      var label = document.getElementById('planTotalLabel');
+      label.textContent = 'Total: ' + total + '%';
+      label.className = 'text-sm font-semibold ' + (total === 100 ? 'text-emerald-600' : 'text-rose-500');
+    }
+
+    function saveNextWeekPlan() {
+      if (!weeklyReviewData || !weeklyStaffId) return;
+      var g = Number(document.getElementById('planGreen').value) || 0;
+      var y = Number(document.getElementById('planYellow').value) || 0;
+      var r = Number(document.getElementById('planRed').value) || 0;
+      var msgEl = document.getElementById('weeklyPlanMsg');
+
+      if (g + y + r !== 100) {
+        msgEl.textContent = 'Green + Yellow + Red must add up to 100%.';
+        msgEl.className = 'text-xs text-center font-medium text-rose-500';
+        return;
+      }
+
+      var staffName = (currentUser && weeklyStaffId === currentUser.id) ? currentUser.name : '';
+      var sel = document.getElementById('weeklyStaffSelect');
+      if (sel && sel.selectedIndex > 0) staffName = sel.options[sel.selectedIndex].text;
+
+      VT.run
+        .withSuccessHandler(function (msg) {
+          var isError = String(msg).indexOf('ERROR') === 0;
+          msgEl.textContent = msg;
+          msgEl.className = 'text-xs text-center font-medium ' + (isError ? 'text-rose-500' : 'text-emerald-600');
+          if (!isError) showToast(msg);
+        })
+        .withFailureHandler(onGenericError)
+        .saveWeeklyPlan(weeklyStaffId, staffName, weeklyReviewData.nextWeekStart, weeklyReviewData.nextWeekEnd, g, y, r);
+    }
+
+    // ====================== ON LOAD ======================
+    // Sign-in lives in the portal. The page's own sign-in path runs with whoever the portal session is.
+    function logout() { window.VT.toPortal(); }
+    document.getElementById('loginSection').classList.add('hidden');
+    window.VT.boot('delegation', function () {
+      VT.run.withSuccessHandler(function (res) {
+        DELEG_PAGES = res.pages || [];
+        if (res.scoring) DELEG_SCORING = res.scoring;
+        onLoginSuccess(res);
+      }).withFailureHandler(function (err) { setLoginMsg(err.message, true); document.getElementById('loginSection').classList.remove('hidden'); }).checkLogin();
+    });
+  </script>
+</body>
+</html>

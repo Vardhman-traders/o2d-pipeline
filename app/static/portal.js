@@ -318,7 +318,7 @@ function topbar(onHome) {
 const can = (page) => !!S.user && (S.user.role === 'admin' || (S.user.pages || []).includes(page));
 const canAny = (pages) => pages.some(can);
 const DASHBOARD_PAGE_KEYS = ['dashboard_overview', 'dashboard_orders'];
-const O2D_PAGE_KEYS = ['o2d_overview', 'o2d_shop', 'o2d_godown', 'o2d_shop_dispatch', 'o2d_godown_dispatch', 'o2d_receiving'];
+const hasO2dScreen = () => !!S.user && (S.user.o2d_views || []).length > 0;  // the server lists the O2D screens this person may open
 
 const MODULES = {
   dashboard: { title: 'Dashboard', icon: '📊', stateKey: 'dashTab', hideTitle: true,
@@ -327,7 +327,7 @@ const MODULES = {
   setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab',
     sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
       ['lists', 'Dropdown values', (p) => renderReconcile(p)], ['access', 'Access & permissions', (p) => renderAccessHub(p)],
-      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)]] },
+      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)], ['modsettings', 'Module settings', (p) => renderModuleSettings(p)]] },
 };
 const sectionsOf = (mod) => mod.sections.filter((sec) => !sec[3] || can(sec[3]));
 
@@ -349,7 +349,7 @@ function renderModule(body, key) {
     secs.find(([id]) => id === S[mod.stateKey])[2](panel);
   };
   const drawBar = () => bar.replaceChildren(...secs.map(([id, label]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'access' && S.pendingRequests ? ` (${S.pendingRequests})` : ''),
+    class: 'subtab', role: 'tab', 'aria-selected': String(S[mod.stateKey] === id), text: label + (id === 'access' && S.pendingRequests ? ` (${S.pendingRequests})` : '') + (id === 'lists' && S.pendingLists ? ` (${S.pendingLists})` : ''),
     onclick: () => { S[mod.stateKey] = id; drawBar(); openInner(); } })));
   S.redrawModuleBar = drawBar;
   document.documentElement.style.setProperty('--filters-h', '0px'); // only the orders list stacks filters under the tabs
@@ -365,6 +365,7 @@ function renderModule(body, key) {
 async function refreshPendingRequests() {
   if (S.user?.role !== 'admin') return 0;
   try { S.pendingRequests = (await api('/admin/access/requests/count')).pending; } catch { /* badge just stays as it was */ }
+  try { S.pendingLists = (await api('/admin/masters-pending')).total; } catch { /* badge just stays as it was */ }
   return S.pendingRequests || 0;
 }
 
@@ -390,9 +391,10 @@ async function showPortal() {
     const pending = S.pendingRequests || 0;
     renderHome(main, links.filter((l) => l.url !== '/sales/'), (linkTiles) => [
       modules.dashboard && appTile(MODULES.dashboard.icon, 'Dashboard', 'Open', () => go('dashboard'), 'tileDashboard'),
-      canAny(O2D_PAGE_KEYS) && appTile('📋', 'O2D Portal', 'Open ↗', () => openAppLink('/sales/'), 'tileO2d'),
+      hasO2dScreen() && appTile('📋', 'O2D Portal', 'Open ↗', () => openAppLink('/sales/'), 'tileO2d'),
+      ...(S.user.modules || []).map((m) => appTile(m.icon, m.title, 'Open ↗', () => openAppLink(m.url), 'tile_' + m.key)),
       ...linkTiles,
-      admin && appTile(MODULES.setup.icon, 'Setup', pending ? `${pending} access request${pending === 1 ? '' : 's'} waiting` : 'Open', () => go('setup'), 'tileSetup')]);
+      admin && appTile(MODULES.setup.icon, 'Setup', [pending ? `${pending} access request${pending === 1 ? '' : 's'}` : '', S.pendingLists ? `${S.pendingLists} new list value${S.pendingLists === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') ? [pending ? `${pending} access request${pending === 1 ? '' : 's'}` : '', S.pendingLists ? `${S.pendingLists} new list value${S.pendingLists === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') + ' waiting' : 'Open', () => go('setup'), 'tileSetup')]);
   };
   if (admin) await refreshPendingRequests();
   draw();
@@ -768,18 +770,62 @@ async function renderDashboard(panel) {
     dl.disabled = false; dl.textContent = '⬇ Download Excel';
   });
 
+  const moduleBox = h('div', { id: 'module-kpis' });
   panel.replaceChildren(
     dateBar,
     filterBar,
     archiveNote,
-    body);
+    body,
+    moduleBox);
   if (panel.isConnected) slot.replaceChildren(h('span', { class: 'live' }, h('span', { class: 'dot' }), 'Live · every 30 s · ', stamp), dl);
-  await load();
+  await Promise.all([load(), renderModuleKpis(moduleBox)]);
   if (!panel.isConnected) return; // user already left this tab
   S.timer = setInterval(() => {
     if (!panel.isConnected) return stopTimer();
-    if (!document.hidden) load();
+    if (!document.hidden) { load(); renderModuleKpis(moduleBox); }
   }, 30000);
+}
+
+// ---- the other modules at a glance (Payments, Delegation, Purchase) - one block each, under the order story.
+// Each block links to the module itself; nothing here names a company, mode or role: it all follows the lists in Setup.
+async function renderModuleKpis(box) {
+  let k;
+  try { k = await api('/admin/module-kpis'); } catch { return box.replaceChildren(); }
+  const head = (icon, title, url, note) => h('div', { class: 'module-kpi-head' },
+    h('h2', { text: icon + ' ' + title }), note ? h('span', { class: 'note', text: note }) : null,
+    h('button', { class: 'btn small', text: 'Open ↗', onclick: () => openAppLink(url) }));
+  const p = k.payments, dg = k.delegation, pu = k.purchase;
+  const net = (n) => (n < 0 ? '−' : '') + fmtMoney(Math.abs(n));
+  const sections = [
+    h('section', { class: 'module-kpis', id: 'kpi-payments' },
+      head('💳', 'Payments', '/payments/', 'Approved entries; this month = since the 1st'),
+      h('div', { class: 'kpis second' },
+        tile('Cash in hand', net(p.cashInHand), 'all approved cash entries', false, '💵'),
+        tile('Bank balance', net(p.bankBalance), 'non-cash modes', false, '🏦'),
+        tile('Received this month', fmtMoney(p.monthReceived), 'types counted as received', false, '📥'),
+        tile('Paid this month', fmtMoney(p.monthPaid), 'types counted as paid', false, '📤')),
+      h('div', { class: 'kpis second' },
+        tile('Cash sales this month', fmtMoney(p.monthCashSales), 'sales companies, cash only', false, '🛒'),
+        tile('Waiting for approval', fmtInt(p.pendingCount), fmtMoney(p.pendingAmount) + ' in total', false, '⏳'),
+        tile('Entries today', fmtInt(p.entriesToday), '', false, '🗓️'),
+        tile('Top company this month', p.monthNetByCompany[0] ? p.monthNetByCompany[0].name : '–', p.monthNetByCompany[0] ? 'net ' + net(p.monthNetByCompany[0].net) : '', false, '🏢'))),
+    h('section', { class: 'module-kpis', id: 'kpi-delegation' },
+      head('✅', 'Delegation', '/delegation/', 'Tasks and scores'),
+      h('div', { class: 'kpis second' },
+        tile('Open tasks', fmtInt(dg.openTasks), fmtInt(dg.dueToday) + ' due today', false, '📋'),
+        tile('Overdue', fmtInt(dg.overdue), 'still pending past the deadline', false, '⚠️'),
+        tile('Waiting for review', fmtInt(dg.awaitingReview), 'submitted, manager to decide', false, '🔎'),
+        tile('On time (30 days)', dg.onTimeRate30 == null ? '–' : dg.onTimeRate30 + '%', fmtInt(dg.completed30) + ' submitted', false, '🎯')),
+      dg.top.length ? h('p', { class: 'note', text: 'Top scores: ' + dg.top.map((t) => `${t.name} (${t.score})`).join(' · ') }) : null),
+    h('section', { class: 'module-kpis', id: 'kpi-purchase' },
+      head('🧾', 'Purchase report', '/purchase/', 'This month'),
+      h('div', { class: 'kpis second' },
+        tile('Entries', fmtInt(pu.monthEntries), pu.sites.map((s) => `${s.site} ${s.entries}`).join(' · '), false, '📦'),
+        tile('Invoice value', fmtMoney(pu.monthAmount), pu.sites.map((s) => `${s.site} ${fmtMoney(s.amount)}`).join(' · '), false, '💰'),
+        tile('Missing invoice no. or amount', fmtInt(pu.monthIncomplete), 'entries to complete', false, '✏️'),
+        tile('Top vendor (30 days)', pu.topVendors30[0] ? pu.topVendors30[0].vendor : '–', pu.topVendors30[0] ? fmtMoney(pu.topVendors30[0].amount) : '', false, '🏭'))),
+  ];
+  box.replaceChildren(...sections);
 }
 
 function dashboardNodes(d) {
@@ -863,7 +909,7 @@ function dashboardNodes(d) {
 }
 
 // ------------------------------------------------------------------ members
-const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch', godown_dispatch: 'Godown dispatch', receiving: 'Receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)' };
+const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch & receiving', godown_dispatch: 'Godown dispatch', receiving: 'Godown receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)' };
 const roleLabel = (r) => ROLE_HELP[r] || r;
 
 async function renderMembers(panel) {

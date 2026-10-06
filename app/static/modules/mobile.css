@@ -1,0 +1,24 @@
+/* Shared phone-friendly rules for the Payments, Delegation and Purchase screens. They keep their own design; this only makes
+ * sure nothing runs off a 360px screen, tables scroll sideways instead of squeezing, and fingers can hit the controls. */
+html { -webkit-text-size-adjust: 100%; }
+img, canvas, svg { max-width: 100%; }
+.vt-portal-link { position: fixed; left: 10px; bottom: 10px; z-index: 900; background: rgba(16,38,61,.92); color: #fff; font: 600 12px/1 system-ui, sans-serif;
+  padding: 9px 12px; border-radius: 999px; text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.vt-portal-link:hover { background: #1c4f82; }
+@media (max-width: 720px) {
+  body { overflow-x: hidden; }
+  input, select, textarea { font-size: 16px !important; }            /* stops iOS zooming into a field */
+  button, .btn, select, input[type=date], input[type=time] { min-height: 40px; }
+  .table-wrap, .overflow-x-auto, .table-scroll, [class*="table-wrap"] { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  table { max-width: none; }
+  .form-grid, .grid { grid-template-columns: 1fr !important; }
+  .panel, .card, .modal, .modal-box, .overlay > div, [id$="Modal"] > div { max-width: 100% !important; }
+  .topbar, .header, header, nav, .toolbar, .tb-row { flex-wrap: wrap; gap: 8px; }
+  .vt-portal-link { bottom: 8px; left: 8px; padding: 8px 10px; }
+}
+@media (max-width: 480px) {
+  h1 { font-size: 1.25rem; }
+  .cards-row, #cardsRow { grid-template-columns: 1fr 1fr !important; }
+}
+.vt-home-btn { font-size: 20px; line-height: 1; padding: 6px 8px; color: #475569; background: none; border: 0; cursor: pointer; }
+.vt-home-btn:hover { color: #1c4f82; }
