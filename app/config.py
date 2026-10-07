@@ -5,6 +5,7 @@ A short in-process cache keeps this off the hot path (checked on every order
 read/write) - it's per-process, so on a multi-instance deploy a change can take up
 to TTL seconds to reach every instance. Fine for a single small Render service.
 """
+import re
 import time
 
 from . import db
@@ -39,7 +40,8 @@ def delivered_by_custom_terms() -> list[str]:
 def needs_delivered_by_detail(name: str | None, terms: list[str] | None = None) -> bool:
     terms = [t.lower() for t in (terms if terms is not None else delivered_by_custom_terms())]
     parts = [p.strip().lower() for p in (name or "").replace(",", "/").split("/")]
-    return any(p and p in terms for p in parts)
+    # a term counts when it is the whole value or a whole word(s) inside it, so "By Porter" / "Transport (Tempo)" match too
+    return any(p and any(re.search(rf"(?<!\w){re.escape(t)}(?!\w)", p) for t in terms) for p in parts)
 
 
 def weekly_off_days() -> set[int]:
