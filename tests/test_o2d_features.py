@@ -12,7 +12,7 @@ from tests.test_o2d_screens import add, client, ensure_date, login, seed  # noqa
 # ---------------------------------------------------------------- pure logic
 @pytest.mark.parametrize("name,expected", [
     ("Porter", True), ("by company", True), ("Transport", True), ("Porter / By Company / Transport", True),
-    ("Amit", False), ("", False), (None, False)])
+    ("By Porter", True), ("By Transport", True), ("Transport (Tempo)", True), ("Amit", False), ("Portermann", False), ("", False), (None, False)])
 def test_delivered_by_detail_trigger(name, expected):
     assert config.needs_delivered_by_detail(name, ["Porter", "By Company", "Transport"]) is expected
 
@@ -22,7 +22,7 @@ def test_pdf_has_title_created_by_and_approved_by():
         {"order_received_date": date(2026, 10, 1), "dc_inv_no": "12", "shipping_location": "Rohini", "delivered_by_full": "Porter - Ramesh",
          "material_delivery_datetime": datetime(2026, 10, 1, 8, tzinfo=timezone.utc), "payment_status": "Cash",
          "cartage": Decimal("50"), "date_of_receiving": date(2026, 10, 2), "amount_received": Decimal("1200.5")}]}
-        for h, _, c, t in o2d_reports.REPORTS["receiving-received"]["sections"]]
+        for h, _, c, t in o2d_reports.REPORTS["godown-received-cash"]["sections"]]
     pdf = o2d_reports.build_pdf("Receiving report", secs, "Sahil", datetime.now(timezone.utc))
     assert pdf.startswith(b"%PDF")
     for kind in o2d_reports.REPORTS:  # empty reports still render

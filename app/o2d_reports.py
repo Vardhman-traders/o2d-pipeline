@@ -6,7 +6,7 @@ Same rule as the order screens decides which orders a person's report contains (
 the reports at all is the admin-set page access "o2d_reports".
 """
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
@@ -28,6 +28,11 @@ MAX_ROWS = 5000
 _LIVE = "NOT o.is_cancelled AND lower(btrim(COALESCE(st.type_name, ''))) <> 'cancelled'"
 _DELIVERED = "o.material_delivery_datetime IS NOT NULL"
 _RECEIVED = "o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL"
+_CASH = "lower(btrim(COALESCE(ps.status_name, ''))) = 'cash'"   # payment mode "Cash"; everything else is "other modes"
+# Highest doc (DC / Inv) number first; numbers are compared as numbers (so 100 comes before 99), blanks last.
+_BY_DOC_NO = "NULLIF(regexp_replace(o.dc_inv_no, '[^0-9]', '', 'g'), '')::numeric DESC NULLS LAST, o.dc_inv_no DESC, o.sl_no DESC"
+_NEWEST_ORDERED = _NEWEST_DELIVERED = _NEWEST_RECEIVED = _BY_DOC_NO
+
 
 # column = (header, field, width in mm, align)
 ORDER_COLS = [("Order date", "order_received_date", 22, "L"), ("DC / Inv No", "dc_inv_no", 22, "L"),
@@ -44,21 +49,31 @@ _RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No"
                   ("Payment mode / status", "payment_status", 32, "L"), ("Cartage (Rs)", "cartage", 22, "R"),
                   ("Amount received (Rs)", "amount_received", 30, "R")]
 _DISPATCH_COLS = ORDER_COLS + [("Ready by", "ready_by", 24, "L"), ("Delivery status", "delivery_status", 24, "L")]
+def _received_report(side: str, label: str, mode: str, color: str) -> dict:
+    side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_SIDE), (_CASH if mode == "cash" else f"NOT ({_CASH})")
+    what = "paid in cash" if mode == "cash" else "paid by other modes (not cash)"
+    return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Other modes'})",
+            "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED,
+            "sections": [(f"{label} orders received, {what}", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {cash_sql}",
+                          _RECEIVED_COLS, True)]}
+
+
 # One report per part. color = the column-heading band, so printed reports are easy to tell apart.
 REPORTS = {
     "godown-pending": {
-        "title": "Godown - Pending Orders", "file": "godown_pending", "color": "#b7791f",
+        "title": "Godown - Pending Orders", "file": "godown_pending", "color": "#b7791f", "order": _NEWEST_ORDERED,
         "sections": [("Orders waiting on the godown (no delivery status yet)", f"{_LIVE} AND o.delivery_status_key IS NULL",
                       ORDER_COLS + [("Order via", "order_via", 22, "L"), ("Taken by", "created_by", 24, "L")], False)]},
     "shop-dispatch-pending": {
-        "title": "Shop Dispatch - Pending Orders", "file": "shop_dispatch_pending", "color": "#1f8a5f",
+        "title": "Shop Dispatch - Pending Orders", "file": "shop_dispatch_pending", "color": "#1f8a5f", "order": _NEWEST_ORDERED,
         "sections": [("Shop orders not yet delivered", f"{_LIVE} AND {_SHOP} AND NOT ({_DELIVERED})", _DISPATCH_COLS, False)]},
     "godown-dispatch-pending": {
-        "title": "Godown Dispatch - Pending Orders", "file": "godown_dispatch_pending", "color": "#1b7f8c",
+        "title": "Godown Dispatch - Pending Orders", "file": "godown_dispatch_pending", "color": "#1b7f8c", "order": _NEWEST_ORDERED,
         "sections": [("Godown orders not yet delivered", f"{_LIVE} AND {_GODOWN_SIDE} AND NOT ({_DELIVERED})", _DISPATCH_COLS, False)]},
+    # shop and godown orders together
     "receiving-pending": {
-        "title": "Godown Receiving - Awaiting Receiving / Payment", "file": "receiving_pending", "color": "#7c3aed",
-        "sections": [("Delivered, awaiting receiving or payment", f"{_LIVE} AND {_DELIVERED} AND NOT ({_RECEIVED})", _AWAITING_COLS, False)]},
+        "title": "Awaiting Receiving", "file": "receiving_pending", "color": "#7c3aed", "order": _NEWEST_DELIVERED,
+        "sections": [("Delivered, awaiting receiving or payment (shop and godown)", f"{_LIVE} AND {_DELIVERED} AND NOT ({_RECEIVED})", _AWAITING_COLS, False)]},
     # Cartage reports are built from the cartage data (period = delivery date), see app/o2d_cartage.py
     "cartage-detail": {
         "title": "Cartage - Deliveries & Cartage Paid", "file": "cartage_detail", "color": "#c2410c", "cartage": "detail",
@@ -75,9 +90,10 @@ REPORTS = {
                       [("Delivery person", "employee", 90, "L"), ("Deliveries", "deliveries", 34, "R"),
                        ("With cartage", "with_cartage", 34, "R"), ("Total cartage (Rs)", "total", 46, "R"),
                        ("Average per paid delivery (Rs)", "average", 56, "R", "nosum")], True)]},
-    "receiving-received": {
-        "title": "Godown Receiving - Received & Payments", "file": "receiving_received", "color": "#2563eb",
-        "sections": [("Received - payment details", f"{_LIVE} AND {_DELIVERED} AND {_RECEIVED}", _RECEIVED_COLS, True)]},
+    "godown-received-cash": _received_report("godown", "Godown", "cash", "#2563eb"),
+    "godown-received-other": _received_report("godown", "Godown", "other", "#1d4ed8"),
+    "shop-received-cash": _received_report("shop", "Shop", "cash", "#0f766e"),
+    "shop-received-other": _received_report("shop", "Shop", "other", "#115e59"),
 }
 
 
@@ -174,7 +190,7 @@ def build_pdf(title: str, sections: list[dict], created_by: str, generated_at: d
     return buf.getvalue()
 
 
-def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | None) -> list[dict]:
+def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | None, order_sql: str = _NEWEST_ORDERED) -> list[dict]:
     from . import main
     vis_sql, vis_params = roles.visibility(user)
     where, params = [vis_sql, f"({where_sql})"], list(vis_params)
@@ -183,10 +199,15 @@ def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | Non
     if date_to:
         where.append("d.full_date <= %s"); params.append(date_to)
     sql = (main.ORDER_SELECT + " WHERE " + " AND ".join(where) +
-           " ORDER BY d.full_date, o.sl_no LIMIT %s")
+           f" ORDER BY {order_sql} LIMIT %s")
     with db.cursor() as cur:
         cur.execute(sql, params + [MAX_ROWS])
         return [_prepare(r) for r in cur.fetchall()]
+
+
+def _doc_no_key(r: dict):
+    digits = "".join(ch for ch in str(r.get("dc_inv_no") or "") if ch.isdigit())
+    return (digits != "", int(digits) if digits else 0, str(r.get("dc_inv_no") or ""), r["sl_no"])
 
 
 def _cartage_sections(spec: dict, date_from: date | None, date_to: date | None, delivered_by: str | None):
@@ -196,6 +217,7 @@ def _cartage_sections(spec: dict, date_from: date | None, date_to: date | None, 
     if spec["cartage"] == "employee":
         rows = o2d_cartage.by_employee(rows)
     else:
+        rows.sort(key=_doc_no_key, reverse=True)   # highest doc number first
         for i, r in enumerate(rows, 1):
             r["sno"] = i
             r["sign"] = ""
@@ -228,7 +250,7 @@ def report_pdf(kind: str, date_from: date | None = Query(default=None), date_to:
         name = f"{spec['file']}_{datetime.now(IST):%Y%m%d_%H%M}.pdf"
         return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
                                                                      "Cache-Control": "no-store"})
-    sections = [{"heading": h, "columns": cols, "totals": totals, "rows": fetch_rows(user, where, date_from, date_to)}
+    sections = [{"heading": h, "columns": cols, "totals": totals, "rows": fetch_rows(user, where, date_from, date_to, spec.get("order", _NEWEST_ORDERED))}
                 for h, where, cols, totals in spec["sections"]]
     note = "Order dates " + (f"{date_from:%d-%m-%Y}" if date_from else "start") + " to " + (f"{date_to:%d-%m-%Y}" if date_to else "today") \
         if (date_from or date_to) else "All orders still open"

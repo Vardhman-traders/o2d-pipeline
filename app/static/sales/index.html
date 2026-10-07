@@ -385,8 +385,11 @@
           <button type="button" class="ov-btn" onclick="downloadReport_('godown-pending', this)">⬇ Godown - pending orders</button>
           <button type="button" class="ov-btn" onclick="downloadReport_('shop-dispatch-pending', this)">⬇ Shop Dispatch - pending orders</button>
           <button type="button" class="ov-btn" onclick="downloadReport_('godown-dispatch-pending', this)">⬇ Godown Dispatch - pending orders</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-pending', this)">⬇ Godown Receiving - awaiting receiving</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-received', this)">⬇ Godown Receiving - received &amp; payments</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-pending', this)">⬇ Awaiting receiving</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('godown-received-cash', this)">⬇ Godown received &amp; payments - cash</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('godown-received-other', this)">⬇ Godown received &amp; payments - other modes</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('shop-received-cash', this)">⬇ Shop received &amp; payments - cash</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('shop-received-other', this)">⬇ Shop received &amp; payments - other modes</button>
           <button type="button" class="ov-btn" onclick="downloadReport_('cartage-detail', this, { from: 'rep_from', to: 'rep_to', msg: 'rep_msg', person: 'rep_person', need: 'person' })">⬇ Cartage history (one delivery boy)</button>
           <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this)">⬇ Cartage - paid to each person</button>
         </div>
@@ -1622,7 +1625,11 @@
   // Porter / By Company / Transport (admin-set list) open a free-text box for the details.
   function needsDeliveredByDetail_(name) {
     var terms = DISPATCH_TERMS.map(function (t) { return t.toLowerCase(); });
-    return String(name || '').replace(/,/g, '/').split('/').some(function (p) { p = p.trim().toLowerCase(); return p && terms.indexOf(p) !== -1; });
+    // a term matches the whole value or a whole word inside it ("By Porter", "Transport (Tempo)")
+    return String(name || '').replace(/,/g, '/').split('/').some(function (p) {
+      p = p.trim().toLowerCase();
+      return p && terms.some(function (t) { return (' ' + p.replace(/[^a-z0-9]+/g, ' ') + ' ').indexOf(' ' + t.replace(/[^a-z0-9]+/g, ' ').trim() + ' ') !== -1; });
+    });
   }
   function dispatchToggleDetail() {
     var on = needsDeliveredByDetail_(document.getElementById('dispatch_deliveredByWhom').value);
