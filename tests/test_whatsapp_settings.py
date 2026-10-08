@@ -10,6 +10,18 @@ def test_templates_fill_known_placeholders_and_leave_everything_else_alone():
     assert "{order_date}" in whatsapp.ALERTS["dispatch_godown"]["template"]
 
 
+def test_api_key_is_sent_as_x_api_key_and_wins_over_username_password(monkeypatch):
+    monkeypatch.delenv("WHATSAPP_API_KEY", raising=False)
+    monkeypatch.delenv("WHATSAPP_API_USERNAME", raising=False)
+    monkeypatch.delenv("WHATSAPP_API_PASSWORD", raising=False)
+    assert whatsapp.auth_headers() == {} and whatsapp.credentials_set() is False
+    monkeypatch.setenv("WHATSAPP_API_USERNAME", "u")
+    monkeypatch.setenv("WHATSAPP_API_PASSWORD", "p")
+    assert whatsapp.auth_headers() == {"Authorization": "Basic dTpw"}
+    monkeypatch.setenv("WHATSAPP_API_KEY", " abc123 ")
+    assert whatsapp.auth_headers() == {"x-api-key": "abc123"}
+
+
 def test_admin_saves_group_switch_and_template_and_others_cannot(client, db_conn, seed, monkeypatch):
     admin, godown = login(client, db_conn), login(client, db_conn, "godown_dispatch")
     assert client.get("/admin/whatsapp", headers=godown).status_code == 403

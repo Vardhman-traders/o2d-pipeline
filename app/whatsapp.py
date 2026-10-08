@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 """WhatsApp alerts. Each kind of alert (an "alert type") is one row in `whatsapp_alert`: which group it goes to, an on/off
-switch and the message template. Admins edit them under Setup > WhatsApp; the provider login (WHATSAPP_API_USERNAME /
-WHATSAPP_API_PASSWORD, and WHATSAPP_API_URL if it differs) is the only thing kept in the environment.
+switch and the message template. Admins edit them under Setup > WhatsApp; the provider login (WHATSAPP_API_KEY, or the older
+WHATSAPP_API_USERNAME / _PASSWORD, and WHATSAPP_API_URL if it differs) is the only thing kept in the environment.
 
 Adding an alert type = one row in a migration + one entry in ALERTS below + a call to `send_alert(key, values)` where it happens.
 """
@@ -76,19 +76,34 @@ def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
         return resp.status, resp.read().decode("utf-8", "replace")
 
 
+def credentials_set() -> bool:
+    return bool(auth_headers())
+
+
+def auth_headers() -> dict:
+    """The provider login: an API key (WHATSAPP_API_KEY, sent as the x-api-key header - what the portal's Keys page issues), or
+    the older username + password (WHATSAPP_API_USERNAME / _PASSWORD, sent as Basic auth). The key wins when both are set."""
+    key = (os.environ.get("WHATSAPP_API_KEY") or "").strip()
+    if key:
+        return {"x-api-key": key}
+    user, pwd = os.environ.get("WHATSAPP_API_USERNAME"), os.environ.get("WHATSAPP_API_PASSWORD")
+    if user and pwd:
+        return {"Authorization": "Basic " + base64.b64encode(f"{user}:{pwd}".encode()).decode()}
+    return {}
+
+
 def send_text(key: str, text: str, post=_http_post, ignore_switch: bool = False) -> dict:
     """Send `text` to the group set for this alert type. {"skipped": True, "reason": ...} when it cannot go out."""
     settings = get_alert(key)
     if not settings["enabled"] and not ignore_switch:
         return {"skipped": True, "reason": "This alert is switched off in Setup."}
-    user, pwd = os.environ.get("WHATSAPP_API_USERNAME"), os.environ.get("WHATSAPP_API_PASSWORD")
-    if not user or not pwd:
+    headers = auth_headers()
+    if not headers:
         return {"skipped": True, "reason": "WhatsApp credentials not set."}
     if not settings["group_id"]:
         return {"skipped": True, "reason": "WhatsApp group not set."}
     body = json.dumps({"recipientIds": [settings["group_id"]], "message": [text]}).encode()
-    headers = {"Content-Type": "application/json",
-               "Authorization": "Basic " + base64.b64encode(f"{user}:{pwd}".encode()).decode()}
+    headers = {"Content-Type": "application/json", **headers}
     code, reply = post(API_URL, body, headers)
     return {"code": code, "body": reply}
 
@@ -111,7 +126,7 @@ def list_alerts(admin=Depends(ADMIN)):
                     "enabled": True if not row else bool(row["enabled"]),
                     "group_id": (row.get("group_id") or "").strip(), "group_from_environment": bool(not (row.get("group_id") or "").strip() and _legacy_group(key)),
                     "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None})
-    return {"alerts": out, "credentials_set": bool(os.environ.get("WHATSAPP_API_USERNAME") and os.environ.get("WHATSAPP_API_PASSWORD"))}
+    return {"alerts": out, "credentials_set": credentials_set()}
 
 
 class AlertIn(BaseModel):
