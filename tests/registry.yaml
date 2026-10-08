@@ -136,6 +136,7 @@ entries:
     speed: fast
     tests:
       - tests/test_whatsapp_settings.py::test_templates_fill_known_placeholders_and_leave_everything_else_alone
+      - tests/test_whatsapp_settings.py::test_api_key_is_sent_as_x_api_key_and_wins_over_username_password
       - tests/test_whatsapp_settings.py::test_admin_saves_group_switch_and_template_and_others_cannot
   - id: ADMIN-UI-1
     what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members

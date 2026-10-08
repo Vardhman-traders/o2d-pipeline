@@ -723,7 +723,7 @@ def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False
 
 
 def send_dispatch_alert(o: dict, post=whatsapp._http_post, resend: bool = False) -> dict:
-    """Post the dispatch alert to its WhatsApp group (settings: Setup > WhatsApp; login: WHATSAPP_API_USERNAME / _PASSWORD).
+    """Post the dispatch alert to its WhatsApp group (settings: Setup > WhatsApp; login: WHATSAPP_API_KEY).
     Nothing is sent, and the reason is returned, when the alert is off or WhatsApp is not set up."""
     return whatsapp.send_alert("dispatch_godown", _dispatch_values(o), prefix="(Sent again)\n" if resend else "", post=post)
 

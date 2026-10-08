@@ -916,6 +916,6 @@ async function renderWhatsApp(panel) {
   });
   panel.replaceChildren(
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing.' }),
-    data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp login (WHATSAPP_API_USERNAME / WHATSAPP_API_PASSWORD) is not set on the server, so nothing can be sent yet.' }),
+    data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp API key (WHATSAPP_API_KEY) is not set on the server, so nothing can be sent yet.' }),
     ...cards);
 }
