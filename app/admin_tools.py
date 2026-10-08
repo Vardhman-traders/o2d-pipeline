@@ -204,7 +204,9 @@ def order_detail(sl_no: int, viewer=Depends(access.require_page(*access.DASHBOAR
         if not row:
             raise HTTPException(404, "Order not found")
         tl = timeline.timeline_for(cur, row["order_key"], row)
+    last_alert = next((e for e in reversed(tl["events"]) if e["type"] == "whatsapp"), None)
     order = {k: v for k, v in row.items() if k != "order_key"}
+    order["whatsapp_alert"] = {"title": last_alert["title"], "at": last_alert["at"]} if last_alert else None
     order["archived"] = order.pop("archived_at") is not None
     return {"order": order, "timeline": tl["events"], "timeline_note": tl["note"]}
 

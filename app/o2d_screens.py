@@ -573,12 +573,38 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
         was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
         now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
         if was_empty and now_filled:
+            outcome = "failed"
             try:
-                send_dispatch_alert(updated)
+                sent = send_dispatch_alert(updated)
+                outcome = "skipped" if (sent or {}).get("skipped") else "sent"
             except Exception:  # the order is saved; a failed alert must never undo or fail that
                 log.exception("WhatsApp dispatch alert failed (order %s saved fine)", sl_no)
+            _record_alert(updated["orderKey"], outcome, user)
     result.pop("order", None)
     return result
+
+
+@router.post("/orders/{sl_no}/whatsapp-resend")
+def resend_dispatch_alert(sl_no: int, user=Depends(ANY_VIEWER)):
+    """Send the dispatch WhatsApp alert for an order again (the first one goes automatically, once). Godown dispatch / admin."""
+    access.require_edit(user, "o2d_godown_dispatch")
+    from . import main
+    try:
+        order = map_order(main.get_order(sl_no, archived=None, user=user))
+    except HTTPException as e:
+        return {"ok": True, "success": False, "message": str(e.detail)}
+    if not order["materialDeliveryDateTime"] or not order["deliveredByWhom"]:
+        return {"ok": True, "success": False, "message": "Fill in the delivery date/time and Delivered by first."}
+    outcome = "failed"
+    try:
+        sent = send_dispatch_alert(order, resend=True)
+        outcome = "skipped" if sent.get("skipped") else "sent"
+    except Exception:
+        log.exception("WhatsApp dispatch alert re-send failed (order %s)", sl_no)
+    _record_alert(order["orderKey"], outcome, user, resend=True)
+    message = {"sent": "WhatsApp alert sent again.", "skipped": "WhatsApp is not set up on the server, so nothing was sent.",
+               "failed": "WhatsApp did not accept the message. Nothing was sent - try again in a minute."}[outcome]
+    return {"ok": True, "success": outcome == "sent", "message": message}
 
 
 @router.put("/orders/{sl_no}/receiving")
@@ -685,8 +711,8 @@ def _fmt_date(iso: str) -> str:
     return f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else str(iso or "")
 
 
-def build_dispatch_message(o: dict) -> str:
-    return ("New Dispatch - Godown\n\nOrder Date: " + _fmt_date(o["orderRcvdDate"]) +
+def build_dispatch_message(o: dict, resend: bool = False) -> str:
+    return (("New Dispatch - Godown (sent again)" if resend else "New Dispatch - Godown") + "\n\nOrder Date: " + _fmt_date(o["orderRcvdDate"]) +
             "\nDC No: " + (o["dcNo"] or "-") + "\nReady By: " + (o["readyByWhom"] or "-") +
             "\nDelivery Status: " + (o["deliveryStatus"] or "-") + "\nAddress: " + (o["shippingLocation"] or "-") +
             "\nRemarks: " + (o["detailedRemarks"] or "-") + "\nDelivered By: " + (o["deliveredByWhom"] or "-"))
@@ -698,7 +724,22 @@ def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
         return resp.status, resp.read().decode("utf-8", "replace")
 
 
-def send_dispatch_alert(o: dict, post=_http_post) -> dict:
+ALERT_TITLES = {"sent": "WhatsApp dispatch alert sent to the group", "failed": "WhatsApp dispatch alert FAILED - not sent",
+                "skipped": "WhatsApp dispatch alert not sent - WhatsApp is not set up"}
+
+
+def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False):
+    """Note on the order's timeline when the dispatch alert went out (or why it did not). Never blocks the save."""
+    try:
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
+                        "VALUES (%s, 'whatsapp', %s, %s, %s, %s)",
+                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome], user["user_key"], user["display_name"], user["role"]))
+    except Exception:
+        log.exception("Could not note the WhatsApp alert on order %s", order_key)
+
+
+def send_dispatch_alert(o: dict, post=_http_post, resend: bool = False) -> dict:
     """Post the dispatch alert to the WhatsApp group. Credentials come from the environment
     (WHATSAPP_API_USERNAME / WHATSAPP_API_PASSWORD on Render); without them the alert is skipped."""
     user, pwd = os.environ.get("WHATSAPP_API_USERNAME"), os.environ.get("WHATSAPP_API_PASSWORD")
@@ -707,7 +748,7 @@ def send_dispatch_alert(o: dict, post=_http_post) -> dict:
     group = _whatsapp_group()
     if not group:
         return {"skipped": True, "reason": "WhatsApp group not set."}
-    body = json.dumps({"recipientIds": [group], "message": [build_dispatch_message(o)]}).encode()
+    body = json.dumps({"recipientIds": [group], "message": [build_dispatch_message(o, resend)]}).encode()
     headers = {"Content-Type": "application/json",
                "Authorization": "Basic " + base64.b64encode(f"{user}:{pwd}".encode()).decode()}
     code, text = post(WHATSAPP_API_URL, body, headers)
