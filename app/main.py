@@ -211,7 +211,7 @@ def list_people(role: PERSON_ROLES, user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
     _check_people_role(role, user)
     with db.cursor() as cur:
         cur.execute("SELECT person_key AS key, full_name, phone_number, person_role FROM dim_person "
-                    "WHERE person_role = %s ORDER BY lower(full_name)", (role,))
+                    "WHERE person_role = %s ORDER BY sort_order, lower(full_name)", (role,))
         return cur.fetchall()
 
 

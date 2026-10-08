@@ -355,7 +355,7 @@ async function renderAccess(panel) {
     catch (ex) { cb.checked = !cb.checked; alert(ex.message); }
     cb.disabled = false;
   };
-  const matrix = h('div', { class: 'table-wrap' }, h('table', { id: 'accessMatrix' },
+  const matrix = h('div', { class: 'table-wrap matrix-scroll', tabindex: '0', role: 'region', 'aria-label': 'Page access by role (scrolls up, down, left and right)' }, h('table', { id: 'accessMatrix' },
     h('thead', {}, h('tr', {}, h('th', { text: 'Page' }), ...m.roles.map((r) => h('th', { class: 'num', text: roleLabel(r) })))),
     h('tbody', {}, m.pages.map((p) => h('tr', {}, h('td', { text: p.label }),
       ...m.roles.map((r) => {
@@ -444,7 +444,14 @@ async function renderAccessRequests(panel) {
 }
 
 // ------------------------------------------------------------------ Import
-const IMPORT_KINDS = [['orders', 'Orders'], ['users', 'Members']];
+const IMPORT_KINDS = [['orders', 'Orders'], ['users', 'Members'], ['payments', 'Payments'], ['tasks', 'Delegation tasks'], ['purchases', 'Purchase entries']];
+const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', tasks: 'tasks', purchases: 'purchase entries' };
+const IMPORT_TEMPLATE_NOTE = {
+  orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
+  payments: 'The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
+  purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.' };
 
 async function renderImport(panel, kind) {
   kind = kind || S.importKind || 'orders';
@@ -457,7 +464,7 @@ async function renderImport(panel, kind) {
 }
 
 function importFlow(root, kind, restart) {
-  const label = kind === 'orders' ? 'orders' : 'members';
+  const label = IMPORT_LABEL[kind] || kind;
   const status = h('div', { id: 'importStatus' });
   const work = h('div');
   const history = h('div');
@@ -470,9 +477,7 @@ function importFlow(root, kind, restart) {
       h('h3', { text: `Upload ${label} in bulk` }),
       h('div', { class: 'import-step' }, h('span', { class: 'step-no', text: '1' }),
         h('div', {}, h('strong', { text: 'Download the template' }),
-          h('p', { class: 'note', text: kind === 'orders'
-            ? 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.'
-            : 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.' }),
+          h('p', { class: 'note', text: IMPORT_TEMPLATE_NOTE[kind] || '' }),
           h('div', { class: 'row' },
             h('button', { class: 'btn primary', id: 'templateXlsxBtn', text: '⬇ Excel template (.xlsx)', onclick: dl(`/admin/bulk/${kind}/template.xlsx`, kind + '_upload_template.xlsx') }),
             h('button', { class: 'btn', id: 'templateBtn', text: '⬇ CSV template', onclick: dl(`/admin/bulk/${kind}/template.csv`, kind + '_upload_template.csv') })))),
@@ -592,13 +597,13 @@ async function loadHistory(box, restart) {
   try { list = await api('/admin/bulk/batches'); } catch (ex) { return box.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   if (!list.length) return box.replaceChildren(h('p', { class: 'note', text: 'No imports yet.' }));
   const undo = async (b) => {
-    if (!(await confirmDialog('Undo this import?', `Removes the ${b.row_count} ${b.entity === 'orders' ? 'orders' : 'members'} from “${b.filename || 'import'}”. This only works if none of them has been used or edited since.`, 'Undo import', true))) return;
+    if (!(await confirmDialog('Undo this import?', `Removes the ${b.row_count} ${IMPORT_LABEL[b.entity] || b.entity} from “${b.filename || 'import'}”. This only works if none of them has been used or edited since.`, 'Undo import', true))) return;
     try { await api(`/admin/bulk/batches/${b.batch_id}/undo`, { method: 'POST' }); restart(); } catch (ex) { alert(ex.message); }
   };
   box.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { id: 'batchTable' },
     h('thead', {}, h('tr', {}, ['#', 'What', 'File', 'Rows', 'By', 'When', ''].map((t) => h('th', { text: t })))),
     h('tbody', {}, list.map((b) => h('tr', {},
-      h('td', { text: b.batch_id }), h('td', { text: b.entity === 'orders' ? 'Orders' : 'Members' }), h('td', { text: b.filename || '' }),
+      h('td', { text: b.batch_id }), h('td', { text: (IMPORT_KINDS.find((k) => k[0] === b.entity) || [0, b.entity])[1] }), h('td', { text: b.filename || '' }),
       h('td', { class: 'num', text: b.row_count }), h('td', { text: b.created_by || '' }), h('td', { text: fmtDateTime(b.created_at) }),
       h('td', {}, b.undone_at ? h('span', { class: 'pill off', text: 'Undone' }) : h('button', { class: 'btn small danger', text: 'Undo', onclick: () => undo(b) }))))))));
 }
@@ -636,12 +641,17 @@ async function renderReconcile(panel, tab) {
   const roleFilter = master ? master.role : role0;
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
   let data, phones = new Map(), scopes = new Map(), mrows = new Map(), mdef = master;
+  let screenOpts = null; const screensOf = new Map();   // the screens a Delivery / Payment status value can be limited to
   try {
     const calls = [api('/admin/reconcile/' + kind)];
     if (role) calls.push(api('/admin/people?role=' + role));
     if (master) calls.push(api('/admin/masters/' + master.id));
     const [d, extra] = await Promise.all(calls);
     data = d;
+    if (slug) {
+      const all = await api('/admin/lookup-screens');
+      if (all[slug]) { screenOpts = all[slug]; (await api('/admin/lookups/' + slug)).forEach((r) => screensOf.set(r.key, r.screens)); }
+    }
     if (role && extra) extra.forEach((r) => { phones.set(r.key, r.phone_number || ''); scopes.set(r.key, r.dispatch_scope || 'both'); });
     if (master && extra) { mdef = { ...master, fields: extra.fields }; extra.rows.forEach((r) => mrows.set(r.key, r)); }
   } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
@@ -651,6 +661,23 @@ async function renderReconcile(panel, tab) {
   const reload = () => renderReconcile(panel, tab);
   const byKey = new Map(values.map((v) => [v.key, v]));
   const picked = new Set();
+  const screenLabel = (v) => { const sc = screensOf.get(v.key); return sc ? sc.map((id) => (screenOpts.find(([i]) => i === id) || [id, id])[1]).join(', ') : 'All screens'; };
+  const allScreenIds = () => (screenOpts || []).map(([i]) => i);
+  const screenField = (current) => ({ name: 'screens', label: 'Offered on', type: 'checks', options: screenOpts, value: current || allScreenIds(),
+    hint: 'Only the ticked screens list this value in their dropdown. Orders already using it are not changed.' });
+
+  // drag a row (or use the arrows) to set the order the values appear in every dropdown
+  let dragKey = null;
+  const persistOrder = async () => {
+    try { await api(`/admin/reconcile/${kind}/order`, { method: 'PUT', body: { keys: values.map((v) => v.key), role: roleFilter || null } }); }
+    catch (ex) { alert(ex.message); reload(); }
+  };
+  const moveTo = (key, to) => {
+    const from = values.findIndex((v) => v.key === key);
+    if (from < 0 || to < 0 || to >= values.length || from === to) return;
+    values.splice(to, 0, values.splice(from, 1)[0]);
+    draw(); persistOrder();
+  };
 
   const kinds = h('div', { class: 'subtabs list-tabs', role: 'tablist' }, allTabs.map(([id, , , label, , m]) => h('button', {
     class: 'subtab', role: 'tab', 'aria-selected': String(id === tab), text: label + (m && m.pending ? ` (${m.pending})` : ''), onclick: () => renderReconcile(panel, id) })));
@@ -659,6 +686,7 @@ async function renderReconcile(panel, tab) {
   const mergeBtn = h('button', { class: 'btn', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
   const addBtn = h('button', { class: 'btn primary', id: 'rc_addBtn', text: '+ Add ' + tabLabel.toLowerCase(), onclick: () => openAdd() });
   const tbody = h('tbody');
+  const orderNote = h('p', { class: 'note', id: 'rc_orderNote', style: 'margin:0 0 8px' });
   const dupBox = h('div');
 
   // the flags of a master list (checkbox / choice / number), as form fields
@@ -675,10 +703,10 @@ async function renderReconcile(panel, tab) {
     }
     formDialog({ title: 'Add ' + tabLabel.toLowerCase(), submitLabel: 'Add',
       fields: [{ name: 'name', label: 'Name', required: true, maxlength: 100 }, role ? { name: 'phone', label: 'Phone (optional)' } : null,
-        role === 'delivery' ? SCOPE_FIELD : null].filter(Boolean),
+        role === 'delivery' ? SCOPE_FIELD : null, screenOpts ? screenField(null) : null].filter(Boolean),
       onSubmit: async (v) => {
         if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null, dispatch_scope: v.dispatch_scope || 'both' } });
-        else await api('/admin/lookups/' + slug, { method: 'POST', body: { name: v.name } });
+        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: v.screens } : { name: v.name } });
         reload();
       } });
   }
@@ -729,6 +757,11 @@ async function renderReconcile(panel, tab) {
       onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null, dispatch_scope: vals.dispatch_scope || 'both' } }); reload(); } });
       return;
     }
+    if (screenOpts) {
+      return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 100,
+        hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }, screenField(screensOf.get(v.key))],
+      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: vals.screens } }); reload(); } });
+    }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
       fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
         hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }],
@@ -754,23 +787,40 @@ async function renderReconcile(panel, tab) {
 
   const draw = () => {
     const q = search.value.trim().toLowerCase();
-    const shown = values.filter((v) => !q || v.name.toLowerCase().includes(q));
+    const shown = values.filter((v) => !q || v.name.toLowerCase().includes(q) || (v.label || '').toLowerCase().includes(q));
+    const canMove = !q && values.length > 1;
+    orderNote.textContent = q ? 'Clear the search to change the order.' : (values.length > 1 ? 'Drag a row (or use the arrows) to set the order these values appear in the dropdowns.' : '');
     const rows = shown.map((v) => {
       const box = h('input', { type: 'checkbox', 'aria-label': 'Select ' + v.name, checked: picked.has(v.key) });
       box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; });
-      return h('tr', { 'data-key': v.key },
-        h('td', {}, box), h('td', {}, v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null,
+      const idx = values.findIndex((x) => x.key === v.key);
+      const tr = h('tr', { 'data-key': v.key, draggable: canMove ? 'true' : null });
+      if (canMove) {
+        tr.addEventListener('dragstart', (e) => { dragKey = v.key; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(v.key)); tr.classList.add('dragging'); });
+        tr.addEventListener('dragend', () => { dragKey = null; tr.classList.remove('dragging'); });
+        tr.addEventListener('dragover', (e) => { if (dragKey == null) return; e.preventDefault(); tr.classList.add('drop-over'); });
+        tr.addEventListener('dragleave', () => tr.classList.remove('drop-over'));
+        tr.addEventListener('drop', (e) => { e.preventDefault(); tr.classList.remove('drop-over'); if (dragKey != null && dragKey !== v.key) moveTo(dragKey, idx); });
+      }
+      tr.append(
+        h('td', {}, box),
+        h('td', { class: 'drag-cell' }, canMove ? h('span', { class: 'drag-handle', title: 'Drag to change the order', 'aria-hidden': 'true', text: '⠿' }) : null,
+          canMove ? h('button', { class: 'btn small icon', 'aria-label': 'Move ' + v.name + ' up', text: '▲', disabled: idx === 0 ? true : null, onclick: () => moveTo(v.key, idx - 1) }) : null,
+          canMove ? h('button', { class: 'btn small icon', 'aria-label': 'Move ' + v.name + ' down', text: '▼', disabled: idx === values.length - 1 ? true : null, onclick: () => moveTo(v.key, idx + 1) }) : null),
+        h('td', {}, v.label || v.name, v.protected ? h('span', { class: 'pill warn', style: 'margin-left:8px', text: 'Built-in' }) : null,
           isNew(v) ? h('span', { class: 'pill warn', style: 'margin-left:8px', title: 'Typed on a module screen' + (mrows.get(v.key).created_by ? ' by ' + mrows.get(v.key).created_by : ''), text: 'New - review' }) : null),
         role ? h('td', { text: phones.get(v.key) || '' }) : null,
         ...(master ? mdef.fields.map((f) => h('td', { text: masterCell(f, mrows.get(v.key)) })) : []),
         role === 'delivery' ? h('td', { text: SCOPE_LABEL[scopes.get(v.key) || 'both'] }) : null,
+        screenOpts ? h('td', { text: screenLabel(v) }) : null,
         h('td', { class: 'num', text: fmtInt(v.orders) }),
         h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
           isNew(v) ? h('button', { class: 'btn small primary', text: 'Approve', onclick: async () => { try { await api(`/admin/masters/${master.id}/${v.key}/approve`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } }) : null,
           h('button', { class: 'btn small', text: role || master ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
           h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) }))));
+      return tr;
     });
-    tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 5, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
+    tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 7, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
   };
   search.addEventListener('input', draw);
 
@@ -784,9 +834,9 @@ async function renderReconcile(panel, tab) {
   panel.replaceChildren(
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'The values behind every dropdown and dashboard filter. Add, rename, delete or merge look-alike spellings here: each change is saved to the database at once, shows on all order screens and dashboards, and is kept in the audit trail. A value that orders still use cannot be deleted - merge it into the right one instead.' }),
     kinds, reviewBox, dupBox,
-    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn),
+    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn), orderNote,
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
-      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' ? h('th', { text: 'Offered on' }) : null, h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Order' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' || screenOpts ? h('th', { text: 'Offered on' }) : null, h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
   draw();
 }
 

@@ -114,7 +114,7 @@ def cartage_screen(date_from: date | None = Query(default=None), date_to: date |
     emp = by_employee(rows)
     paid = [r for r in rows if r.get("cartage")]
     with db.cursor() as cur:
-        cur.execute("SELECT full_name FROM dim_person WHERE person_role = 'delivery' ORDER BY lower(full_name)")
+        cur.execute("SELECT full_name FROM dim_person WHERE person_role = 'delivery' ORDER BY sort_order, lower(full_name)")
         people = [p["full_name"] for p in cur.fetchall()]
     return {"ok": True, "dateFrom": df.isoformat(), "dateTo": dt.isoformat(), "orders": [_row(r) for r in rows],
             "truncated": len(rows) >= MAX_ROWS, "people": people,

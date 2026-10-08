@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import access, bulk, bulk_entities, db, timeline
+from . import access, bulk, bulk_entities, bulk_modules, db, timeline
 from .admin import ADMIN, EXPORT_COLUMNS, IST_COLS, audit
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
@@ -145,16 +145,16 @@ def filter_options(viewer=Depends(access.require_page(*access.DASHBOARD_PAGES)))
             return [next(iter(r.values())) for r in cur.fetchall()]
         return {
             "stage": ["Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled"],
-            "channel": col("SELECT channel_name FROM dim_order_channel ORDER BY lower(channel_name)"),
-            "submission_type": col("SELECT type_name FROM dim_submission_type ORDER BY lower(type_name)"),
-            "delivery_status": col("SELECT status_name FROM dim_delivery_status ORDER BY lower(status_name)"),
-            "payment_status": col("SELECT status_name FROM dim_payment_status ORDER BY lower(status_name)"),
+            "channel": col("SELECT channel_name FROM dim_order_channel ORDER BY sort_order, lower(channel_name)"),
+            "submission_type": col("SELECT type_name FROM dim_submission_type ORDER BY sort_order, lower(type_name)"),
+            "delivery_status": col("SELECT status_name FROM dim_delivery_status ORDER BY sort_order, lower(status_name)"),
+            "payment_status": col("SELECT status_name FROM dim_payment_status ORDER BY sort_order, lower(status_name)"),
             "ready_by": col("SELECT full_name FROM dim_person WHERE person_role = 'ready_by' "
-                            "ORDER BY lower(full_name)"),
+                            "ORDER BY sort_order, lower(full_name)"),
             "colour_making_by": col("SELECT full_name FROM dim_person WHERE person_role = 'colour_making' "
-                                    "ORDER BY lower(full_name)"),
+                                    "ORDER BY sort_order, lower(full_name)"),
             "delivered_by": col("SELECT full_name FROM dim_person WHERE person_role = 'delivery' "
-                                "ORDER BY lower(full_name)"),
+                                "ORDER BY sort_order, lower(full_name)"),
             "created_by": col("SELECT display_name FROM dim_user ORDER BY lower(display_name)"),
         }
 
@@ -274,7 +274,7 @@ def export_search(request: Request, viewer=Depends(access.require_page("dashboar
 
 # ------------------------------------------------------------------ bulk upload
 def _entity(name: str) -> dict:
-    ent = bulk_entities.ENTITIES.get(name)
+    ent = bulk_entities.ENTITIES.get(name) or bulk_modules.ENTITIES.get(name)
     if not ent:
         raise HTTPException(404, "Unknown upload type")
     return ent
@@ -328,7 +328,9 @@ def template_xlsx(entity: str, admin=Depends(ADMIN)):
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
     ent = _entity(entity)
-    if entity == "orders":
+    if "lists" in ent:
+        lists = ent["lists"]()
+    elif entity == "orders":
         maps = bulk_entities._lookup_maps()
         lists = {col: [n for _, n in maps.get(kind, {}).values()] for col, kind in ORDER_LISTS.items()}
     else:
@@ -417,8 +419,10 @@ def confirm(entity: str, body: RowsIn, admin=Depends(ADMIN)):
         result: dict[str, Any] = {"created": len(rows), "batch_id": batch_id}
         if entity == "orders":
             bulk_entities.insert_orders(cur, report["_normalised"], batch_id, admin)
-        else:
+        elif entity == "users":
             result["credentials"] = bulk_entities.insert_users(cur, report["_normalised"], batch_id, admin)
+        else:
+            ent["insert"](cur, report["_normalised"], batch_id, admin)
         audit(cur, admin, f"bulk.import.{entity}", f"batch {batch_id}", {"rows": len(rows), "file": body.filename})
     return result
 
@@ -441,6 +445,14 @@ def undo_batch(batch_id: int, admin=Depends(ADMIN)):
                 raise HTTPException(409, f"{edited} imported order(s) have been edited or archived since the import, "
                                          "so undoing would lose that work. Nothing was changed.")
             cur.execute("DELETE FROM fact_orders WHERE import_batch_id = %s", (batch_id,))
+        elif b["entity"] in bulk_modules.ENTITIES:
+            spec = bulk_modules.ENTITIES[b["entity"]]
+            cur.execute(f"SELECT count(*) AS n FROM {spec['table']} WHERE import_batch_id = %s AND ({spec['edited']})", (batch_id,))
+            edited = cur.fetchone()["n"]
+            if edited:
+                raise HTTPException(409, f"{edited} imported {spec['label']} have been edited, decided or worked on since the "
+                                         "import, so undoing would lose that work. Nothing was changed.")
+            cur.execute(f"DELETE FROM {spec['table']} WHERE import_batch_id = %s", (batch_id,))
         else:
             cur.execute("SELECT count(*) AS n FROM dim_user u WHERE u.import_batch_id = %s "
                         "AND (NOT u.must_change_password OR EXISTS (SELECT 1 FROM fact_orders o "

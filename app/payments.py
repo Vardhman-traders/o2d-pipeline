@@ -103,8 +103,9 @@ def parties(company: str = Query(default=""), txn_type: str = Query(default=""),
         if ck is None:
             return []
         tk = mc.lookup_key(cur, "dim_txn_type", "txn_type_key", "type_name", txn_type) if txn_type and txn_type != "all" else None
-        cur.execute("SELECT DISTINCT p.party_name FROM dim_party p WHERE p.party_kind = 'payment' AND p.company_key = %s "
-                    "AND (%s::int IS NULL OR p.txn_type_key IS NULL OR p.txn_type_key = %s) ORDER BY 1", (ck, tk, tk))
+        cur.execute("SELECT p.party_name FROM dim_party p WHERE p.party_kind = 'payment' AND p.company_key = %s "
+                    "AND (%s::int IS NULL OR p.txn_type_key IS NULL OR p.txn_type_key = %s) "
+                    "GROUP BY p.party_name ORDER BY MIN(p.sort_order), lower(p.party_name)", (ck, tk, tk))
         return [r["party_name"] for r in cur.fetchall()]
 
 

@@ -21,7 +21,7 @@ YES_NO = [(True, "Yes"), (False, "No")]
 
 
 def _options(cur, table: str, key: str, name: str, blank: str | None = None) -> list[list]:
-    cur.execute(f'SELECT "{key}" AS k, "{name}" AS n FROM "{table}" ORDER BY lower("{name}")')
+    cur.execute(f'SELECT "{key}" AS k, "{name}" AS n FROM "{table}" ORDER BY sort_order, lower("{name}")')
     return ([[None, blank]] if blank else []) + [[r["k"], r["n"]] for r in cur.fetchall()]
 
 
@@ -29,13 +29,12 @@ def _options(cur, table: str, key: str, name: str, blank: str | None = None) -> 
 MASTERS: dict[str, dict[str, Any]] = {
     "company": {"label": "Companies (payments)", "table": "dim_company", "key": "company_key", "name": "company_name",
                 "kind": "company", "role": None, "where": "TRUE", "defaults": {},
-                "fields": [{"name": "is_sales_company", "label": "Its cash sales count in the Cash Sales card", "type": "bool"},
-                           {"name": "sort_order", "label": "Position in dropdowns", "type": "number"}]},
+                "fields": [{"name": "is_sales_company", "label": "Its cash sales count in the Cash Sales card", "type": "bool"}]},
     "payment_mode": {"label": "Payment modes", "table": "dim_payment_mode", "key": "mode_key", "name": "mode_name",
                      "kind": "payment_mode", "role": None, "where": "TRUE", "defaults": {},
                      "fields": [{"name": "is_cash", "label": "Counts as cash in hand", "type": "bool"},
-                                {"name": "needs_approval", "label": "A cashier's entry waits for approval", "type": "bool"},
-                                {"name": "sort_order", "label": "Position in dropdowns", "type": "number"}]},
+                                {"name": "needs_approval", "label": "A cashier's entry waits for approval", "type": "bool"}
+                                ]},
     "txn_type": {"label": "Payment transaction types", "table": "dim_txn_type", "key": "txn_type_key", "name": "type_name",
                  "kind": "txn_type", "role": None, "where": "TRUE", "defaults": {},
                  "fields": [{"name": "direction", "label": "Money", "type": "select", "options": [["in", "In (received)"], ["out", "Out (paid)"]]},
@@ -44,8 +43,8 @@ MASTERS: dict[str, dict[str, Any]] = {
                              "options": [[1, "Adds to cash sales"], [0, "No effect"], [-1, "Takes away (return)"]]},
                             {"name": "entry_allowed", "label": "Offered in the New Entry form", "type": "bool"},
                             {"name": "counts_as_received", "label": "Adds to Total Received", "type": "bool"},
-                            {"name": "counts_as_paid", "label": "Adds to Total Paid", "type": "bool"},
-                            {"name": "sort_order", "label": "Position in dropdowns", "type": "number"}]},
+                            {"name": "counts_as_paid", "label": "Adds to Total Paid", "type": "bool"}
+                            ]},
     "party": {"label": "Payment parties", "table": "dim_party", "key": "party_key", "name": "party_name", "kind": "party",
               "role": "payment", "where": "party_kind = 'payment'", "defaults": {"party_kind": "payment"},
               "fields": [{"name": "company_key", "label": "Company", "type": "select", "source": "company", "required": True},
@@ -112,7 +111,7 @@ def master_rows(master: str, admin=Depends(ADMIN)):
                     f'FROM "{spec["table"]}" t {join} WHERE {spec["where"]} ORDER BY (t.review_status = \'pending\') DESC, lower(t."{spec["name"]}")'
                     if reviewed else
                     f'SELECT t."{spec["key"]}" AS key, t."{spec["name"]}" AS name{", " + cols if cols else ""} FROM "{spec["table"]}" t '
-                    f'WHERE {spec["where"]} ORDER BY lower(t."{spec["name"]}")')
+                    f'WHERE {spec["where"]} ORDER BY t.sort_order, lower(t."{spec["name"]}")')
         rows = cur.fetchall()
         used: dict[int, int] = {}
         for tbl, col in _references(cur, spec["table"]):
