@@ -659,6 +659,7 @@
           <div class="actions">
             <button type="submit" class="primary" id="dispatch_saveBtn">Save</button>
             <button type="button" class="ghost" onclick="dispatchCloseEdit()">Cancel</button>
+            <button type="button" class="ghost" id="dispatch_resendBtn" style="display:none;" onclick="dispatchResendAlert()">📲 Resend WhatsApp alert</button>
             <span id="dispatch_statusMsg" class="status-msg"></span>
           </div>
         </form>
@@ -1790,7 +1791,25 @@
       paymentField.style.display = 'none';
       amountField.style.display = 'none';
     }
+    // godown dispatch can send the WhatsApp alert again once the order has been delivered
+    document.getElementById('dispatch_resendBtn').style.display =
+      CURRENT_ROLE === 'godown_dispatch' && o.materialDeliveryDateTime && o.deliveredByWhom ? '' : 'none';
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function dispatchResendAlert() {
+    var slNo = document.getElementById('dispatchEditForm').dataset.slNo;
+    var btn = document.getElementById('dispatch_resendBtn'), msg = document.getElementById('dispatch_statusMsg');
+    if (!confirm('Send the dispatch WhatsApp alert for this order to the group again?')) return;
+    btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Sending...';
+    VT.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'status-msg' + (res && res.success ? '' : ' error');
+        msg.textContent = res ? (res.message || res.error || '') : 'No response';
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+      .resendDispatchAlert(CURRENT_TOKEN, slNo);
   }
 
   function dispatchCloseEdit() {
