@@ -663,8 +663,15 @@ async function renderReconcile(panel, tab) {
   const picked = new Set();
   const screenLabel = (v) => { const sc = screensOf.get(v.key); return sc ? sc.map((id) => (screenOpts.find(([i]) => i === id) || [id, id])[1]).join(', ') : 'All screens'; };
   const allScreenIds = () => (screenOpts || []).map(([i]) => i);
-  const screenField = (current) => ({ name: 'screens', label: 'Offered on', type: 'checks', options: screenOpts, value: current || allScreenIds(),
-    hint: 'Only the ticked screens list this value in their dropdown. Orders already using it are not changed.' });
+  // one choice: every screen, or a single screen (a value set earlier to several screens stays selectable as it is)
+  const screenField = (current) => {
+    const multi = current && current.length > 1;
+    const opts = [['', 'All screens'], ...screenOpts];
+    if (multi) opts.push(['__keep', current.map((id) => (screenOpts.find(([i]) => i === id) || [id, id])[1]).join(' + ') + ' (as set now)']);
+    return { name: 'screens', label: 'Offered on', type: 'select', options: opts, value: multi ? '__keep' : (current && current[0]) || '',
+      hint: 'Only this screen lists the value in its dropdown. Orders already using it are not changed.' };
+  };
+  const screensBody = (v, current) => (v.screens === '' ? allScreenIds() : v.screens === '__keep' ? current : [v.screens]);
 
   // drag a row (or use the arrows) to set the order the values appear in every dropdown
   let dragKey = null;
@@ -706,7 +713,7 @@ async function renderReconcile(panel, tab) {
         role === 'delivery' ? SCOPE_FIELD : null, screenOpts ? screenField(null) : null].filter(Boolean),
       onSubmit: async (v) => {
         if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null, dispatch_scope: v.dispatch_scope || 'both' } });
-        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: v.screens } : { name: v.name } });
+        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: screensBody(v, null) } : { name: v.name } });
         reload();
       } });
   }
@@ -760,7 +767,7 @@ async function renderReconcile(panel, tab) {
     if (screenOpts) {
       return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 100,
         hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }, screenField(screensOf.get(v.key))],
-      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: vals.screens } }); reload(); } });
+      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: screensBody(vals, screensOf.get(v.key)) } }); reload(); } });
     }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
       fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
