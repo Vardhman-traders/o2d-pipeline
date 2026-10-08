@@ -327,7 +327,7 @@ const MODULES = {
   setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab',
     sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
       ['lists', 'Dropdown values', (p) => renderReconcile(p)], ['access', 'Access & permissions', (p) => renderAccessHub(p)],
-      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)], ['modsettings', 'Module settings', (p) => renderModuleSettings(p)]] },
+      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)], ['modsettings', 'Module settings', (p) => renderModuleSettings(p)], ['whatsapp', 'WhatsApp', (p) => renderWhatsApp(p)]] },
 };
 const sectionsOf = (mod) => mod.sections.filter((sec) => !sec[3] || can(sec[3]));
 

@@ -13,7 +13,7 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage, o2d_reports,
-               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers)
+               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers, whatsapp)
 
 
 @asynccontextmanager
@@ -509,6 +509,7 @@ app.include_router(payments.router)
 app.include_router(delegation.router)
 app.include_router(purchase.router)
 app.include_router(module_admin.router)
+app.include_router(whatsapp.router)
 app.include_router(o2d_reports.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)
