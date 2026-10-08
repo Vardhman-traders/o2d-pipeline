@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import db
+from . import config, db
 from .admin import ADMIN, audit
 
 router = APIRouter(prefix="/admin/reconcile", tags=["reconcile"])
@@ -41,6 +41,7 @@ KINDS: dict[str, dict[str, Any]] = {
                "label": "People (ready by, colour making, delivery)", "protected": set(), "role": "person_role",
                "maxlen": 100},
 }
+LABELS = {"dim_delivery_status": config.DISPLAY_LABELS["delivery-statuses"]}
 ROLE_LABEL = {"ready_by": "Ready by", "colour_making": "Colour making", "delivery": "Delivery", "payment": "Payment parties", "vendor": "Vendors"}
 
 
@@ -78,7 +79,7 @@ def _rows(cur, spec) -> list[dict]:
     t, k, n = spec["table"], spec["key"], spec["name"]
     role = f", d.{spec['role']} AS role" if spec["role"] else ", NULL AS role"
     phone = ", d.phone_number AS phone" if spec["table"] == "dim_person" else ", NULL AS phone"
-    cur.execute(f'SELECT d.{k} AS key, d.{n} AS name{role}{phone} FROM "{t}" d')
+    cur.execute(f'SELECT d.{k} AS key, d.{n} AS name{role}{phone}, d.sort_order FROM "{t}" d')
     rows = cur.fetchall()
     counts: dict[int, int] = {}
     for tbl, col in _references(cur, t):
@@ -88,7 +89,8 @@ def _rows(cur, spec) -> list[dict]:
     for r in rows:
         r["orders"] = counts.get(r["key"], 0)
         r["protected"] = r["name"].strip().lower() in spec["protected"]
-    rows.sort(key=lambda r: (r["name"].lower(), r["role"] or ""))
+        r["label"] = LABELS.get(spec["table"], {}).get(r["name"].strip().lower())   # shown instead of the stored name
+    rows.sort(key=lambda r: (r["sort_order"], r["name"].lower(), r["role"] or ""))   # the admin's dropdown order
     return rows
 
 
@@ -218,3 +220,29 @@ def merge(kind: str, body: MergeIn, admin=Depends(ADMIN)):
         cur.execute(f'DELETE FROM "{spec["table"]}" WHERE {spec["key"]} = ANY(%s)', (sources,))
         audit(cur, admin, f"reconcile.merge.{kind}", target["name"], preview)
     return {**preview, "preview": False}
+
+
+class OrderIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keys: list[int] = Field(min_length=1, max_length=2000)
+    role: str | None = None        # the person role / party kind when one table holds several lists
+
+
+@router.put("/{kind}/order")
+def set_order(kind: str, body: OrderIn, admin=Depends(ADMIN)):
+    """Save the order the admin dragged a list into: position 1, 2, 3... in the dropdowns of every screen. `keys` is the whole
+    list, top to bottom. Works for every list in KINDS, so a new dropdown list only needs its entry there."""
+    spec = _kind(kind)
+    if spec["role"] and not body.role:
+        raise HTTPException(422, "Say which list of this kind is being ordered.")
+    if len(set(body.keys)) != len(body.keys):
+        raise HTTPException(422, "The same value is listed twice.")
+    role_sql = f" AND d.{spec['role']} = %s" if spec["role"] else ""
+    with db.cursor() as cur:
+        cur.execute(f'UPDATE "{spec["table"]}" d SET sort_order = o.pos FROM unnest(%s::int[]) WITH ORDINALITY AS o(k, pos) '
+                    f'WHERE d.{spec["key"]} = o.k{role_sql}', [body.keys] + ([body.role] if spec["role"] else []))
+        moved = cur.rowcount
+        if moved != len(body.keys):
+            raise HTTPException(409, "The list changed while you were arranging it. Refresh and try again.")
+        audit(cur, admin, f"reconcile.order.{kind}", body.role or kind, {"count": moved})
+    return {"ok": True, "count": moved}

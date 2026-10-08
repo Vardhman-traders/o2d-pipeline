@@ -119,7 +119,7 @@ def me(user=Depends(ANY)):
 def vendors(user=Depends(ANY)):
     _gate(user)
     with db.cursor() as cur:
-        cur.execute("SELECT party_name FROM dim_party WHERE party_kind = 'vendor' ORDER BY lower(party_name)")
+        cur.execute("SELECT party_name FROM dim_party WHERE party_kind = 'vendor' ORDER BY sort_order, lower(party_name)")
         return [r["party_name"] for r in cur.fetchall()]
 
 

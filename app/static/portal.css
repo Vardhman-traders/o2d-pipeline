@@ -469,3 +469,20 @@ th.sorted .sort-arrow, th.sorted .sort-btn { opacity: 1; color: var(--accent); }
 .module-kpi-head h2 { font-size: 17px; margin: 0; }
 .module-kpi-head .note { flex: 1; min-width: 160px; }
 @media (max-width: 720px) { .module-kpi-head .btn { margin-left: auto; } }
+
+/* Setup > Dropdown values: drag to reorder */
+.drag-cell { white-space: nowrap; width: 1%; }
+.drag-handle { cursor: grab; color: var(--ink-2); font-size: 18px; margin-right: 6px; user-select: none; }
+.btn.icon { padding: 2px 6px; min-width: 0; font-size: 11px; margin-right: 2px; }
+#rc_table tr[draggable="true"]:active .drag-handle { cursor: grabbing; }
+#rc_table tr.dragging { opacity: .45; }
+#rc_table tr.drop-over td { box-shadow: inset 0 3px 0 var(--accent); }
+
+/* Setup > Access: the page-by-role table scrolls both ways inside its own frame; the header row and the page names stay in view */
+#panel .table-wrap.matrix-scroll { overflow: auto; max-height: 68vh; }
+#panel .table-wrap.matrix-scroll table { min-width: 1100px; }
+#panel .table-wrap.matrix-scroll thead th { top: 0; z-index: 6; position: sticky; }
+#panel .table-wrap.matrix-scroll th:first-child, #panel .table-wrap.matrix-scroll td:first-child {
+  position: sticky; left: 0; z-index: 4; background: var(--surface); min-width: 170px; box-shadow: 1px 0 0 var(--border); }
+#panel .table-wrap.matrix-scroll thead th:first-child { z-index: 8; background: var(--surface-2); }
+@media (max-width: 900px) { #panel .table-wrap.matrix-scroll thead th { position: sticky; } }

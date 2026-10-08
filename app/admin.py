@@ -555,6 +555,8 @@ def _lookup_or_404(kind):
 class LookupValueIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=150)
+    # the screens that offer this value (Delivery / Payment status only); empty or all of them = every screen
+    screens: Optional[list[str]] = None
 
     @field_validator("name")
     @classmethod
@@ -565,21 +567,46 @@ class LookupValueIn(BaseModel):
         return v
 
 
+def _screens_value(kind: str, screens: Optional[list[str]]):
+    """The list to store: None (every screen) unless a real subset of the screens this list can be offered on was chosen."""
+    allowed = [s for s, _ in config.LOOKUP_SCREENS.get(kind, [])]
+    if screens is None:
+        return None
+    bad = [s for s in screens if s not in allowed]
+    if bad or (screens and not allowed):
+        raise HTTPException(422, "Unknown screen: " + ", ".join(bad or screens))
+    if not screens:
+        raise HTTPException(422, "Choose at least one screen for this value to be offered on.")
+    return None if set(screens) == set(allowed) else [s for s in allowed if s in screens]
+
+
+@router.get("/lookup-screens")
+def admin_lookup_screens(admin=Depends(ADMIN)):
+    """{lookup kind: [[screen id, label], ...]} for the lists whose values can be limited to some screens."""
+    return {k: [list(o) for o in opts] for k, opts in config.LOOKUP_SCREENS.items()}
+
+
 @router.get("/lookups/{kind}")
 def admin_list_lookup(kind: str, admin=Depends(ADMIN)):
     table, key, name = _lookup_or_404(kind)
+    extra = ", screens" if kind in config.LOOKUP_SCREENS else ""
     with db.cursor() as cur:
-        cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
+        cur.execute(f"SELECT {key} AS key, {name} AS name{extra} FROM {table} ORDER BY sort_order, lower({name})")
         return cur.fetchall()
 
 
 @router.post("/lookups/{kind}", status_code=201)
 def admin_add_lookup(kind: str, body: LookupValueIn, admin=Depends(ADMIN)):
     table, key, name = _lookup_or_404(kind)
+    screens = _screens_value(kind, body.screens)
     try:
         with db.cursor() as cur:
-            cur.execute(f"INSERT INTO {table} ({name}) VALUES (%s) RETURNING {key} AS key, {name} AS name",
-                        (body.name,))
+            if kind in config.LOOKUP_SCREENS:
+                cur.execute(f"INSERT INTO {table} ({name}, screens) VALUES (%s, %s) RETURNING {key} AS key, {name} AS name",
+                            (body.name, screens))
+            else:
+                cur.execute(f"INSERT INTO {table} ({name}) VALUES (%s) RETURNING {key} AS key, {name} AS name",
+                            (body.name,))
             row = cur.fetchone()
             audit(cur, admin, "lookup.add", f"{kind}:{body.name}")
     except pgerr.UniqueViolation:
@@ -590,12 +617,17 @@ def admin_add_lookup(kind: str, body: LookupValueIn, admin=Depends(ADMIN)):
 @router.put("/lookups/{kind}/{value_key}")
 def admin_rename_lookup(kind: str, value_key: int, body: LookupValueIn, admin=Depends(ADMIN)):
     table, key, name = _lookup_or_404(kind)
+    screens = _screens_value(kind, body.screens)
     try:
         with db.cursor() as cur:
-            cur.execute(f"UPDATE {table} SET {name} = %s WHERE {key} = %s RETURNING {key}", (body.name, value_key))
+            if kind in config.LOOKUP_SCREENS and "screens" in body.model_fields_set:
+                cur.execute(f"UPDATE {table} SET {name} = %s, screens = %s WHERE {key} = %s RETURNING {key}",
+                            (body.name, screens, value_key))
+            else:
+                cur.execute(f"UPDATE {table} SET {name} = %s WHERE {key} = %s RETURNING {key}", (body.name, value_key))
             if not cur.fetchone():
                 raise HTTPException(404, "Value not found")
-            audit(cur, admin, "lookup.rename", f"{kind}:{value_key}", {"name": body.name})
+            audit(cur, admin, "lookup.rename", f"{kind}:{value_key}", {"name": body.name, "screens": screens})
     except pgerr.UniqueViolation:
         raise HTTPException(409, "That value already exists (case/spacing-insensitive).")
     return {"ok": True}
@@ -633,7 +665,7 @@ def admin_list_people(role: str = Query(...), admin=Depends(ADMIN)):
         raise HTTPException(422, f"role must be one of: {', '.join(PERSON_FK_COLUMN)}")
     with db.cursor() as cur:
         cur.execute("SELECT person_key AS key, full_name, phone_number, dispatch_scope FROM dim_person "
-                    "WHERE person_role = %s ORDER BY lower(full_name)", (role,))
+                    "WHERE person_role = %s ORDER BY sort_order, lower(full_name)", (role,))
         return cur.fetchall()
 
 

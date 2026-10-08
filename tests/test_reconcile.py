@@ -53,7 +53,7 @@ def test_admin_only(client, db_conn, seed):  # noqa: F811
     assert client.get(API).status_code == 401
 
 
-def test_values_are_alphabetical_with_usage_and_duplicates_are_suggested(client, db_conn, seed):  # noqa: F811
+def test_values_follow_the_dropdown_order_with_usage_and_duplicates_are_suggested(client, db_conn, seed):  # noqa: F811
     admin = login(client, db_conn)
     u = uuid.uuid4().hex[:4]
     a = _person(db_conn, f"Zaheer{u}", 'ready_by')
@@ -64,8 +64,8 @@ def test_values_are_alphabetical_with_usage_and_duplicates_are_suggested(client,
     _order(db_conn, ready_by_person_key=a)
     _order(db_conn, ready_by_person_key=b)
     data = client.get(f"{API}/person", headers=admin).json()
-    names = [v["name"].lower() for v in data["values"]]
-    assert names == sorted(names)
+    positions = [v["sort_order"] for v in data["values"]]
+    assert positions == sorted(positions)
     assert _by_name(data, f"Zaheer{u}")["orders"] == 2 and _by_name(data, f"Zaheeer{u}")["orders"] == 1
     pairs = [sorted(s["keys"]) for s in data["suggestions"]]
     assert sorted([a, b]) in pairs

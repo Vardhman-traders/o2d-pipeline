@@ -115,6 +115,22 @@ entries:
     tests:
       - tests/test_admin_tools.py::test_bulk_members_validate_import_login_and_undo
       - tests/test_admin_tools.py::test_bulk_members_undo_when_nobody_signed_in
+  - id: ADMIN-BULK-3
+    what: Bulk upload for Payments, Delegation tasks and Purchase entries (templates, validation, import as Approved/Pending, duplicates, undo)
+    speed: fast
+    tests:
+      - tests/test_bulk_modules.py::test_templates_open_for_every_module_and_stay_admin_only
+      - tests/test_bulk_modules.py::test_payments_validate_import_and_undo
+      - tests/test_bulk_modules.py::test_tasks_validate_import_and_undo
+      - tests/test_bulk_modules.py::test_purchases_validate_duplicates_import_and_undo
+  - id: ADMIN-ORDER-1
+    what: Dropdown order (drag and drop) saved and followed by every screen, new values last, status values limited to screens, Shop shown as Dispatch for Shop
+    speed: fast
+    tests:
+      - tests/test_dropdown_order.py::test_dragged_order_is_saved_and_every_dropdown_follows_it
+      - tests/test_dropdown_order.py::test_new_values_go_to_the_end_and_people_lists_need_their_role
+      - tests/test_dropdown_order.py::test_status_values_can_be_limited_to_screens
+      - tests/test_dropdown_order.py::test_shop_status_is_worded_dispatch_for_shop_in_dropdowns_and_accepted_when_saved
   - id: ADMIN-UI-1
     what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members
     speed: slow
@@ -124,7 +140,7 @@ entries:
     speed: fast
     tests:
       - tests/test_reconcile.py::test_admin_only
-      - tests/test_reconcile.py::test_values_are_alphabetical_with_usage_and_duplicates_are_suggested
+      - tests/test_reconcile.py::test_values_follow_the_dropdown_order_with_usage_and_duplicates_are_suggested
       - tests/test_reconcile.py::test_rename_reaches_every_order_and_refuses_clashes
       - tests/test_reconcile.py::test_protected_names_cannot_be_renamed_or_merged_away
       - tests/test_reconcile.py::test_merge_preview_then_confirm_moves_orders_and_logs

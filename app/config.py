@@ -27,6 +27,21 @@ DEFAULT_WEEKLY_OFF_DAYS = {0}  # Monday, same default the app has always used
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
+# Which O2D screens can offer each value of a lookup list (screen id = the O2D role). A value with no screens set is offered everywhere.
+# Adding a list here is all it takes for Setup > Dropdown values to show its "Offered on" choice.
+LOOKUP_SCREENS = {
+    "delivery-statuses": [("godown", "Godown"), ("godown_dispatch", "Godown Dispatch"),
+                          ("shop_dispatch", "Shop Dispatch & Receiving"), ("receiving", "Godown Receiving")],
+    "payment-statuses": [("shop_dispatch", "Shop Dispatch & Receiving"), ("receiving", "Godown Receiving")],
+}
+# How a built-in value is worded in dropdowns and lists, when that differs from the name the order rules rely on.
+DISPLAY_LABELS = {"delivery-statuses": {"shop": "Dispatch for Shop"}}
+
+
+def display_label(kind: str, name: str | None) -> str | None:
+    return DISPLAY_LABELS.get(kind, {}).get((name or "").strip().lower(), name)
+
+
 DELIVERED_BY_TERMS_KEY = "delivered_by_custom_terms"
 DEFAULT_DELIVERED_BY_TERMS = "Porter / By Company / Transport"
 

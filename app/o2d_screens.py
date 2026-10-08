@@ -82,7 +82,7 @@ def map_order(o: dict) -> dict:
         "orderVia": o["order_via"] or "", "shippingLocation": o["shipping_location"] or "",
         "dcNo": o["dc_inv_no"] or "", "typeOfSubmission": o["submission_type"] or "",
         "detailedRemarks": o["detailed_remarks"] or "", "readyByWhom": o["ready_by"] or "",
-        "colourMakingBy": o["colour_making_by"] or "", "deliveryStatus": o["delivery_status"] or "",
+        "colourMakingBy": o["colour_making_by"] or "", "deliveryStatus": config.display_label("delivery-statuses", o["delivery_status"]) or "",
         "materialDeliveryDateTime": _iso_datetime(o["material_delivery_datetime"]),
         "dateOfReceiving": _iso_date(o["date_of_receiving"]), "paymentStatus": o["payment_status"] or "",
         "amountReceived": _num(o["amount_received"]), "deliveredByWhom": o["delivered_by"] or "",
@@ -92,11 +92,22 @@ def map_order(o: dict) -> dict:
     }
 
 
-def _lookup_rows(kind: str) -> list[dict]:
+def _lookup_rows(kind: str, screen: str | None = None) -> list[dict]:
+    """One lookup list in the admin's order. With `screen`, only the values that screen offers. `name` is the wording shown in
+    dropdowns (a built-in may be shown under another label); `raw` is the stored name."""
     table, key, name = config.LOOKUPS[kind]
+    sql = f"SELECT {key} AS key, {name} AS name FROM {table}"
+    params: list = []
+    if screen and kind in config.LOOKUP_SCREENS:
+        sql += " WHERE screens IS NULL OR %s = ANY(screens)"
+        params.append(screen)
     with db.cursor() as cur:
-        cur.execute(f"SELECT {key} AS key, {name} AS name FROM {table} ORDER BY lower({name})")
-        return cur.fetchall()
+        cur.execute(sql + f" ORDER BY sort_order, lower({name})", params)
+        rows = cur.fetchall()
+    shown = [{"key": r["key"], "raw": r["name"], "name": config.display_label(kind, r["name"])} for r in rows]
+    labels = {r["name"].strip().lower() for r in shown if r["name"] != r["raw"]}
+    # a separate value that is already called what a built-in is labelled would show twice: the built-in wins
+    return [r for r in shown if r["name"] != r["raw"] or r["raw"].strip().lower() not in labels]
 
 
 DISPATCH_SCOPES = {"shop_dispatch": ("both", "shop"), "godown_dispatch": ("both", "godown")}
@@ -109,7 +120,7 @@ def _people_rows(person_role: str, scopes: tuple | None = None) -> list[dict]:
         sql += " AND dispatch_scope = ANY(%s)"
         params.append(list(scopes))
     with db.cursor() as cur:
-        cur.execute(sql + " ORDER BY lower(full_name)", params)
+        cur.execute(sql + " ORDER BY sort_order, lower(full_name)", params)
         return cur.fetchall()
 
 
@@ -122,7 +133,7 @@ def _key_by_name(rows, name) -> int | None:
         return None
     wanted = str(name).strip().lower()
     for r in rows:
-        if str(r["name"]).strip().lower() == wanted:
+        if wanted in (str(r["name"]).strip().lower(), str(r.get("raw", r["name"])).strip().lower()):
             return r["key"]
     return None
 
@@ -139,14 +150,14 @@ def _dropdowns(role: str) -> dict:
     elif role == "godown":
         out["readyByWhom"] = _names(_people_rows("ready_by"))
         out["colourMakingBy"] = _names(_people_rows("colour_making"))
-        out["deliveryStatus"] = _names(_lookup_rows("delivery-statuses"))
-        out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
+        out["deliveryStatus"] = _names(_lookup_rows("delivery-statuses", role))
+        out["paymentStatus"] = _names(_lookup_rows("payment-statuses", role))
     elif role in ("godown_dispatch", "shop_dispatch"):
-        out["deliveryStatus"] = _names(_lookup_rows("delivery-statuses"))
+        out["deliveryStatus"] = _names(_lookup_rows("delivery-statuses", role))
         out["deliveredByWhom"] = _names(_people_rows("delivery", DISPATCH_SCOPES.get(role)))
-        out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
+        out["paymentStatus"] = _names(_lookup_rows("payment-statuses", role))
     elif role == "receiving":
-        out["paymentStatus"] = _names(_lookup_rows("payment-statuses"))
+        out["paymentStatus"] = _names(_lookup_rows("payment-statuses", role))
     return out
 
 
