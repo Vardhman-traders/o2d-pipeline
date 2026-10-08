@@ -6,11 +6,7 @@ what, the test-account guard, cancelled handling) are NOT duplicated: every writ
 Response shapes are {ok, success, message, ...} with camelCase orders, which is what the O2D screens read
 (see static/sales/api.js).
 """
-import base64
-import json
 import logging
-import os
-import urllib.request
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, config, db, doc_numbers, roles
+from . import access, attachments, auth, config, db, doc_numbers, roles, whatsapp
 
 log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
@@ -28,19 +24,6 @@ ANY_VIEWER = auth.require_roles(*roles.ORDER_ROLES, "admin", "cashier", "account
 ADMIN_ONLY = auth.require_roles("admin")
 MAX_ROWS = 200
 UNKNOWN_VALUE = "Unknown dropdown value selected. Please refresh and try again."
-
-WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "https://app.messageautosender.com/api/v1/message/create")
-
-
-def _whatsapp_group() -> str:
-    """The group the dispatch alert goes to: setting 'whatsapp_group_id' (admin) first, else the WHATSAPP_GROUP_ID env var.
-    There is deliberately no built-in default - an unconfigured group means no alert, never a message to the wrong chat."""
-    try:
-        configured = config.get("whatsapp_group_id")
-    except Exception:  # the settings table is unreachable: fall back to the environment, never block the order save
-        configured = None
-    return (configured or os.environ.get("WHATSAPP_GROUP_ID") or "").strip()
-
 
 # ------------------------------------------------------------------ helpers
 def today_ist() -> date:
@@ -573,12 +556,39 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
         was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
         now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
         if was_empty and now_filled:
+            outcome = "failed"
             try:
-                send_dispatch_alert(updated)
+                sent = send_dispatch_alert(updated)
+                outcome = alert_outcome(sent)
             except Exception:  # the order is saved; a failed alert must never undo or fail that
                 log.exception("WhatsApp dispatch alert failed (order %s saved fine)", sl_no)
+            _record_alert(updated["orderKey"], outcome, user)
     result.pop("order", None)
     return result
+
+
+@router.post("/orders/{sl_no}/whatsapp-resend")
+def resend_dispatch_alert(sl_no: int, user=Depends(ANY_VIEWER)):
+    """Send the dispatch WhatsApp alert for an order again (the first one goes automatically, once). Godown dispatch / admin."""
+    access.require_edit(user, "o2d_godown_dispatch")
+    from . import main
+    try:
+        order = map_order(main.get_order(sl_no, archived=None, user=user))
+    except HTTPException as e:
+        return {"ok": True, "success": False, "message": str(e.detail)}
+    if not order["materialDeliveryDateTime"] or not order["deliveredByWhom"]:
+        return {"ok": True, "success": False, "message": "Fill in the delivery date/time and Delivered by first."}
+    outcome = "failed"
+    try:
+        sent = send_dispatch_alert(order, resend=True)
+        outcome = alert_outcome(sent)
+    except Exception:
+        log.exception("WhatsApp dispatch alert re-send failed (order %s)", sl_no)
+    _record_alert(order["orderKey"], outcome, user, resend=True)
+    message = {"sent": "WhatsApp alert sent again.", "skipped": "WhatsApp is not set up on the server, so nothing was sent.",
+               "off": "This alert is switched off in Setup > WhatsApp, so nothing was sent.",
+               "failed": "WhatsApp did not accept the message. Nothing was sent - try again in a minute."}[outcome]
+    return {"ok": True, "success": outcome == "sent", "message": message}
 
 
 @router.put("/orders/{sl_no}/receiving")
@@ -685,30 +695,41 @@ def _fmt_date(iso: str) -> str:
     return f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else str(iso or "")
 
 
-def build_dispatch_message(o: dict) -> str:
-    return ("New Dispatch - Godown\n\nOrder Date: " + _fmt_date(o["orderRcvdDate"]) +
-            "\nDC No: " + (o["dcNo"] or "-") + "\nReady By: " + (o["readyByWhom"] or "-") +
-            "\nDelivery Status: " + (o["deliveryStatus"] or "-") + "\nAddress: " + (o["shippingLocation"] or "-") +
-            "\nRemarks: " + (o["detailedRemarks"] or "-") + "\nDelivered By: " + (o["deliveredByWhom"] or "-"))
+def _dispatch_values(o: dict) -> dict:
+    return {"order_date": _fmt_date(o["orderRcvdDate"]), "dc_no": o["dcNo"] or "-", "ready_by": o["readyByWhom"] or "-",
+            "delivery_status": o["deliveryStatus"] or "-", "address": o["shippingLocation"] or "-",
+            "remarks": o["detailedRemarks"] or "-", "delivered_by": o["deliveredByWhom"] or "-"}
 
 
-def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - fixed https URL from config
-        return resp.status, resp.read().decode("utf-8", "replace")
+def build_dispatch_message(o: dict, resend: bool = False) -> str:
+    """The dispatch alert text: the template an admin keeps under Setup > WhatsApp, filled in for this order."""
+    return ("(Sent again)\n" if resend else "") + whatsapp.render(whatsapp.get_alert("dispatch_godown")["template"], _dispatch_values(o))
 
 
-def send_dispatch_alert(o: dict, post=_http_post) -> dict:
-    """Post the dispatch alert to the WhatsApp group. Credentials come from the environment
-    (WHATSAPP_API_USERNAME / WHATSAPP_API_PASSWORD on Render); without them the alert is skipped."""
-    user, pwd = os.environ.get("WHATSAPP_API_USERNAME"), os.environ.get("WHATSAPP_API_PASSWORD")
-    if not user or not pwd:
-        return {"skipped": True, "reason": "WhatsApp credentials not set."}
-    group = _whatsapp_group()
-    if not group:
-        return {"skipped": True, "reason": "WhatsApp group not set."}
-    body = json.dumps({"recipientIds": [group], "message": [build_dispatch_message(o)]}).encode()
-    headers = {"Content-Type": "application/json",
-               "Authorization": "Basic " + base64.b64encode(f"{user}:{pwd}".encode()).decode()}
-    code, text = post(WHATSAPP_API_URL, body, headers)
-    return {"code": code, "body": text}
+ALERT_TITLES = {"sent": "WhatsApp dispatch alert sent to the group", "failed": "WhatsApp dispatch alert FAILED - not sent",
+                "skipped": "WhatsApp dispatch alert not sent - WhatsApp is not set up",
+                "off": "WhatsApp dispatch alert not sent - switched off in Setup"}
+
+
+def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False):
+    """Note on the order's timeline when the dispatch alert went out (or why it did not). Never blocks the save."""
+    try:
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
+                        "VALUES (%s, 'whatsapp', %s, %s, %s, %s)",
+                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome], user["user_key"], user["display_name"], user["role"]))
+    except Exception:
+        log.exception("Could not note the WhatsApp alert on order %s", order_key)
+
+
+def send_dispatch_alert(o: dict, post=whatsapp._http_post, resend: bool = False) -> dict:
+    """Post the dispatch alert to its WhatsApp group (settings: Setup > WhatsApp; login: WHATSAPP_API_USERNAME / _PASSWORD).
+    Nothing is sent, and the reason is returned, when the alert is off or WhatsApp is not set up."""
+    return whatsapp.send_alert("dispatch_godown", _dispatch_values(o), prefix="(Sent again)\n" if resend else "", post=post)
+
+
+def alert_outcome(result: dict | None) -> str:
+    r = result or {}
+    if r.get("skipped"):
+        return "off" if "switched off" in r.get("reason", "") else "skipped"
+    return "sent"

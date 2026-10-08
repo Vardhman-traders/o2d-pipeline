@@ -283,7 +283,8 @@ async function openOrderDetail(slNo) {
       ['Submission type', o.submission_type], ['Delivery status', o.delivery_status], ['Payment status', o.payment_status],
       ['Ready by', o.ready_by], ['Colour making by', o.colour_making_by],
       ['Delivered by', o.delivered_by ? o.delivered_by + (o.delivered_by_phone ? ' (' + o.delivered_by_phone + ')' : '') : ''],
-      ['Material delivered', when(o.material_delivery_datetime)], ['Date received', o.date_of_receiving ? fmtDate(o.date_of_receiving) + ' ' + String(o.date_of_receiving).slice(0, 4) : ''],
+      ['Material delivered', when(o.material_delivery_datetime)],
+      ['WhatsApp alert', o.whatsapp_alert ? o.whatsapp_alert.title + ' - ' + fmtExact(o.whatsapp_alert.at) + ' IST' : 'No alert sent'], ['Date received', o.date_of_receiving ? fmtDate(o.date_of_receiving) + ' ' + String(o.date_of_receiving).slice(0, 4) : ''],
       ['Amount received', money(o.amount_received)], ['Cartage', money(o.cartage)],
       ['Hours to deliver', o.hours_to_deliver == null ? '' : fmtHours(Number(o.hours_to_deliver))],
       ['Logged by', o.created_by], ['Logged at', when(o.timestamp_created)],
@@ -663,8 +664,15 @@ async function renderReconcile(panel, tab) {
   const picked = new Set();
   const screenLabel = (v) => { const sc = screensOf.get(v.key); return sc ? sc.map((id) => (screenOpts.find(([i]) => i === id) || [id, id])[1]).join(', ') : 'All screens'; };
   const allScreenIds = () => (screenOpts || []).map(([i]) => i);
-  const screenField = (current) => ({ name: 'screens', label: 'Offered on', type: 'checks', options: screenOpts, value: current || allScreenIds(),
-    hint: 'Only the ticked screens list this value in their dropdown. Orders already using it are not changed.' });
+  // one choice: every screen, or a single screen (a value set earlier to several screens stays selectable as it is)
+  const screenField = (current) => {
+    const multi = current && current.length > 1;
+    const opts = [['', 'All screens'], ...screenOpts];
+    if (multi) opts.push(['__keep', current.map((id) => (screenOpts.find(([i]) => i === id) || [id, id])[1]).join(' + ') + ' (as set now)']);
+    return { name: 'screens', label: 'Offered on', type: 'select', options: opts, value: multi ? '__keep' : (current && current[0]) || '',
+      hint: 'Only this screen lists the value in its dropdown. Orders already using it are not changed.' };
+  };
+  const screensBody = (v, current) => (v.screens === '' ? allScreenIds() : v.screens === '__keep' ? current : [v.screens]);
 
   // drag a row (or use the arrows) to set the order the values appear in every dropdown
   let dragKey = null;
@@ -706,7 +714,7 @@ async function renderReconcile(panel, tab) {
         role === 'delivery' ? SCOPE_FIELD : null, screenOpts ? screenField(null) : null].filter(Boolean),
       onSubmit: async (v) => {
         if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null, dispatch_scope: v.dispatch_scope || 'both' } });
-        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: v.screens } : { name: v.name } });
+        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: screensBody(v, null) } : { name: v.name } });
         reload();
       } });
   }
@@ -760,7 +768,7 @@ async function renderReconcile(panel, tab) {
     if (screenOpts) {
       return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 100,
         hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }, screenField(screensOf.get(v.key))],
-      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: vals.screens } }); reload(); } });
+      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: screensBody(vals, screensOf.get(v.key)) } }); reload(); } });
     }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
       fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
@@ -802,7 +810,7 @@ async function renderReconcile(panel, tab) {
         tr.addEventListener('dragleave', () => tr.classList.remove('drop-over'));
         tr.addEventListener('drop', (e) => { e.preventDefault(); tr.classList.remove('drop-over'); if (dragKey != null && dragKey !== v.key) moveTo(dragKey, idx); });
       }
-      tr.append(
+      tr.append(...[
         h('td', {}, box),
         h('td', { class: 'drag-cell' }, canMove ? h('span', { class: 'drag-handle', title: 'Drag to change the order', 'aria-hidden': 'true', text: '⠿' }) : null,
           canMove ? h('button', { class: 'btn small icon', 'aria-label': 'Move ' + v.name + ' up', text: '▲', disabled: idx === 0 ? true : null, onclick: () => moveTo(v.key, idx - 1) }) : null,
@@ -817,7 +825,7 @@ async function renderReconcile(panel, tab) {
         h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
           isNew(v) ? h('button', { class: 'btn small primary', text: 'Approve', onclick: async () => { try { await api(`/admin/masters/${master.id}/${v.key}/approve`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } }) : null,
           h('button', { class: 'btn small', text: role || master ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
-          h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) }))));
+          h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) })))].filter(Boolean));
       return tr;
     });
     tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 7, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
@@ -863,4 +871,51 @@ async function renderModuleSettings(panel) {
       return h('div', { class: 'row', style: 'margin:8px 0;align-items:center;gap:10px;flex-wrap:wrap' }, h('label', { style: 'flex:1;min-width:220px', text: s.label }), input, save, msg);
     })));
   panel.replaceChildren(...cards);
+}
+
+
+// ------------------------------------------------------------------ Setup > WhatsApp
+// One card per kind of alert: the group it goes to, an on/off switch and the message template ({placeholders} are filled in per order).
+// The provider login stays in the server environment; only the groups and wording are kept here.
+async function renderWhatsApp(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let data;
+  try { data = await api('/admin/whatsapp'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const cards = data.alerts.map((a) => {
+    const group = h('input', { type: 'text', id: 'wa_group_' + a.key, value: a.group_id, maxlength: '100', placeholder: 'e.g. 1234567890@g.us', 'aria-label': 'WhatsApp group ID', style: 'max-width:340px' });
+    const on = h('input', { type: 'checkbox', id: 'wa_on_' + a.key, checked: a.enabled });
+    const text = h('textarea', { id: 'wa_template_' + a.key, rows: '10', maxlength: '2000', 'aria-label': 'Message template', style: 'width:100%;font-family:inherit' });
+    text.value = a.template;
+    const msg = h('span', { class: 'msg', role: 'status' });
+    const say = (t, bad) => { msg.className = 'msg' + (bad ? ' error' : ''); msg.textContent = t; };
+    const chips = Object.entries(a.placeholders).map(([name, help]) => h('button', { type: 'button', class: 'btn small', title: help, text: '{' + name + '}',
+      onclick: () => { const i = text.selectionStart ?? text.value.length; text.setRangeText('{' + name + '}', i, text.selectionEnd ?? i, 'end'); text.focus(); } }));
+    const save = async () => {
+      say('Saving…');
+      try { await api('/admin/whatsapp/' + a.key, { method: 'PUT', body: { group_id: group.value, enabled: on.checked, template: text.value } }); say('Saved.'); }
+      catch (ex) { say(ex.message, true); }
+    };
+    const test = async () => {
+      say('Sending the test message…');
+      try { const r = await api('/admin/whatsapp/' + a.key + '/test', { method: 'POST' }); say(r.message, !r.success); }
+      catch (ex) { say(ex.message, true); }
+    };
+    return h('div', { class: 'card', style: 'margin-bottom:16px', id: 'wa_card_' + a.key },
+      h('h2', { style: 'font-size:15px;margin-bottom:4px', text: a.label }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: a.when }),
+      h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' }), group,
+        a.group_from_environment ? h('div', { class: 'hint', text: 'Empty here: the group from the server settings (WHATSAPP_GROUP_ID) is being used. Fill this in to take over.' }) : null),
+      h('div', { class: 'field' }, h('label', {}, on, ' Send this alert')),
+      h('div', { class: 'field' }, h('label', { text: 'Message' }), text,
+        h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap;gap:6px;align-items:center' }, h('span', { class: 'note', text: 'Insert:' }), ...chips),
+        h('div', { class: 'hint', text: 'Placeholders in { } are replaced with the order’s details when the message is sent.' })),
+      h('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' },
+        h('button', { class: 'btn primary', text: 'Save', onclick: save }),
+        h('button', { class: 'btn', text: 'Send a test message', onclick: test }),
+        h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; } }), msg));
+  });
+  panel.replaceChildren(
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing.' }),
+    data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp login (WHATSAPP_API_USERNAME / WHATSAPP_API_PASSWORD) is not set on the server, so nothing can be sent yet.' }),
+    ...cards);
 }

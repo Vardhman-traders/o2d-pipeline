@@ -87,7 +87,7 @@ def timeline_for(cur, order_key: int, row: dict) -> dict:
     if not any(e["type"] == "created" for e in events):
         events.insert(0, {"at": _iso(row["timestamp_created"]), "type": "created", "title": "Order logged",
                           "by": row["created_by"], "role": None, "changes": [], "reconstructed": True})
-    if not any(e["type"] != "created" for e in events):
+    if not any(e["type"] not in ("created", "whatsapp") for e in events):
         # nothing recorded yet beyond the start: rebuild the milestones from the order record
         if row.get("delivery_status") or row.get("ready_by") or row.get("colour_making_by"):
             events.append({"at": None, "type": "godown", "title": "Godown update", "by": None, "role": None,

@@ -131,6 +131,7 @@
     addOrder: write('POST', function (form) { return { path: '/o2d/orders', body: form }; }),
     updateShopFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/shop', body: form }; }),
     updateGodownFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/godown', body: form }; }),
+    resendDispatchAlert: write('POST', function (sl) { return { path: '/o2d/orders/' + sl + '/whatsapp-resend' }; }),
     updateDispatchFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/dispatch', body: form }; }),
     updateReceivingFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/receiving', body: form }; }),
     debugInfo: function (token) {

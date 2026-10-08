@@ -131,6 +131,12 @@ entries:
       - tests/test_dropdown_order.py::test_new_values_go_to_the_end_and_people_lists_need_their_role
       - tests/test_dropdown_order.py::test_status_values_can_be_limited_to_screens
       - tests/test_dropdown_order.py::test_shop_status_is_worded_dispatch_for_shop_in_dropdowns_and_accepted_when_saved
+  - id: WHATSAPP-SETTINGS-1
+    what: WhatsApp alert group, on/off switch and message template kept in Setup (admin only); template filled per order; off means nothing is sent
+    speed: fast
+    tests:
+      - tests/test_whatsapp_settings.py::test_templates_fill_known_placeholders_and_leave_everything_else_alone
+      - tests/test_whatsapp_settings.py::test_admin_saves_group_switch_and_template_and_others_cannot
   - id: ADMIN-UI-1
     what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members
     speed: slow
