@@ -72,7 +72,7 @@ def test_no_access_request_approval_and_order_timeline(base_url, migrated_db_url
         # ---- order details popup with the timeline (admin)
         login = boss.request.post(base_url + "auth/login", data={"username": "ui_admin", "password": PW})
         token = login.json()["access_token"]
-        dc = f"TLUI-{u}"
+        dc = "6" + str(int(u, 16))[:7]   # Challan numbers are digits only
         made = boss.request.post(base_url + "o2d/orders", headers={"Authorization": "Bearer " + token}, data={
             "orderRcvdDate": date.today().isoformat(), "orderVia": "Call", "dcNo": dc, "typeOfSubmission": "Challan"})
         assert made.json()["success"], made.text()

@@ -42,6 +42,17 @@ def display_label(kind: str, name: str | None) -> str | None:
     return DISPLAY_LABELS.get(kind, {}).get((name or "").strip().lower(), name)
 
 
+# Hard-coded display rule: every dashboard, report and export shows "Amount received" as the entered value divided by 100
+# (enter 10,000 -> shown as 100). The stored value is untouched. The admin views apply the same rule in SQL (migration 022).
+AMOUNT_RECEIVED_DIVISOR = 100
+
+
+def shown_amount(v):
+    """The amount as dashboards show it (None stays None)."""
+    from decimal import Decimal
+    return None if v is None else (Decimal(str(v)) / AMOUNT_RECEIVED_DIVISOR).quantize(Decimal("0.01"))
+
+
 DELIVERED_BY_TERMS_KEY = "delivered_by_custom_terms"
 DEFAULT_DELIVERED_BY_TERMS = "Porter / By Company / Transport"
 

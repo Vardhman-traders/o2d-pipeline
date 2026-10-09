@@ -113,7 +113,7 @@ def test_order_lifecycle_across_role_screens(client, db_conn, seed, monkeypatch)
     alerts = []
     monkeypatch.setattr(o2d_screens, "send_dispatch_alert", lambda o: alerts.append(o))
     shop = login(client, db_conn, "shop")
-    dc = "LC-" + uuid.uuid4().hex[:6]
+    dc = "7" + str(uuid.uuid4().int)[:7]
 
     res = add(client, shop, today, dc, shippingLocation="Rohini")
     assert res["success"] is True and res["slNo"]
@@ -161,7 +161,7 @@ def test_alert_failure_never_fails_the_save(client, db_conn, seed, monkeypatch):
     ensure_date(db_conn, today)
     monkeypatch.setattr(o2d_screens, "send_dispatch_alert", lambda o: (_ for _ in ()).throw(RuntimeError("down")))
     shop, godown, gd = (login(client, db_conn, r) for r in ("shop", "godown", "godown_dispatch"))
-    sl = add(client, shop, today, "AL-" + uuid.uuid4().hex[:6])["slNo"]
+    sl = add(client, shop, today, "7" + str(uuid.uuid4().int)[:7])["slNo"]
     client.put(f"/o2d/orders/{sl}/godown", headers=godown, json={"deliveryStatus": "Delivered"})
     r = client.put(f"/o2d/orders/{sl}/dispatch", headers=gd,
                    json={"materialDeliveryDateTime": f"{today.isoformat()}T10:00", "deliveredByWhom": "Amit"}).json()
@@ -184,7 +184,7 @@ def test_role_field_permissions_still_enforced(client, db_conn, seed):
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
     shop = login(client, db_conn, "shop")
-    sl = add(client, shop, today, "PM-" + uuid.uuid4().hex[:6])["slNo"]
+    sl = add(client, shop, today, "7" + str(uuid.uuid4().int)[:7])["slNo"]
     receiving = login(client, db_conn, "receiving")
     # receiving cannot see a fresh (not yet delivered) order, so the write is refused, not applied
     r = client.put(f"/o2d/orders/{sl}/receiving", headers=receiving, json={"paymentStatus": "Paid"}).json()
@@ -204,7 +204,7 @@ def test_admin_sees_and_edits_any_order(client, db_conn, seed):
     ensure_date(db_conn, today)
     shop = login(client, db_conn, "shop")
     admin = login(client, db_conn, "admin")
-    dc = "AD-" + uuid.uuid4().hex[:6]
+    dc = "7" + str(uuid.uuid4().int)[:7]
     sl = add(client, shop, today, dc, shippingLocation="Old")["slNo"]
     listing = client.get("/o2d/admin/orders?limit=200", headers=admin).json()["orders"]
     assert dc in [o["dcNo"] for o in listing]
@@ -237,7 +237,7 @@ def test_admin_sees_orders_and_cashier_view_is_a_toggle(client, db_conn, seed):
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
     shop, admin, cashier = (login(client, db_conn, r) for r in ("shop", "admin", "cashier"))
-    dc = "CT-" + uuid.uuid4().hex[:6]
+    dc = "7" + str(uuid.uuid4().int)[:7]
     add(client, shop, today, dc)
 
     def seen_by(h):

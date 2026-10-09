@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 
 from psycopg2.extras import Json
 
+from . import config
+
 IST = ZoneInfo("Asia/Kolkata")
 
 # order row (main.ORDER_SELECT names) -> label shown to people
@@ -77,12 +79,29 @@ def _iso(dt):
     return dt.astimezone(IST).isoformat(timespec="seconds") if dt else None
 
 
+def _shown_changes(changes: list) -> list:
+    """Recorded changes keep the amount exactly as entered; the timeline shows it the way every dashboard does (entered / 100)."""
+    out = []
+    for c in changes:
+        if c.get("field") == "Amount received (Rs)":
+            c = {**c, **{k: _shown(c.get(k)) for k in ("from", "to") if c.get(k) not in (None, "")}}
+        out.append(c)
+    return out
+
+
+def _shown(v):
+    try:
+        return str(config.shown_amount(v))
+    except Exception:
+        return v
+
+
 def timeline_for(cur, order_key: int, row: dict) -> dict:
     """Events oldest first. `row` is the order's v_orders_archive row."""
     cur.execute("SELECT at, event_type, title, by_name, by_role, changes FROM order_event "
                 "WHERE order_key = %s ORDER BY at, event_key", (order_key,))
     events = [{"at": _iso(e["at"]), "type": e["event_type"], "title": e["title"], "by": e["by_name"],
-               "role": e["by_role"], "changes": e["changes"] or [], "reconstructed": False} for e in cur.fetchall()]
+               "role": e["by_role"], "changes": _shown_changes(e["changes"] or []), "reconstructed": False} for e in cur.fetchall()]
     note = None
     if not any(e["type"] == "created" for e in events):
         events.insert(0, {"at": _iso(row["timestamp_created"]), "type": "created", "title": "Order logged",

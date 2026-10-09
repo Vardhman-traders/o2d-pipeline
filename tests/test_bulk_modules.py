@@ -8,7 +8,7 @@ from tests.test_admin_tools import client, confirm, d, login, seed, upload  # no
 def _count(db_conn, table, batch_id):
     with db_conn.cursor() as cur:
         cur.execute(f"SELECT count(*) AS n FROM {table} WHERE import_batch_id = %s", (batch_id,))
-        return cur.fetchone()["n"]
+        return cur.fetchone()[0]
 
 
 def test_templates_open_for_every_module_and_stay_admin_only(client, db_conn, seed):
@@ -37,7 +37,7 @@ def test_payments_validate_import_and_undo(client, db_conn, seed):
     assert _count(db_conn, "fact_payment_txn", res["batch_id"]) == 2
     with db_conn.cursor() as cur:
         cur.execute("SELECT status, is_backdated FROM fact_payment_txn WHERE import_batch_id = %s", (res["batch_id"],))
-        assert {(r["status"], r["is_backdated"]) for r in cur.fetchall()} == {("Approved", True)}
+        assert {(r[0], r[1]) for r in cur.fetchall()} == {("Approved", True)}
     assert client.post(f"/admin/bulk/batches/{res['batch_id']}/undo", headers=admin).json()["removed"] == 2
 
 
@@ -46,7 +46,7 @@ def test_tasks_validate_import_and_undo(client, db_conn, seed):
     login(client, db_conn, "shop")   # a staff account to assign to
     with db_conn.cursor() as cur:
         cur.execute("SELECT username FROM dim_user WHERE role = 'shop' ORDER BY user_key DESC LIMIT 1")
-        who = cur.fetchone()["username"]
+        who = cur.fetchone()[0]
     raw = ("Staff Username,Task,Assigned Date,Deadline\n"
            f"{who},Count stock,,{d(2)}\n"
            f"nobody.here,Do a thing,,{d(2)}\n"

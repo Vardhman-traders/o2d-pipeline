@@ -381,19 +381,18 @@
           <select id="rep_person" aria-label="Delivery person for the cartage history report" style="width:auto;"><option value="">Delivery person (for cartage history)</option></select>
           <span id="rep_msg" class="status-msg"></span>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;">
-          <button type="button" class="ov-btn" onclick="downloadReport_('godown-pending', this)">⬇ Godown - pending orders</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('shop-dispatch-pending', this)">⬇ Shop Dispatch - pending orders</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('godown-dispatch-pending', this)">⬇ Godown Dispatch - pending orders</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('receiving-pending', this)">⬇ Awaiting receiving</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('godown-received-cash', this)">⬇ Godown received &amp; payments - cash</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('godown-received-other', this)">⬇ Godown received &amp; payments - other modes</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('shop-received-cash', this)">⬇ Shop received &amp; payments - cash</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('shop-received-other', this)">⬇ Shop received &amp; payments - other modes</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-detail', this, { from: 'rep_from', to: 'rep_to', msg: 'rep_msg', person: 'rep_person', need: 'person' })">⬇ Cartage history (one delivery boy)</button>
-          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this)">⬇ Cartage - paid to each person</button>
+        <div id="rep_picker" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">Tick one or more reports, then Download: each opens as its own PDF (A4 landscape, ready to print). Cancelled orders are left out. Leave the dates empty for everything still open.</div>
+      </div>
+      <div class="card accent-godown" id="overview_dailyCard" style="margin-bottom:16px;display:none;">
+        <h2>🕢 Daily delivery reports <span style="font-size:12px;font-weight:400;color:var(--muted);">built automatically every day at 7:30 PM, one PDF per delivery person</span></h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
+          <span style="font-size:12px;color:var(--muted);">Day</span>
+          <input type="date" id="dr_date" aria-label="Day of the daily delivery reports" style="width:auto;">
+          <button type="button" class="ov-btn" id="dr_generate" style="display:none;">Generate now</button>
+          <span id="dr_msg" class="status-msg"></span>
         </div>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">A4 landscape, ready to print. Cancelled orders are left out. Leave the dates empty for everything still open.</div>
+        <div id="dr_list" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
       </div>
       <div class="card accent-shop" style="margin-bottom:16px;">
         <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
@@ -517,7 +516,7 @@
       </div>
 
       <div class="card accent-shop">
-        <h2>📋 Recent Orders <span class="count" id="shop_recentCount">0</span></h2>
+        <h2>📋 New Orders <span class="count" id="shop_recentCount">0</span></h2>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>DC No</th><th>Submission Type</th><th>Address</th><th>Godown Status</th><th>Delivered By</th><th></th></tr></thead>
@@ -951,7 +950,7 @@
       ' <span style="font-weight:400;color:var(--muted);">· highest entered ' + g.highest + '</span></div>' +
       '<div style="background:rgba(216,67,63,0.06);border:1px solid rgba(216,67,63,0.3);border-radius:10px;padding:10px 14px;">' +
       g.ranges.map(function (r) { return gapRowHtml_(docType, seriesKey, r, data, prefix); }).join('') +
-      (g.truncated ? '<div style="font-size:12px;color:var(--muted);">Showing the first 200 of ' + g.total + ' missing numbers. A very large gap usually means a mistyped number.</div>' : '') +
+      (g.truncated ? '<div style="font-size:12px;color:var(--muted);">Showing the latest 200 of ' + g.total + ' missing numbers. A very large gap usually means a mistyped number or records that were never entered.</div>' : '') +
       '</div></div>';
   }
 
@@ -1296,23 +1295,96 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeOrderModal(); });
 
   // ---- PDF reports (admin, or anyone given the "Reports" page under Setup > Access)
-  function downloadReport_(kind, btn, ids) {
-    ids = ids || { from: 'rep_from', to: 'rep_to', msg: 'rep_msg' };
-    var msg = document.getElementById(ids.msg);
-    var from = document.getElementById(ids.from).value, to = document.getElementById(ids.to).value;
-    var person = ids.person ? document.getElementById(ids.person).value : '';
-    if (ids.need === 'person' && !person) { msg.className = 'status-msg error'; msg.textContent = 'Choose a delivery person first.'; return; }
-    if (from && to && from > to) { msg.className = 'status-msg error'; msg.textContent = '"From" must be on or before "To".'; return; }
-    msg.className = 'status-msg'; msg.textContent = 'Preparing PDF...'; btn.disabled = true;
-    VT.run.withSuccessHandler(function (r) {
-      btn.disabled = false;
-      if (!r || !r.ok) { msg.className = 'status-msg error'; msg.textContent = (r && r.error) || 'Could not create the report.'; return; }
-      var url = URL.createObjectURL(r.blob), a = document.createElement('a');
-      a.href = url; a.download = r.filename; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
-      msg.textContent = 'Downloaded ' + r.filename;
-    }).withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
-      .downloadReport(CURRENT_TOKEN, kind, from, to, person);
+  // The reports, as one multi-select: tick any number and download them together (one PDF each).
+  var REPORT_CHOICES = [
+    ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
+    ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
+    ['godown-received-cash', 'Godown received & payments - cash'], ['godown-received-other', 'Godown received & payments - other modes'],
+    ['shop-received-cash', 'Shop received & payments - cash'], ['shop-received-other', 'Shop received & payments - other modes'],
+    ['cartage-detail', 'Cartage history (one delivery boy)'], ['cartage-by-employee', 'Cartage - paid to each person']];
+  var REPORT_SEL = new Set();
+
+  function buildReportPicker_() {
+    var host = document.getElementById('rep_picker');
+    if (!host || host.dataset.built) return;
+    host.dataset.built = '1';
+    var wrap = el_('div', { class: 'ms' });
+    var btn = el_('button', { type: 'button', class: 'ms-btn', id: 'rep_pickBtn', style: 'min-width:260px;' });
+    var lab = el_('span'), cnt = el_('span', { class: 'ms-count' });
+    btn.appendChild(lab); btn.appendChild(cnt); btn.appendChild(el_('span', { class: 'ms-caret' }, '▾'));
+    var panel = el_('div', { class: 'ms-panel', style: 'min-width:320px;' });
+    var list = el_('div', { class: 'ms-list', style: 'max-height:320px;' });
+    panel.appendChild(list); wrap.appendChild(btn); wrap.appendChild(panel);
+    var go = el_('button', { type: 'button', class: 'ov-btn', id: 'rep_downloadBtn' }, '⬇ Download');
+    function refresh() {
+      var n = REPORT_SEL.size;
+      lab.textContent = n ? 'Reports:' : 'Choose reports';
+      cnt.textContent = !n ? '' : n === 1 ? ' ' + (REPORT_CHOICES.filter(function (c) { return REPORT_SEL.has(c[0]); })[0] || ['', ''])[1] : ' ' + n + ' selected';
+      btn.classList.toggle('active', n > 0);
+      go.textContent = n > 1 ? '⬇ Download ' + n + ' reports' : '⬇ Download';
+    }
+    function draw() {
+      list.replaceChildren();
+      var all = el_('button', { type: 'button', class: 'ms-clear' }, REPORT_SEL.size === REPORT_CHOICES.length ? 'Clear selection' : 'Select all');
+      all.onclick = function () {
+        if (REPORT_SEL.size === REPORT_CHOICES.length) REPORT_SEL.clear(); else REPORT_CHOICES.forEach(function (c) { REPORT_SEL.add(c[0]); });
+        refresh(); draw();
+      };
+      list.appendChild(all);
+      REPORT_CHOICES.forEach(function (c) {
+        var row = el_('label', { class: 'ms-item' });
+        var box = el_('input', { type: 'checkbox', 'data-report': c[0] });
+        box.checked = REPORT_SEL.has(c[0]);
+        box.onchange = function () { if (box.checked) REPORT_SEL.add(c[0]); else REPORT_SEL.delete(c[0]); refresh(); };
+        row.appendChild(box); row.appendChild(document.createTextNode(c[1]));
+        list.appendChild(row);
+      });
+    }
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      var open = !wrap.classList.contains('open');
+      Array.prototype.forEach.call(document.querySelectorAll('.ms.open'), function (m) { m.classList.remove('open'); });
+      if (open) { draw(); wrap.classList.add('open'); }
+    };
+    panel.onclick = function (e) { e.stopPropagation(); };
+    document.addEventListener('click', function () { wrap.classList.remove('open'); });
+    go.onclick = function () { downloadSelectedReports_(go); };
+    host.appendChild(wrap); host.appendChild(go);
+    refresh();
+  }
+
+  function downloadSelectedReports_(goBtn) {
+    var msg = document.getElementById('rep_msg');
+    var from = document.getElementById('rep_from').value, to = document.getElementById('rep_to').value;
+    var person = document.getElementById('rep_person').value;
+    var kinds = REPORT_CHOICES.filter(function (c) { return REPORT_SEL.has(c[0]); }).map(function (c) { return c[0]; });
+    function fail(t) { msg.className = 'status-msg error'; msg.textContent = t; }
+    if (!kinds.length) return fail('Choose at least one report.');
+    if (kinds.indexOf('cartage-detail') !== -1 && !person) return fail('Choose a delivery person first (needed for the cartage history).');
+    if (from && to && from > to) return fail('"From" must be on or before "To".');
+    goBtn.disabled = true; msg.className = 'status-msg';
+    var done = 0, problems = [];
+    (function next() {
+      if (!kinds.length) {
+        goBtn.disabled = false;
+        if (problems.length) fail(done + ' downloaded. Could not create: ' + problems.join('; '));
+        else msg.textContent = done === 1 ? 'Downloaded.' : 'Downloaded ' + done + ' reports.';
+        return;
+      }
+      var kind = kinds.shift();
+      msg.textContent = 'Preparing PDF ' + (done + problems.length + 1) + '...';
+      VT.run.withSuccessHandler(function (r) {
+        if (!r || !r.ok) problems.push(kind + ' (' + ((r && r.error) || 'failed') + ')');
+        else {
+          var url = URL.createObjectURL(r.blob), a = document.createElement('a');
+          a.href = url; a.download = r.filename; document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+          done++;
+        }
+        setTimeout(next, 400);   // a short pause so the browser accepts several downloads in a row
+      }).withFailureHandler(function (err) { problems.push(kind + ' (' + err.message + ')'); setTimeout(next, 400); })
+        .downloadReport(CURRENT_TOKEN, kind, from, to, person);
+    })();
   }
 
   function fillReportPeople_() {
@@ -1324,8 +1396,50 @@
     }).getCartageData(CURRENT_TOKEN, '', '', '');
   }
 
+  function loadDailyReports_() {
+    var card = document.getElementById('overview_dailyCard');
+    var show = IS_ADMIN || (window.O2D_PAGES || []).indexOf('o2d_reports') !== -1;
+    card.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    var dateEl = document.getElementById('dr_date'), list = document.getElementById('dr_list'), msg = document.getElementById('dr_msg');
+    var gen = document.getElementById('dr_generate');
+    if (!dateEl.dataset.bound) {
+      dateEl.dataset.bound = '1';
+      dateEl.value = istToday_();
+      dateEl.addEventListener('change', loadDailyReports_);
+      gen.onclick = function () {
+        gen.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Building...';
+        VT.run.withSuccessHandler(function (r) {
+          gen.disabled = false; msg.className = 'status-msg' + (r && r.ok ? '' : ' error'); msg.textContent = r ? (r.message || r.error || '') : 'No response'; loadDailyReports_();
+        }).withFailureHandler(function (e) { gen.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + e.message; })
+          .runDailyReports(CURRENT_TOKEN, dateEl.value);
+      };
+    }
+    VT.run.withSuccessHandler(function (d) {
+      if (!d || !d.ok) { list.replaceChildren(el_('span', { class: 'ov-err' }, (d && d.error) || 'Could not load the daily reports.')); return; }
+      gen.style.display = d.canGenerate ? '' : 'none';
+      list.replaceChildren();
+      if (!d.reports.length) list.appendChild(el_('span', { style: 'font-size:12px;color:var(--muted);' }, 'No reports for this day yet. They are built at ' + d.runsAt + ' from every order delivered that day.'));
+      d.reports.forEach(function (r) {
+        var b = el_('button', { type: 'button', class: 'ov-btn' }, '⬇ ' + r.person + ' (' + r.orders + ' order' + (r.orders === 1 ? '' : 's') + ')');
+        b.title = 'Built ' + r.generatedAt;
+        b.onclick = function () {
+          VT.run.withSuccessHandler(function (x) {
+            if (!x || !x.ok) { msg.className = 'status-msg error'; msg.textContent = (x && x.error) || 'Failed'; return; }
+            var url = URL.createObjectURL(x.blob), a = document.createElement('a');
+            a.href = url; a.download = x.filename; document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+          }).downloadDailyReport(CURRENT_TOKEN, r.key);
+        };
+        list.appendChild(b);
+      });
+    }).withFailureHandler(function () {}).listDailyReports(CURRENT_TOKEN, dateEl.value);
+  }
+
   function initOverview() {
     fillReportPeople_();
+    buildReportPicker_();
+    loadDailyReports_();
     document.getElementById('overview_reportsCard').style.display =
       (IS_ADMIN || (window.O2D_PAGES || []).indexOf('o2d_reports') !== -1) ? 'block' : 'none';
     var summaryEl = document.getElementById('overview_summary');
@@ -1365,6 +1479,12 @@
           card.onclick = function () { overviewPickStage(s.name); };
           summaryEl.appendChild(card);
         });
+        // the Godown dashboard's "Under Processing": a delivery status is set, not dispatched yet (information card, not a stage filter)
+        var upCard = el_('div', { class: 'ov-card', id: 'ov_underProcessing', style: '--c:#7c3aed;cursor:default', title: 'Orders the godown has sent on that are not dispatched yet (Godown dashboard: Under Processing)' });
+        upCard.appendChild(el_('div', { class: 'n' }, String(data.underProcessing || 0)));
+        upCard.appendChild(el_('div', { class: 'l' }, 'Under processing (godown)'));
+        summaryEl.appendChild(upCard);
+        summaryEl.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
 
         boardEl.replaceChildren();
         var shown = data.stages.filter(function (s) { return !chosen.length || chosen.indexOf(s.name) !== -1; });
@@ -1420,7 +1540,7 @@
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
         fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
         shopRenderOrders(data.recentOrders);
-        showDateWindowNote('shop_dateWindowNote', data.dateWindow);
+        document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders: every order the godown has not picked up yet. It moves out as soon as the godown sets a delivery status. Use Search for older records.';
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getShopData(CURRENT_TOKEN);
@@ -1785,7 +1905,7 @@
       amountField.style.display = 'block';
       setDatePickerValue('dispatch_dateOfReceiving', o.dateOfReceiving || isoToday_());
       document.getElementById('dispatch_paymentStatus').value = o.paymentStatus || '';
-      document.getElementById('dispatch_amountReceived').value = o.amountReceived || '';
+      document.getElementById('dispatch_amountReceived').value = o.amountReceivedRaw || '';
     } else {
       receivingField.style.display = 'none';
       paymentField.style.display = 'none';
@@ -2040,7 +2160,7 @@
     document.getElementById('receivingEditForm').dataset.slNo = slNo;
     setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || '');
     document.getElementById('receiving_paymentStatus').value = o.paymentStatus || '';
-    document.getElementById('receiving_amountReceived').value = o.amountReceived || '';
+    document.getElementById('receiving_amountReceived').value = o.amountReceivedRaw || '';
     photoBoxInit_('receivingPhoto', '📷 Receiving photo');
     photoShowExisting_('receivingPhoto', slNo, 'receiving');
     window.scrollTo({ top: 0, behavior: 'smooth' });

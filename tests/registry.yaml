@@ -138,6 +138,24 @@ entries:
       - tests/test_whatsapp_settings.py::test_templates_fill_known_placeholders_and_leave_everything_else_alone
       - tests/test_whatsapp_settings.py::test_api_key_is_sent_as_x_api_key_and_wins_over_username_password
       - tests/test_whatsapp_settings.py::test_admin_saves_group_switch_and_template_and_others_cannot
+  - id: O2D-MISSING-1
+    what: Missing-number panel (Shop dashboard) - 1 and 8 entered lists 2 to 7, a listed number can be clicked and entered, per-day Challan and per-year Invoice series; reports picked from one multi-select
+    speed: slow
+    tests:
+      - tests/test_missing_numbers_flow.py::test_one_then_eight_lists_two_to_seven_and_a_listed_number_can_be_entered
+      - tests/test_missing_numbers_flow.py::test_the_panel_also_shows_for_other_roles_and_invoice_gaps_run_per_financial_year
+      - tests/test_missing_numbers_flow.py::test_yesterdays_challan_gaps_are_kept_apart_from_todays
+      - tests/test_missing_numbers_ui.py::test_missing_numbers_panel_lists_clicks_and_clears
+      - tests/test_missing_numbers_ui.py::test_reports_are_one_multi_select_and_download_one_pdf_each
+  - id: O2D-JOURNEY-1
+    what: Where an order shows on each dashboard step by step - New orders + Pending, Under processing + the right Ready for dispatch (Godown to Dispatch / Sent to the Company / Dispatch for Shop / Cancelled), Awaiting receiving, Received
+    speed: fast
+    tests:
+      - tests/test_order_journey.py::test_godown_to_dispatch_journey
+      - tests/test_order_journey.py::test_sent_to_the_company_behaves_like_godown_to_dispatch
+      - tests/test_order_journey.py::test_dispatch_for_shop_journey_uses_the_new_label_and_stays_off_godown_receiving
+      - tests/test_order_journey.py::test_cancelled_goes_straight_to_shop_dispatch_ready_and_never_to_godown_receiving
+      - tests/test_order_journey.py::test_admin_sees_the_same_lists_per_dispatch_screen
   - id: ADMIN-UI-1
     what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members
     speed: slow

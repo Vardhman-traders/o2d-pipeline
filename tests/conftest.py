@@ -17,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+os.environ.setdefault("VT_SCHEDULER", "off")   # no 7:30 PM report thread inside the tests
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://vt:vt@localhost:5433/postgres")
 
 

@@ -26,7 +26,7 @@ function openOrderEdit(row, options, onSaved) {
       { name: 'readyByWhom', label: 'Ready by', type: 'select', options: sel('ready_by'), value: row.ready_by || '' },
       { name: 'colourMakingBy', label: 'Colour making by', type: 'select', options: sel('colour_making_by'), value: row.colour_making_by || '' },
       { name: 'deliveredByWhom', label: 'Delivered by', type: 'select', options: sel('delivered_by'), value: row.delivered_by || '' },
-      { name: 'amountReceived', label: 'Amount received', type: 'number', value: row.amount_received ?? '' },
+      { name: 'amountReceived', label: 'Amount received (as entered; dashboards show it ÷ 100)', type: 'number', value: row.amount_received_entered ?? '' },
       { name: 'cartage', label: 'Cartage', type: 'number', value: row.cartage ?? '' },
       { name: 'shippingLocation', label: 'Address', value: row.shipping_location || '' },
       { name: 'detailedRemarks', label: 'Remarks', value: row.detailed_remarks || '' },
@@ -43,7 +43,7 @@ const EDIT_FIELDS = [['orderRcvdDate', 'order_date', 'Order date'], ['dcNo', 'dc
   ['orderVia', 'channel', 'Order via'], ['typeOfSubmission', 'submission_type', 'Submission type'],
   ['deliveryStatus', 'delivery_status', 'Delivery status'], ['paymentStatus', 'payment_status', 'Payment status'],
   ['readyByWhom', 'ready_by', 'Ready by'], ['colourMakingBy', 'colour_making_by', 'Colour making by'],
-  ['deliveredByWhom', 'delivered_by', 'Delivered by'], ['amountReceived', 'amount_received', 'Amount received'],
+  ['deliveredByWhom', 'delivered_by', 'Delivered by'], ['amountReceived', 'amount_received_entered', 'Amount received'],
   ['cartage', 'cartage', 'Cartage'], ['shippingLocation', 'shipping_location', 'Address'],
   ['detailedRemarks', 'detailed_remarks', 'Remarks']];
 
