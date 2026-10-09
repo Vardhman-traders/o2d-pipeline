@@ -36,6 +36,11 @@ ALERTS: dict[str, dict] = {
                          "delivery_status": "Delivery status", "address": "Address", "remarks": "Remarks",
                          "delivered_by": "Delivered by"},
         "template": DISPATCH_TEMPLATE},
+    "delivery_day_summary": {
+        "label": "Daily delivery summary (7:30 PM)",
+        "when": "Every day at 7:30 PM IST, after the per-person delivery reports are built: one message listing each delivery person's orders.",
+        "placeholders": {"date": "The day (dd-mm-yyyy)", "summary": "One line per delivery person: name, number of orders, cartage"},
+        "template": "Delivery summary - {date}\n\n{summary}"},
 }
 
 

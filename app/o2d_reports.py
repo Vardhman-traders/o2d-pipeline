@@ -18,7 +18,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from . import access, db, roles
+from . import access, config, db, roles
 
 router = APIRouter(prefix="/o2d/reports", tags=["o2d-reports"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -113,6 +113,7 @@ def _fmt(field: str, v) -> str:
 
 def _prepare(row: dict) -> dict:
     r = dict(row)
+    r["amount_received"] = config.shown_amount(row.get("amount_received"))   # the "entered / 100" display rule
     r["delivered_by_full"] = " - ".join(x for x in (row.get("delivered_by"), row.get("delivered_by_detail")) if x)
     return r
 

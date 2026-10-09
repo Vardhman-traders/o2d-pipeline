@@ -61,16 +61,20 @@ _STATUS = "lower(btrim(ds.status_name))"
 VISIBILITY = {
     # shop: only orders they created
     "shop": ("o.created_by_user_key = %s", 1),
-    # godown: orders still waiting for godown work, plus ones they last touched
+    # godown: orders waiting for godown work (no delivery status yet), orders the godown has sent on and that are still
+    # waiting to be dispatched ("under processing"), plus ones they last touched
     "godown": ("((o.delivery_status_key IS NULL AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled')"
+               " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL)"
                " OR o.last_updated_by_user_key = %s)", 1),
-    # shop dispatch: 'Shop' orders that are not fully closed, plus ones they last touched
-    "shop_dispatch": (f"(({_STATUS} = 'shop' AND {_OPEN}) OR o.last_updated_by_user_key = %s)", 1),
+    # shop dispatch & receiving: 'Shop' ("Dispatch for Shop") and Cancelled orders that are not fully closed, plus ones they last touched
+    "shop_dispatch": (f"(({_STATUS} IN ('shop', 'cancelled') AND {_OPEN}) OR o.last_updated_by_user_key = %s)", 1),
     # godown dispatch: non-'Shop', non-cancelled orders not fully closed, plus ones they last touched
     "godown_dispatch": (f"(({_STATUS} IS NOT NULL AND {_STATUS} NOT IN ('shop', 'cancelled') AND {_OPEN})"
                         " OR o.last_updated_by_user_key = %s)", 1),
-    # receiving: delivered non-'Shop' orders still missing receiving details, plus ones they last touched
+    # receiving: delivered godown-side orders (not 'Shop', not Cancelled: those are received on the shop dispatch screen)
+    # still missing receiving details, plus ones they last touched
     "receiving": (f"((o.material_delivery_datetime IS NOT NULL AND {_STATUS} IS DISTINCT FROM 'shop'"
+                  f" AND {_STATUS} IS DISTINCT FROM 'cancelled'"
                   " AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL))"
                   " OR o.last_updated_by_user_key = %s)", 1),
     # admin: sees every order, and (per config.editable_fields_for_role) may edit any

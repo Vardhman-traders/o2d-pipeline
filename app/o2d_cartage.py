@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from . import access, db, timeline
+from . import access, config, db, timeline
 
 router = APIRouter(prefix="/o2d/cartage", tags=["o2d-cartage"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -31,27 +31,32 @@ def window(date_from: date | None, date_to: date | None) -> tuple[date, date]:
 
 
 def cartage_date(r: dict) -> date | None:
-    """The day a cartage payment belongs to: the day the goods were received, else the day they were delivered."""
-    if r.get("date_of_receiving"):
-        return r["date_of_receiving"]
-    d = r.get("material_delivery_datetime")
-    return d.astimezone(IST).date() if d else None
+    """The day a cartage payment belongs to: the date of receiving entered on the receiving dashboard (the order's final entry) -
+    never the day the order was created or delivered."""
+    return r.get("date_of_receiving")
 
 
 def fetch_cartage(date_from: date | None, date_to: date | None, delivered_by: str | None = None) -> list[dict]:
-    """The deliveries cartage is accounted on - the same rule the Archive portal's Cartage report used:
-    not cancelled, receiving/payment already done, optionally one delivery person, and (when dates are given) the
-    receiving date (else the delivery date) inside the period. Archived orders are included on purpose: cartage is
+    """The deliveries cartage is accounted on: not cancelled, the final receiving entry made (date of receiving AND payment status,
+    from the Shop Dispatch & Receiving or Godown Receiving screen), optionally one delivery person, and (when dates are given) the
+    date of receiving inside the period - not the order's creation date. Archived orders are included on purpose: cartage is
     paid over weeks and months, long after an order is archived. Oldest first, each row carries `cartage_on`."""
     from . import main
     where = ["NOT o.is_cancelled", "lower(btrim(COALESCE(st.type_name, ''))) <> 'cancelled'",
-             "lower(btrim(COALESCE(ds.status_name, ''))) <> 'cancelled'", "o.payment_status_key IS NOT NULL"]
+             "lower(btrim(COALESCE(ds.status_name, ''))) <> 'cancelled'", "o.payment_status_key IS NOT NULL",
+             "o.date_of_receiving_key IS NOT NULL"]
     params: list = []
+    if date_from:
+        where.append("o.date_of_receiving_key >= %s")
+        params.append(int(date_from.strftime("%Y%m%d")))
+    if date_to:
+        where.append("o.date_of_receiving_key <= %s")
+        params.append(int(date_to.strftime("%Y%m%d")))
     if delivered_by:
         where.append("dp.full_name = %s")
         params.append(delivered_by)
     with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + " WHERE " + " AND ".join(where) + " ORDER BY o.sl_no LIMIT %s", params + [MAX_ROWS * 5])
+        cur.execute(main.ORDER_SELECT + " WHERE " + " AND ".join(where) + " ORDER BY o.date_of_receiving_key, o.sl_no LIMIT %s", params + [MAX_ROWS * 5])
         rows = cur.fetchall()
     out = []
     for r in rows:
@@ -98,7 +103,7 @@ def _row(r: dict) -> dict:
             "readyBy": r["ready_by"] or "", "colourMakingBy": r["colour_making_by"] or "",
             "deliveryStatus": r["delivery_status"] or "", "deliveredOn": ist(r["material_delivery_datetime"]),
             "dateOfReceiving": _iso(r["date_of_receiving"]) or "", "paymentStatus": r["payment_status"] or "",
-            "amountReceived": _num(r["amount_received"]), "deliveredBy": r["delivered_by_full"],
+            "amountReceived": _num(config.shown_amount(r["amount_received"])), "deliveredBy": r["delivered_by_full"],
             "deliveredByName": r["delivered_by"] or "", "cartage": _num(r["cartage"]),
             "lastUpdatedBy": r["last_updated_by"] or "", "lastUpdatedAt": ist(r["last_updated_at"]), "createdBy": r["created_by"] or ""}
 

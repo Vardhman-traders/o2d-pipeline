@@ -94,7 +94,8 @@ def _gaps_in(cur, doc_type: str, key: str, present: dict[int, date], start: int)
     missing = [n for n in range(start, hi + 1) if n not in present and n not in voided]
     if not missing:
         return None
-    return {"series": key, "highest": hi, "total": len(missing), "ranges": _ranges(missing[:MAX_LISTED], present),
+    # a long list keeps the NEWEST gaps: old holes (e.g. before the records were imported) must not bury a number skipped today
+    return {"series": key, "highest": hi, "total": len(missing), "ranges": _ranges(missing[-MAX_LISTED:], present),
             "truncated": len(missing) > MAX_LISTED}
 
 

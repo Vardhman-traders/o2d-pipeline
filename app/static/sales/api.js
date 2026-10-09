@@ -131,6 +131,15 @@
     addOrder: write('POST', function (form) { return { path: '/o2d/orders', body: form }; }),
     updateShopFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/shop', body: form }; }),
     updateGodownFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/godown', body: form }; }),
+    listDailyReports: function (token, day) { return ask('GET', '/o2d/daily-reports' + (day ? '?date=' + encodeURIComponent(day) : ''), token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; }); },
+    runDailyReports: function (token, day) { return ask('POST', '/o2d/daily-reports/run' + (day ? '?date=' + encodeURIComponent(day) : ''), token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; }); },
+    downloadDailyReport: function (token, key) {
+      return fetch('/o2d/daily-reports/' + key + '.pdf', { headers: { 'Authorization': 'Bearer ' + token } }).then(function (res) {
+        if (!res.ok) return { ok: false, error: 'Could not download the report (' + res.status + ').' };
+        var m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+        return res.blob().then(function (b) { return { ok: true, blob: b, filename: m ? m[1] : 'delivery_report.pdf' }; });
+      });
+    },
     resendDispatchAlert: write('POST', function (sl) { return { path: '/o2d/orders/' + sl + '/whatsapp-resend' }; }),
     updateDispatchFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/dispatch', body: form }; }),
     updateReceivingFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/receiving', body: form }; }),

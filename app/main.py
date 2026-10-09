@@ -13,14 +13,17 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage, o2d_reports,
-               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers, whatsapp)
+               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers, whatsapp, daily_reports)
 
 
 @asynccontextmanager
 async def lifespan(app):
     auth.check_config()
     db.init_pool()
+    scheduler = daily_reports.start_scheduler()   # 7:30 PM IST delivery reports (VT_SCHEDULER=off disables)
     yield
+    if scheduler:
+        scheduler.stop()
     db.close_pool()
 
 
@@ -510,6 +513,7 @@ app.include_router(delegation.router)
 app.include_router(purchase.router)
 app.include_router(module_admin.router)
 app.include_router(whatsapp.router)
+app.include_router(daily_reports.router)
 app.include_router(o2d_reports.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)

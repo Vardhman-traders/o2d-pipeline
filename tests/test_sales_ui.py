@@ -74,7 +74,7 @@ def base_url(migrated_db_url):
 
 def test_one_order_through_every_role_screen(base_url):
     expect = sync_api.expect
-    dc = "UI-" + uuid.uuid4().hex[:5]
+    dc = "9" + str(uuid.uuid4().int)[:5]   # Challan numbers are digits only
     errors: list[str] = []
 
     with sync_api.sync_playwright() as p:
@@ -116,7 +116,10 @@ def test_one_order_through_every_role_screen(base_url):
         godown.select_option("#godown_colourMakingBy", label="Sonu")
         godown.select_option("#godown_deliveryStatus", label="Delivered")
         godown.click("#godown_saveBtn")
-        expect(godown.locator("#godown_completedBody")).to_contain_text(dc, timeout=8000)
+        expect(godown.locator("#godown_completedBody")).to_contain_text(dc, timeout=8000)      # Under Processing
+        expect(godown.locator("#godown_pendingBody")).not_to_contain_text(dc)                   # no longer Pending
+        shop.evaluate("refreshCurrent()")                                                       # the Shop's New Orders list refreshes
+        expect(shop.locator("#shop_ordersBody")).not_to_contain_text(dc, timeout=8000)          # it moved out of New Orders
 
         dispatch = page_for("godown_dispatch")
         expect(dispatch.locator("#dispatch_pendingBody")).to_contain_text(dc, timeout=8000)
@@ -124,7 +127,11 @@ def test_one_order_through_every_role_screen(base_url):
         dispatch.select_option("#dispatch_deliveredByWhom", label="Amit")
         dispatch.fill("#dispatch_cartage", "50")
         dispatch.click("#dispatch_saveBtn")
-        expect(dispatch.locator("#dispatch_completedBody")).to_contain_text(dc, timeout=8000)
+        expect(dispatch.locator("#dispatch_completedBody")).to_contain_text(dc, timeout=8000)  # Awaiting receiving
+        expect(dispatch.locator("#dispatch_pendingBody")).not_to_contain_text(dc)
+
+        godown.evaluate("refreshCurrent()")
+        expect(godown.locator("#godown_completedBody")).not_to_contain_text(dc, timeout=8000)   # out of Under Processing once dispatched
 
         receiving = page_for("receiving")
         expect(receiving.locator("#receiving_pendingBody")).to_contain_text(dc, timeout=8000)

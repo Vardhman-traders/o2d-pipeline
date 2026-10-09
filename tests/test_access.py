@@ -153,7 +153,7 @@ def test_access_request_flow(client, db_conn, seed):
 def _make_order(client, db_conn):
     shop, _ = login(client, db_conn, "shop")
     r = client.post("/o2d/orders", headers=shop, json={
-        "orderRcvdDate": date.today().isoformat(), "orderVia": "Call", "dcNo": "TL-" + uuid.uuid4().hex[:5],
+        "orderRcvdDate": date.today().isoformat(), "orderVia": "Call", "dcNo": "8" + str(uuid.uuid4().int)[:6],
         "typeOfSubmission": "Challan", "shippingLocation": "Rohini"})
     assert r.status_code == 200, r.text
     return shop, r.json()["slNo"]

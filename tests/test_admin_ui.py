@@ -293,7 +293,7 @@ def test_admin_home_screen_and_navigation(base_url):
             [re.compile(p) for p in (
                 r"^Members$", r"^Import$", r"^Dropdown values$",
                 r"^Access & permissions( \(\d+\))?$",   # carries a count while requests are waiting
-                r"^Weekly off$", r"^Module settings$")])
+                r"^Weekly off$", r"^Module settings$", r"^WhatsApp$")])
         page.locator(".module-tabs .subtab", has_text="Dropdown values").click()
         expect(page.locator("#rc_table")).to_be_visible(timeout=8000)
         page.locator(".module-tabs .subtab", has_text="Access & permissions").click()
