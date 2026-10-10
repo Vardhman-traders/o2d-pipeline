@@ -557,6 +557,8 @@ class LookupValueIn(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     # the screens that offer this value (Delivery / Payment status only); empty or all of them = every screen
     screens: Optional[list[str]] = None
+    # extra single-choice settings of this list (config.LOOKUP_FIELDS), e.g. {"bill_series": "challan"}; "" = none
+    fields: Optional[dict[str, Optional[str]]] = None
 
     @field_validator("name")
     @classmethod
@@ -580,6 +582,24 @@ def _screens_value(kind: str, screens: Optional[list[str]]):
     return None if set(screens) == set(allowed) else [s for s in allowed if s in screens]
 
 
+def _extra_fields(kind: str, given: Optional[dict]) -> dict:
+    """The validated {column: value or None} to store for this list's extra settings (only the ones that were sent)."""
+    spec = {col: {v for v, _ in opts} for col, _, opts in config.LOOKUP_FIELDS.get(kind, [])}
+    out = {}
+    for col, value in (given or {}).items():
+        if col not in spec or (value or "") not in spec[col]:
+            raise HTTPException(422, f"Not a valid setting: {col}")
+        out[col] = value or None
+    return out
+
+
+@router.get("/lookup-fields")
+def admin_lookup_fields(admin=Depends(ADMIN)):
+    """{lookup kind: [{name, label, options: [[value, label]]}]} for the lists with extra single-choice settings."""
+    return {k: [{"name": c, "label": lbl, "options": [list(o) for o in opts]} for c, lbl, opts in fields]
+            for k, fields in config.LOOKUP_FIELDS.items()}
+
+
 @router.get("/lookup-screens")
 def admin_lookup_screens(admin=Depends(ADMIN)):
     """{lookup kind: [[screen id, label], ...]} for the lists whose values can be limited to some screens."""
@@ -589,7 +609,7 @@ def admin_lookup_screens(admin=Depends(ADMIN)):
 @router.get("/lookups/{kind}")
 def admin_list_lookup(kind: str, admin=Depends(ADMIN)):
     table, key, name = _lookup_or_404(kind)
-    extra = ", screens" if kind in config.LOOKUP_SCREENS else ""
+    extra = (", screens" if kind in config.LOOKUP_SCREENS else "") + "".join(f", {c}" for c, _, _ in config.LOOKUP_FIELDS.get(kind, []))
     with db.cursor() as cur:
         cur.execute(f"SELECT {key} AS key, {name} AS name{extra} FROM {table} ORDER BY sort_order, lower({name})")
         return cur.fetchall()
@@ -599,14 +619,15 @@ def admin_list_lookup(kind: str, admin=Depends(ADMIN)):
 def admin_add_lookup(kind: str, body: LookupValueIn, admin=Depends(ADMIN)):
     table, key, name = _lookup_or_404(kind)
     screens = _screens_value(kind, body.screens)
+    extra = _extra_fields(kind, body.fields)
     try:
         with db.cursor() as cur:
+            cols, vals = [name], [body.name]
             if kind in config.LOOKUP_SCREENS:
-                cur.execute(f"INSERT INTO {table} ({name}, screens) VALUES (%s, %s) RETURNING {key} AS key, {name} AS name",
-                            (body.name, screens))
-            else:
-                cur.execute(f"INSERT INTO {table} ({name}) VALUES (%s) RETURNING {key} AS key, {name} AS name",
-                            (body.name,))
+                cols.append("screens"); vals.append(screens)
+            for col, value in extra.items():
+                cols.append(col); vals.append(value)
+            cur.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) RETURNING {key} AS key, {name} AS name", vals)
             row = cur.fetchone()
             audit(cur, admin, "lookup.add", f"{kind}:{body.name}")
     except pgerr.UniqueViolation:
@@ -620,11 +641,12 @@ def admin_rename_lookup(kind: str, value_key: int, body: LookupValueIn, admin=De
     screens = _screens_value(kind, body.screens)
     try:
         with db.cursor() as cur:
+            sets, vals = [f"{name} = %s"], [body.name]
             if kind in config.LOOKUP_SCREENS and "screens" in body.model_fields_set:
-                cur.execute(f"UPDATE {table} SET {name} = %s, screens = %s WHERE {key} = %s RETURNING {key}",
-                            (body.name, screens, value_key))
-            else:
-                cur.execute(f"UPDATE {table} SET {name} = %s WHERE {key} = %s RETURNING {key}", (body.name, value_key))
+                sets.append("screens = %s"); vals.append(screens)
+            for col, value in _extra_fields(kind, body.fields).items():
+                sets.append(f"{col} = %s"); vals.append(value)
+            cur.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE {key} = %s RETURNING {key}", vals + [value_key])
             if not cur.fetchone():
                 raise HTTPException(404, "Value not found")
             audit(cur, admin, "lookup.rename", f"{kind}:{value_key}", {"name": body.name, "screens": screens})

@@ -643,6 +643,7 @@ async function renderReconcile(panel, tab) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
   let data, phones = new Map(), scopes = new Map(), mrows = new Map(), mdef = master;
   let screenOpts = null; const screensOf = new Map();   // the screens a Delivery / Payment status value can be limited to
+  let extraFields = null; const extraOf = new Map();    // extra single-choice settings of a list (e.g. Submission type > Bill number series)
   try {
     const calls = [api('/admin/reconcile/' + kind)];
     if (role) calls.push(api('/admin/people?role=' + role));
@@ -650,8 +651,12 @@ async function renderReconcile(panel, tab) {
     const [d, extra] = await Promise.all(calls);
     data = d;
     if (slug) {
-      const all = await api('/admin/lookup-screens');
-      if (all[slug]) { screenOpts = all[slug]; (await api('/admin/lookups/' + slug)).forEach((r) => screensOf.set(r.key, r.screens)); }
+      const [allScreens, allFields] = await Promise.all([api('/admin/lookup-screens'), api('/admin/lookup-fields')]);
+      if (allScreens[slug] || allFields[slug]) {
+        const lookupRows = await api('/admin/lookups/' + slug);
+        if (allScreens[slug]) { screenOpts = allScreens[slug]; lookupRows.forEach((r) => screensOf.set(r.key, r.screens)); }
+        if (allFields[slug]) { extraFields = allFields[slug]; lookupRows.forEach((r) => extraOf.set(r.key, r)); }
+      }
     }
     if (role && extra) extra.forEach((r) => { phones.set(r.key, r.phone_number || ''); scopes.set(r.key, r.dispatch_scope || 'both'); });
     if (master && extra) { mdef = { ...master, fields: extra.fields }; extra.rows.forEach((r) => mrows.set(r.key, r)); }
@@ -672,6 +677,9 @@ async function renderReconcile(panel, tab) {
     return { name: 'screens', label: 'Offered on', type: 'select', options: opts, value: multi ? '__keep' : (current && current[0]) || '',
       hint: 'Only this screen lists the value in its dropdown. Orders already using it are not changed.' };
   };
+  const extraInputs = (key) => (extraFields || []).map((f) => ({ name: f.name, label: f.label, type: 'select', options: f.options, value: ((extraOf.get(key) || {})[f.name]) || '' }));
+  const extraBody = (v) => Object.fromEntries((extraFields || []).map((f) => [f.name, v[f.name] || '']));
+  const extraLabel = (key, f) => { const val = ((extraOf.get(key) || {})[f.name]) || ''; return (f.options.find(([o]) => o === val) || ['', val])[1]; };
   const screensBody = (v, current) => (v.screens === '' ? allScreenIds() : v.screens === '__keep' ? current : [v.screens]);
 
   // drag a row (or use the arrows) to set the order the values appear in every dropdown
@@ -711,10 +719,10 @@ async function renderReconcile(panel, tab) {
     }
     formDialog({ title: 'Add ' + tabLabel.toLowerCase(), submitLabel: 'Add',
       fields: [{ name: 'name', label: 'Name', required: true, maxlength: 100 }, role ? { name: 'phone', label: 'Phone (optional)' } : null,
-        role === 'delivery' ? SCOPE_FIELD : null, screenOpts ? screenField(null) : null].filter(Boolean),
+        role === 'delivery' ? SCOPE_FIELD : null, screenOpts ? screenField(null) : null, ...(extraFields ? extraInputs(null) : [])].filter(Boolean),
       onSubmit: async (v) => {
         if (role) await api('/admin/people?role=' + role, { method: 'POST', body: { full_name: v.name, phone_number: v.phone || null, dispatch_scope: v.dispatch_scope || 'both' } });
-        else await api('/admin/lookups/' + slug, { method: 'POST', body: screenOpts ? { name: v.name, screens: screensBody(v, null) } : { name: v.name } });
+        else await api('/admin/lookups/' + slug, { method: 'POST', body: { name: v.name, ...(screenOpts ? { screens: screensBody(v, null) } : {}), ...(extraFields ? { fields: extraBody(v) } : {}) } });
         reload();
       } });
   }
@@ -765,10 +773,15 @@ async function renderReconcile(panel, tab) {
       onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null, dispatch_scope: vals.dispatch_scope || 'both' } }); reload(); } });
       return;
     }
-    if (screenOpts) {
+    if (screenOpts || extraFields) {
       return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 100,
-        hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` }, screenField(screensOf.get(v.key))],
-      onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name, screens: screensBody(vals, screensOf.get(v.key)) } }); reload(); } });
+        hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` },
+        ...(screenOpts ? [screenField(screensOf.get(v.key))] : []), ...(extraFields ? extraInputs(v.key) : [])],
+      onSubmit: async (vals) => {
+        await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: vals.name,
+          ...(screenOpts ? { screens: screensBody(vals, screensOf.get(v.key)) } : {}), ...(extraFields ? { fields: extraBody(vals) } : {}) } });
+        reload();
+      } });
     }
     formDialog({ title: 'Rename “' + v.name + '”', submitLabel: 'Rename',
       fields: [{ name: 'name', label: 'Correct spelling', value: v.name, required: true, maxlength: 100,
@@ -821,6 +834,7 @@ async function renderReconcile(panel, tab) {
         ...(master ? mdef.fields.map((f) => h('td', { text: masterCell(f, mrows.get(v.key)) })) : []),
         role === 'delivery' ? h('td', { text: SCOPE_LABEL[scopes.get(v.key) || 'both'] }) : null,
         screenOpts ? h('td', { text: screenLabel(v) }) : null,
+        ...(extraFields ? extraFields.map((f) => h('td', { text: extraLabel(v.key, f) })) : []),
         h('td', { class: 'num', text: fmtInt(v.orders) }),
         h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
           isNew(v) ? h('button', { class: 'btn small primary', text: 'Approve', onclick: async () => { try { await api(`/admin/masters/${master.id}/${v.key}/approve`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } }) : null,
@@ -844,7 +858,7 @@ async function renderReconcile(panel, tab) {
     kinds, reviewBox, dupBox,
     h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn), orderNote,
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
-      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Order' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' || screenOpts ? h('th', { text: 'Offered on' }) : null, h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Order' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' || screenOpts ? h('th', { text: 'Offered on' }) : null, ...(extraFields ? extraFields.map((f) => h('th', { text: f.label })) : []), h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
   draw();
 }
 

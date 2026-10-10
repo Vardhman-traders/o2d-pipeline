@@ -398,7 +398,7 @@
         <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="overview_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ No missing bill numbers</div>
         <div id="overview_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
           <div id="overview_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
             <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
@@ -429,7 +429,7 @@
         <h2>🔍 Missing Numbers <span class="count" id="shop_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="shop_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="shop_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
           <div id="shop_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
             <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
@@ -536,7 +536,7 @@
         <h2>🔍 Missing Numbers <span class="count" id="godown_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="godown_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="godown_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
           <div id="godown_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
             <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
@@ -601,7 +601,7 @@
         <h2>🔍 Missing Numbers <span class="count" id="dispatch_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="dispatch_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
         <div id="dispatch_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (daily, restarts at 1 each day)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
           <div id="dispatch_missingContainer"></div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
             <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
@@ -954,14 +954,18 @@
       '</div></div>';
   }
 
+  var GAP_TYPES = {};   // bill series ('Challan' / 'Invoice') -> the submission types set up for it (Setup > Dropdown values)
   function initMissingNumbers(prefix) {
     VT.run
       .withSuccessHandler(function (data) {
         if (!data || !data.ok) return;
+        GAP_TYPES = data.seriesTypes || {};
         var ch = document.getElementById(prefix + '_missingContainer');
         if (ch) ch.innerHTML = data.challan.map(function (g) {
           return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Challan', g.date, g, data, prefix);
         }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing challan numbers.</div>';
+        if (ch && data.olderChallanDays > 0) ch.insertAdjacentHTML('beforeend', '<div style="font-size:12px;color:var(--muted);margin-top:6px;">' + data.olderChallanDays +
+          ' older day(s) also have open numbers. Enter them, or close them with "None of these need a bill", and the next ones appear here.</div>');
         var inv = document.getElementById(prefix + '_missingInvoiceContainer');
         if (inv) inv.innerHTML = data.invoice.map(function (g) {
           return gapBlockHtml_('Financial year ' + g.fy, 'Invoice', g.fy, g, data, prefix);
@@ -991,7 +995,7 @@
     function show() {
       fillSelect_('mm_via', MM_OPTS.orderVia);
       fillSelect_('mm_type', MM_OPTS.typeOfSubmission);
-      document.getElementById('mm_type').value = docType;
+      document.getElementById('mm_type').value = (GAP_TYPES[docType] || [])[0] || docType;   // a type set up for this series
       document.getElementById('mm_backdrop').style.display = 'flex';
       document.getElementById('mm_via').focus();
     }
@@ -1040,16 +1044,16 @@
     var no = document.getElementById('shop_dcNo').value.trim();
     var date = document.getElementById('shop_orderRcvdDate_iso').value;
     warn.textContent = '';
-    if (!no || (type !== 'Challan' && type !== 'Invoice')) return;
-    if (!/^\d+$/.test(no)) { warn.style.color = 'var(--red)'; warn.textContent = type + ' number must be digits only.'; return; }
-    if (!date) return;
+    if (!no || !type || !date) return;
     VT.run.withSuccessHandler(function (d) {
-      if (!d || !d.ok) return;
+      if (!d || !d.ok || !d.series) return;                                  // this submission type is not a numbered bill
       if (document.getElementById('shop_dcNo').value.trim() !== no) return;  // typed on since
-      if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = type + ' ' + no + ' is already used' + (type === 'Challan' ? ' for this date.' : ' this financial year.'); }
+      var series = d.series;
+      if (d.notDigits) { warn.style.color = 'var(--red)'; warn.textContent = series + ' number must be digits only.'; return; }
+      if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = series + ' ' + no + ' is already used' + (series === 'Challan' ? ' for this date.' : ' this financial year.'); }
       else if (d.skipped && d.skipped.length) {
         warn.style.color = 'var(--amber)';
-        warn.textContent = 'Last ' + type.toLowerCase() + ' number is ' + d.last + '. Not yet punched: ' + d.skipped.join(', ') + '. Check before saving.';
+        warn.textContent = 'Last ' + series.toLowerCase() + ' number is ' + d.last + '. Not yet punched: ' + d.skipped.join(', ') + '. Check before saving.';
       }
     }).checkDocNumber(CURRENT_TOKEN, type, date, no);
   }

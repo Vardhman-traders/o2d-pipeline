@@ -27,6 +27,14 @@ DEFAULT_WEEKLY_OFF_DAYS = {0}  # Monday, same default the app has always used
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
+# Extra single-choice settings on a lookup list's values: slug -> [(column, label, [(value, label)])]. Add one here (plus the column) and
+# Setup > Dropdown values shows it as a column and in Add / Edit.
+LOOKUP_FIELDS = {
+    "submission-types": [("bill_series", "Bill number series", [
+        ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
+        ("invoice", "Invoice - one running series per financial year")])],
+}
+
 # Which O2D screens can offer each value of a lookup list (screen id = the O2D role). A value with no screens set is offered everywhere.
 # Adding a list here is all it takes for Setup > Dropdown values to show its "Offered on" choice.
 LOOKUP_SCREENS = {
