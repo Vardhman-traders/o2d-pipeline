@@ -204,7 +204,7 @@ def test_import_creates_orders_with_batch_and_can_be_undone(client, db_conn, see
     assert found["total"] == 2
     first, second = found["rows"]
     assert first["dc_inv_no"] == f"IM-{u}-1" and second["sl_no"] == first["sl_no"] + 1
-    assert first["stage"] == "Closed" and float(first["amount_received"]) == 1500.50
+    assert first["stage"] == "Closed" and float(first["amount_received"]) == 15.01      # shown as entered / 100
     assert second["stage"] == "Awaiting godown"
     with db_conn.cursor() as cur:
         cur.execute("SELECT (timestamp_created AT TIME ZONE 'Asia/Kolkata')::time AS t, created_by_user_key, "
@@ -324,7 +324,7 @@ def test_filters_sorting_paging_and_stage_logic(client, db_conn, seed):
     assert dcs("&q=urgent")[0] == ["1"] and dcs("&q=rohini&sort=sl_no&dir=asc")[0] == ["1", "3"]
     lo, hi = (TODAY - timedelta(days=26)).isoformat(), (TODAY - timedelta(days=19)).isoformat()
     assert dcs(f"&date_from={lo}&date_to={hi}&sort=sl_no&dir=asc")[0] == ["2", "3"]
-    assert dcs("&min_amount=1000")[0] == ["1"] and dcs("&max_amount=500")[0] == ["3"]
+    assert dcs("&min_amount=10")[0] == ["1"] and dcs("&max_amount=5")[0] == ["3"]   # amounts as shown (entered / 100)
     assert dcs("&payment_status=__none__&sort=sl_no&dir=asc")[0] == ["2", "4"]  # "no payment status yet"
     assert dcs("&payment_status=__none__&payment_status=Pending&sort=sl_no&dir=asc")[0] == ["2", "3", "4"]
     assert dcs("&cancelled=exclude&sort=sl_no&dir=asc")[0] == ["1", "2", "3"]

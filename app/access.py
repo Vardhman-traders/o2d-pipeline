@@ -52,6 +52,12 @@ PAGES: dict[str, tuple[str, str]] = {
     "po_godown": ("Purchase", "Purchase - Godown entries"),
     "po_shop": ("Purchase", "Purchase - Shop entries"),
     "po_all": ("Purchase", "Purchase - All entries combined (filter, edit, delete)"),
+    # ---- VT Decor
+    "decor_owner": ("VT Decor", "VT Decor - Owner (every client, GP & profit, ledger, staff view, settings, edit and delete)"),
+    "decor_staff": ("VT Decor", "VT Decor - Staff (own clients, payments, expenses, photos, quotations)"),
+    # ---- Attendance
+    "att_mark": ("Attendance", "Attendance - Check-in page (tile on the home screen; the page itself is open to staff phones)"),
+    "att_owner": ("Attendance", "Attendance - Owner dashboard (today, reports, salary, advances, PINs, employees)"),
 }
 
 # The business modules shown as tiles on the home screen. A person sees a tile when they hold at least one of its pages.
@@ -61,6 +67,9 @@ MODULES: list[dict] = [
     {"key": "delegation", "title": "Delegation", "icon": "✅", "url": "/delegation/",
      "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage"]},
     {"key": "purchase", "title": "Purchase Report", "icon": "🧾", "url": "/purchase/", "pages": ["po_godown", "po_shop", "po_all"]},
+    {"key": "decor", "title": "VT Decor", "icon": "🎨", "url": "/decor/", "pages": ["decor_owner", "decor_staff"]},
+    {"key": "attendance", "title": "Attendance", "icon": "🕘", "url": "/attendance/", "pages": ["att_mark"]},
+    {"key": "attendance_owner", "title": "Attendance - Owner", "icon": "📊", "url": "/attendance/dashboard.html", "pages": ["att_owner"]},
 ]
 DASHBOARD_PAGES = ("dashboard_overview", "dashboard_orders")
 O2D_PAGES = tuple(k for k in PAGES if k.startswith("o2d_"))

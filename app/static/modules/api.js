@@ -81,6 +81,29 @@
   // Payments and Purchase both start with login(); which one it is depends on the page.
   fns.login = function () { return window.VT_MODULE === 'purchase' ? fns.login_purchase() : fns.login_payments(); };
 
+  // ---------------------------------------------------------------- Attendance
+  // The employee page works without a portal sign-in (staff phones); the owner dashboard needs one. Names are the old script's.
+  var salaryPass = {};   // the short-lived pass the server gives after a correct PIN, sent back with the salary request
+  function attPublic(action, args) { return ask('POST', '/attendance/public/rpc', { action: action, args: args }); }
+  function attOwner(action, args) { return ask('POST', '/attendance/owner/rpc', { action: action, args: args }); }
+  var isOwnerPage = function () { return window.VT_MODULE === 'attendance_owner'; };
+  fns.getEmployees = function () { return isOwnerPage() ? attOwner('getEmployees', []) : attPublic('getEmployees', []); };
+  ['getTodayStatus', 'checkLocation', 'saveAttendance', 'saveCheckout', 'notifyAttendance', 'getDashboardUrl'].forEach(function (n) {
+    fns[n] = function () { return attPublic(n, Array.prototype.slice.call(arguments)); };
+  });
+  fns.verifyEmployeePIN = function (name, pin) {
+    return attPublic('verifyEmployeePIN', [name, pin]).then(function (r) {
+      if (r && r.token) salaryPass[String(name).toLowerCase().trim()] = r.token;
+      return r;
+    });
+  };
+  fns.getEmployeeSalaryView = function (name) { return attPublic('getEmployeeSalaryView', [name, salaryPass[String(name).toLowerCase().trim()] || '']); };
+  ['verifyOwnerPassword', 'getTodayAttendance', 'manualCheckout', 'getAllSalaries', 'setEmployeeSalary', 'getAllAdvances', 'addAdvancePayment',
+   'deleteAdvance', 'getSalaryReport', 'getMonthlyReport', 'getAbsentStreak', 'getEmployeeStreak', 'getAllEmployees', 'addEmployee',
+   'deleteEmployee', 'getAllPINs', 'setEmployeePIN'].forEach(function (n) {
+    fns[n] = function () { return attOwner(n, Array.prototype.slice.call(arguments)); };
+  });
+
   function makeRunner(onOk, onFail) {
     var runner = {
       withSuccessHandler: function (f) { return makeRunner(f, onFail); },
@@ -97,7 +120,8 @@
     return runner;
   }
 
-  window.VT = { run: makeRunner(null, null), toPortal: toPortal, token: token };
+  // home(): back to the portal home screen WITHOUT signing out (toPortal signs out). ask(): the pages that make their own calls.
+  window.VT = { run: makeRunner(null, null), toPortal: toPortal, token: token, ask: ask, home: function () { window.location.href = '/'; } };
 
   /* ---- small helpers the pages share ---- */
   // Shrinks a photo on the phone before it is sent (full-size camera photos are several MB). Resolves a data: URL.
@@ -143,6 +167,7 @@
   // A "Home" button next to the log-out control on every module page (sign-in lives in the portal, so Home is the way back to it).
   // Styled like the log-out control beside it so it matches each page's own design; a floating link covers any page without one.
   document.addEventListener('DOMContentLoaded', function () {
+    if (window.VT_PUBLIC_PAGE) return;   // staff phones open the check-in page without the portal: no portal link there (it has its own Home)
     var out = document.querySelector('[onclick*="handleLogout"], [onclick*="logout()"], #logoutBtn');
     var a;
     if (out) {

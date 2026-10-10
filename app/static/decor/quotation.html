@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VT Decor — Quotation</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="../modules/api.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"DM Sans",sans-serif;background:#eef1f8;color:#1a1a2e}
+:root{--navy:#1A3A6E;--navy2:#2B5BA8;--border:#dce4ef;--accent:#7986CB}
+
+/* ══════════════════════════════════════
+   BUILDER UI
+══════════════════════════════════════ */
+.builder{max-width:940px;margin:0 auto;padding:20px}
+.topbar{background:var(--navy);color:#fff;padding:13px 20px;border-radius:10px;
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.topbar h2{font-size:1rem;font-weight:600;font-family:"Poppins",sans-serif}
+.btn{padding:8px 16px;border-radius:7px;border:none;cursor:pointer;
+  font-family:"DM Sans",sans-serif;font-size:.83rem;font-weight:500;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-success{background:#2E7D32;color:#fff}
+.btn-primary{background:var(--navy2);color:#fff}
+.btn-outline{background:transparent;border:1.5px solid rgba(255,255,255,.5);color:#fff}
+.btn-sm{padding:5px 11px;font-size:.76rem}
+.card{background:#fff;border-radius:10px;padding:18px 20px;
+  box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:14px}
+.card-title{font-size:.8rem;font-weight:700;color:var(--navy);text-transform:uppercase;
+  letter-spacing:.6px;margin-bottom:12px;padding-bottom:6px;
+  border-bottom:2px solid var(--navy2);display:inline-block}
+.fg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fg{margin-bottom:0}.fg.full{grid-column:1/-1}
+.fg label{display:block;font-size:.72rem;color:#5C6BC0;margin-bottom:3px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.fg input,.fg select,.fg textarea{width:100%;padding:7px 10px;
+  border:1.5px solid var(--border);border-radius:6px;
+  font-family:"DM Sans",sans-serif;font-size:.86rem;color:#1a1a2e;outline:none}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--navy2)}
+.itbl{width:100%;border-collapse:collapse;font-size:.81rem;margin-bottom:12px}
+.itbl th{background:var(--navy);color:#fff;padding:8px;text-align:left;
+  font-size:.7rem;font-weight:600;text-transform:uppercase;white-space:nowrap}
+.itbl td{padding:6px;border-bottom:1px solid #eee;vertical-align:middle}
+.itbl td input{width:100%;border:1px solid #dce4ef;border-radius:4px;
+  padding:4px 6px;font-size:.8rem;font-family:"DM Sans",sans-serif;outline:none}
+.itbl td input:focus{border-color:var(--navy2)}
+.itbl tr:nth-child(even) td{background:#f8faff}
+.delbtn{background:#FFEBEE;border:none;color:#C62828;width:24px;height:24px;
+  border-radius:4px;cursor:pointer;font-size:.95rem;line-height:1}
+.tot-box{display:flex;justify-content:flex-end;margin:4px 0 12px}
+.tot-inner{min-width:260px}
+.trow{display:flex;justify-content:space-between;padding:5px 0;
+  font-size:.85rem;border-bottom:1px dashed var(--border)}
+.trow.grand{font-weight:700;font-size:.95rem;border-top:2px solid var(--navy);
+  border-bottom:none;padding-top:8px;margin-top:4px;color:var(--navy)}
+.trow .n{font-family:"Poppins",sans-serif}
+
+/* ══════════════════════════════════════
+   PREVIEW BAR
+══════════════════════════════════════ */
+#previewWrap{display:none}
+.pv-bar{background:var(--navy);padding:11px 24px;display:flex;gap:10px;
+  align-items:center;position:sticky;top:0;z-index:10}
+.pv-bar span{color:#fff;font-weight:600;font-size:.88rem;margin-right:8px}
+.pv-body{background:#dde3f0;padding:28px 0;min-height:100vh;
+  display:flex;justify-content:center;align-items:flex-start;overflow-x:auto}
+
+/* ══════════════════════════════════════
+   QUOTATION PAPER (SCREEN)
+   Uses flexbox column so footer always
+   stays at the BOTTOM of the page box.
+══════════════════════════════════════ */
+#qSheet{
+  background:#fff;
+  width:210mm;         /* A4 width */
+  min-height:297mm;    /* A4 height — forces full page */
+  box-shadow:0 4px 28px rgba(26,58,110,.2);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* HEADER — always at top */
+.qh{
+  background:var(--navy);color:#fff;
+  padding:15px 20px;
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  flex-shrink:0;
+}
+.qh-l h1{font-size:1.2rem;font-weight:700;font-family:"Poppins",sans-serif;
+  letter-spacing:.3px;margin-bottom:3px}
+.qh-l p{font-size:.65rem;color:rgba(255,255,255,.78);line-height:1.6}
+.qh-r{text-align:right;flex-shrink:0}
+.qh-r h2{font-size:1rem;font-weight:700;letter-spacing:4px;
+  font-family:"Poppins",sans-serif;text-transform:uppercase}
+.qh-r p{font-size:.68rem;color:rgba(255,255,255,.75);margin-top:4px;line-height:1.75}
+
+/* PARTY BAR */
+.qparty{
+  background:#F8F9FF;padding:11px 20px;
+  display:flex;justify-content:space-between;align-items:flex-start;gap:8px;
+  border-bottom:1.5px solid var(--border);flex-shrink:0;
+}
+.qp-l .lbl{font-size:.6rem;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.5px;font-weight:700}
+.qp-l .name{font-size:.95rem;font-weight:700;color:var(--navy);margin-top:2px}
+.qp-l .sub{font-size:.73rem;color:#555;margin-top:2px;line-height:1.5}
+.qp-r{text-align:right;flex-shrink:0}
+.qp-r .lbl{font-size:.6rem;color:var(--accent);text-transform:uppercase;
+  letter-spacing:.5px;font-weight:700}
+.qp-r .date{font-size:.9rem;font-weight:700;color:var(--navy);margin-top:2px}
+
+/* ITEMS SECTION — flex:1 makes it grow and push footer down */
+.q-items-wrap{
+  flex:1;               /* KEY: fills remaining vertical space */
+  display:flex;
+  flex-direction:column;
+}
+
+/* Items table */
+.qitems{width:100%;border-collapse:collapse;font-size:.78rem;table-layout:fixed}
+.qitems colgroup col:nth-child(1){width:5%}
+.qitems colgroup col:nth-child(2){width:25%}
+.qitems colgroup col:nth-child(3){width:11%}
+.qitems colgroup col:nth-child(4){width:7%}
+.qitems colgroup col:nth-child(5){width:11%}
+.qitems colgroup col:nth-child(6){width:9%}
+.qitems colgroup col:nth-child(7){width:12%}
+.qitems colgroup col:nth-child(8){width:14%}  /* widest — amount never clips */
+
+.qitems thead tr{background:var(--navy);color:#fff}
+.qitems th{padding:8px 6px;font-size:.63rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.2px;word-break:break-word}
+.qitems th.ac,.qitems td.ac{text-align:center}
+.qitems th.ar,.qitems td.ar{text-align:right}
+.qitems th.al,.qitems td.al{text-align:left}
+/* Right padding on amount column */
+.qitems th:last-child{padding-right:16px}
+.qitems td{padding:9px 6px;border-bottom:1px solid #E8EEF8;vertical-align:middle;
+  overflow:hidden;color:#1a1a2e}
+.qitems td:first-child{color:#888;font-weight:600}
+.qitems td.area-c{color:var(--accent);font-weight:500}
+.qitems td:last-child{
+  text-align:right;padding-right:16px;
+  font-weight:700;font-family:"Poppins",sans-serif;color:var(--navy)}
+.qitems tr:nth-child(even) td{background:#F6F8FF}
+.qitems .blank-row td{height:26px;border-bottom:1px solid #F0F3FB}
+
+/* TOTAL ROW — now a div above Amount in Words */
+.total-bar{
+  background:var(--navy);color:#fff;
+  display:flex;align-items:center;justify-content:flex-end;
+  gap:16px;padding:9px 16px 9px 12px;
+}
+.total-bar .tlabel{
+  font-size:.66rem;letter-spacing:2.5px;text-transform:uppercase;
+  color:rgba(255,255,255,.72);font-family:"DM Sans",sans-serif;font-weight:400;
+}
+.total-bar .tval{
+  font-family:"Poppins",sans-serif;font-weight:700;font-size:1rem;
+  letter-spacing:.3px;
+}
+/* tax rows above total bar */
+.tax-bar{
+  background:var(--navy);color:rgba(255,255,255,.8);
+  display:flex;align-items:center;justify-content:flex-end;
+  gap:16px;padding:5px 16px 5px 12px;font-size:.71rem;
+}
+.tax-bar .tlabel{color:rgba(255,255,255,.65);font-size:.68rem;letter-spacing:.5px}
+.tax-bar .tval{font-family:"Poppins",sans-serif;}
+
+/* FOOTER — always at bottom (flex pushes it down) */
+.qfooter-wrap{flex-shrink:0;margin-top:auto}
+.qadv{padding:8px 20px;background:#EEF2FF;font-size:.72rem;color:var(--navy);
+  border-top:1px solid #d8dff4;line-height:1.5}
+.qfooter-grid{display:grid;grid-template-columns:1fr 1fr;
+  border-top:2.5px solid var(--navy)}
+.qbank{padding:11px 20px;border-right:1px solid var(--border)}
+.qterms{padding:11px 20px}
+.qbank h4,.qterms h4{font-size:.68rem;color:var(--navy);font-weight:700;
+  text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;
+  border-bottom:1px solid var(--border);padding-bottom:3px}
+.qbank-row{display:flex;gap:6px;font-size:.72rem;margin-bottom:3px;line-height:1.4}
+.qbank-row .l{color:var(--accent);font-weight:700;min-width:44px}
+.qterms ul{padding-left:13px;font-size:.7rem;color:#444;line-height:1.9}
+.qsign{display:flex;justify-content:flex-end;padding:8px 20px 12px;background:#F8F9FF}
+.qsign-line{text-align:center;width:150px;border-top:1px solid var(--navy);
+  padding-top:4px;font-size:.68rem;color:#5C6BC0;line-height:1.9}
+
+/* ══════════════════════════════════════
+   PRINT STYLES
+   - @page sets exact A4 with margins
+   - header/footer repeat via thead/tfoot
+     display:table-header/footer-group
+   - BUT for single-page: we use
+     min-height on the items section to
+     push footer to bottom of page
+══════════════════════════════════════ */
+@media print{
+  @page{
+    size:A4 portrait;
+    margin:0;
+  }
+  *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+  html,body{margin:0;padding:0;background:#fff !important}
+  .builder,.pv-bar{display:none !important}
+  #previewWrap{display:block !important}
+  .pv-body{
+    background:#fff !important;padding:0 !important;margin:0 !important;
+    min-height:unset !important;display:block !important;overflow:visible !important;
+  }
+  #qSheet{
+    width:100% !important;
+    min-height:100vh !important;  /* fill the entire printed page */
+    box-shadow:none !important;
+    border-radius:0 !important;
+    page-break-inside:avoid;
+  }
+  .q-items-wrap{flex:1 !important}
+  .qfooter-wrap{margin-top:auto !important}
+  .qitems tr{page-break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════
+     BUILDER UI
+════════════════════════════════ -->
+<div class="builder" id="builderUI">
+  <div class="topbar">
+    <h2>VT Decor — Quotation Builder</h2>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline" onclick="window.close();setTimeout(function(){location.href='/decor/';},150)">← Back to VT Decor</button>
+      <button class="btn btn-success" onclick="saveAndPreview()">💾 Save &amp; Preview</button>
+      <button class="btn btn-primary" onclick="quickPrint()">🖨 Print</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Party Details</div>
+    <div class="fg-grid">
+      <div class="fg"><label>Performa No.</label><input type="text" id="q_pno" readonly></div>
+      <div class="fg"><label>Date</label><input type="date" id="q_date"></div>
+      <div class="fg"><label>Party Name *</label><input type="text" id="q_client" placeholder="Client name"></div>
+      <div class="fg"><label>Mobile *</label><input type="tel" id="q_mobile" placeholder="Phone number"></div>
+      <div class="fg full"><label>Address</label><textarea id="q_addr" rows="2" placeholder="Site / billing address"></textarea></div>
+      <div class="fg"><label>GSTIN (optional)</label><input type="text" id="q_gstin" placeholder="GST number"></div>
+      <div class="fg"><label>Created By</label><input type="text" id="q_by" readonly></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Items</div>
+    <div style="overflow-x:auto">
+      <table class="itbl">
+        <thead><tr>
+          <th>#</th><th>Description of Goods</th><th>Area / Design</th>
+          <th>Qty</th><th>MRP (Rs.)</th><th>Disc %</th>
+          <th>Disc Amt (Rs.)</th><th>Amount (Rs.)</th><th></th>
+        </tr></thead>
+        <tbody id="itemsBody"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-sm" style="background:var(--navy2);color:#fff" onclick="addRow()">+ Add Item</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Tax</div>
+    <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+      <div class="fg" style="min-width:110px"><label>CGST %</label><input type="number" id="q_cgst" value="0" min="0" oninput="calc()"></div>
+      <div class="fg" style="min-width:110px"><label>SGST %</label><input type="number" id="q_sgst" value="0" min="0" oninput="calc()"></div>
+    </div>
+    <div class="tot-box">
+      <div class="tot-inner">
+        <div class="trow"><span>Subtotal</span><span class="n" id="tSub">Rs.0</span></div>
+        <div class="trow"><span>CGST (<span id="tCp">0</span>%)</span><span class="n" id="tCgst">Rs.0</span></div>
+        <div class="trow"><span>SGST (<span id="tSp">0</span>%)</span><span class="n" id="tSgst">Rs.0</span></div>
+        <div class="trow grand"><span>Grand Total</span><span class="n" id="tGrand">Rs.0</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════
+     PREVIEW
+════════════════════════════════ -->
+<div id="previewWrap">
+  <div class="pv-bar">
+    <span>Quotation Preview</span>
+    <button class="btn btn-success" onclick="triggerPrint()">🖨 Print / Save PDF</button>
+    <button class="btn btn-outline" onclick="goBack()">← Edit</button>
+  </div>
+  <div class="pv-body">
+
+    <!-- Single A4 sheet — flex column keeps footer pinned to bottom -->
+    <div id="qSheet">
+
+      <!-- ██ HEADER ██ -->
+      <div class="qh">
+        <div class="qh-l">
+          <h1>VT Decor</h1>
+          <p id="qhInfo"></p>
+        </div>
+        <div class="qh-r">
+          <h2>Quotation</h2>
+          <p id="pvMeta"></p>
+        </div>
+      </div>
+
+      <!-- ██ PARTY ██ -->
+      <div class="qparty" id="pvParty"></div>
+
+      <!-- ██ ITEMS — flex:1 fills the middle space ██ -->
+      <div class="q-items-wrap">
+        <table class="qitems">
+          <colgroup>
+            <col><col><col><col><col><col><col><col>
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="ac">S.No</th>
+              <th class="al">Description of Goods</th>
+              <th class="ac">Area / Design</th>
+              <th class="ac">Qty</th>
+              <th class="ar">MRP (Rs.)</th>
+              <th class="ac">Disc %</th>
+              <th class="ar">Disc Amt (Rs.)</th>
+              <th class="ar" style="padding-right:16px">Amount (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody id="pvItems"></tbody>
+        </table>
+        <!-- Spacer: grows to push footer to page bottom -->
+        <div style="flex:1"></div>
+      </div>
+
+      <!-- ██ FOOTER — always at bottom ██ -->
+      <div class="qfooter-wrap">
+        <!-- Total row lives HERE — just above Amount in Words -->
+        <div id="pvTotals"></div>
+        <div class="qadv" id="pvAdv"></div>
+        <div class="qfooter-grid">
+          <div class="qbank">
+            <h4>Bank Details</h4>
+<div id="qBankRows"></div>
+          </div>
+          <div class="qterms">
+            <h4>Terms of Sale &amp; Comments</h4>
+<ul id="qTerms"></ul>
+          </div>
+        </div>
+        <div class="qsign">
+          <div class="qsign-line">For VT Decor<br><br><br>Authorised Signatory</div>
+        </div>
+      </div>
+
+    </div><!-- end #qSheet -->
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  VT Decor — Quotation v6.1
+//  - Footer always pinned to bottom (flex layout)
+//  - Amount column never clips (14% width + 16px right pad)
+//  - Blank space fills between items and footer
+// ═══════════════════════════════════════════════════
+
+var ROLE = '';
+var CFG = {};
+var rowCount = 0;
+
+function fmt(n){
+  n = parseFloat(n)||0;
+  return n.toLocaleString('en-IN',{minimumFractionDigits:n%1===0?0:2,maximumFractionDigits:2});
+}
+function R(n){ return 'Rs.'+fmt(n); }
+function esc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function nv(s){ return parseFloat(s)||0; }
+function today(){
+  var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function gas(action,payload){
+  return VT.ask('POST','/decor/rpc',{action:action,payload:payload||{}});
+}
+
+// ── Builder rows ──────────────────────────
+function addRow(){
+  rowCount++;
+  var tbody=document.getElementById('itemsBody');
+  var tr=document.createElement('tr');
+  tr.id='row_'+rowCount;
+  tr.innerHTML=
+    '<td>'+rowCount+'</td>'
+    +'<td><input type="text" placeholder="Product / description" class="d"></td>'
+    +'<td><input type="text" placeholder="Code / Design" class="a"></td>'
+    +'<td><input type="number" value="1" min="0" class="q" oninput="cr(this)"></td>'
+    +'<td><input type="number" value="0" min="0" class="m" oninput="cr(this)"></td>'
+    +'<td><input type="number" value="0" min="0" max="100" class="p" oninput="cr(this)"></td>'
+    +'<td><input type="number" value="0" min="0" class="da" oninput="cr(this)"></td>'
+    +'<td><input type="number" class="am" readonly style="background:#f5f7ff;font-weight:600" value="0"></td>'
+    +'<td><button type="button" class="delbtn" onclick="delRow(this)">×</button></td>';
+  tbody.appendChild(tr);
+  renum(); calc();
+}
+function delRow(btn){ btn.parentElement.parentElement.remove(); renum(); calc(); }
+function renum(){
+  var rows=document.querySelectorAll('#itemsBody tr');
+  rows.forEach(function(r,i){r.cells[0].textContent=i+1;});
+  rowCount=rows.length;
+}
+function cr(el){
+  var tr=el.parentElement.parentElement;
+  var qty=nv(tr.querySelector('.q').value);
+  var mrp=nv(tr.querySelector('.m').value);
+  var base=qty*mrp;
+  var dp=nv(tr.querySelector('.p').value);
+  var df=nv(tr.querySelector('.da').value);
+  if(dp>100){tr.querySelector('.p').value=100;dp=100;}
+  if(dp<0){tr.querySelector('.p').value=0;dp=0;}
+  var final=Math.max(0,base-(base*dp/100)-df);
+  tr.querySelector('.am').value=final%1===0?final:final.toFixed(2);
+  calc();
+}
+function calc(){
+  var sub=0;
+  document.querySelectorAll('#itemsBody tr').forEach(function(r){sub+=nv(r.querySelector('.am').value);});
+  var cp=nv(document.getElementById('q_cgst').value);
+  var sp=nv(document.getElementById('q_sgst').value);
+  var cg=sub*cp/100,sg=sub*sp/100;
+  document.getElementById('tSub').textContent=R(sub);
+  document.getElementById('tCp').textContent=cp;
+  document.getElementById('tSp').textContent=sp;
+  document.getElementById('tCgst').textContent=R(cg);
+  document.getElementById('tSgst').textContent=R(sg);
+  document.getElementById('tGrand').textContent=R(sub+cg+sg);
+}
+function getItems(){
+  var items=[];
+  document.querySelectorAll('#itemsBody tr').forEach(function(tr){
+    var desc=tr.querySelector('.d').value.trim();
+    if(desc) items.push({
+      desc:desc, area:tr.querySelector('.a').value.trim(),
+      qty:nv(tr.querySelector('.q').value), mrp:nv(tr.querySelector('.m').value),
+      disc:nv(tr.querySelector('.p').value), discAmt:nv(tr.querySelector('.da').value),
+      amt:nv(tr.querySelector('.am').value)
+    });
+  });
+  return items;
+}
+
+// ── Amount in words ───────────────────────
+function words(num){
+  num=Math.floor(num);
+  var o=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+    'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  var t=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function s(x){
+    if(x<20)return o[x];
+    if(x<100)return t[Math.floor(x/10)]+(x%10?' '+o[x%10]:'');
+    return o[Math.floor(x/100)]+' Hundred'+(x%100?' '+s(x%100):'');
+  }
+  if(num===0)return 'Zero Only';
+  var r='';
+  if(num>=10000000){r+=s(Math.floor(num/10000000))+' Crore ';num%=10000000;}
+  if(num>=100000)  {r+=s(Math.floor(num/100000))+' Lakh ';  num%=100000;}
+  if(num>=1000)    {r+=s(Math.floor(num/1000))+' Thousand ';num%=1000;}
+  if(num>0)          r+=s(num);
+  return r.trim()+' Only';
+}
+
+// ── Build preview ─────────────────────────
+function buildPreview(d){
+  var cp=nv(d.cgst_pct),sp=nv(d.sgst_pct);
+  var sub=d.items.reduce(function(s,i){return s+i.amt;},0);
+  var grand=sub+sub*cp/100+sub*sp/100;
+
+  // Header meta
+  document.getElementById('pvMeta').innerHTML=
+    'No: <b>'+esc(d.performa_no)+'</b><br>'
+    +'Date: <b>'+esc(d.date)+'</b><br>'
+    +'By: '+esc(d.created_by);
+
+  // Party
+  document.getElementById('pvParty').innerHTML=
+    '<div class="qp-l">'
+    +'<div class="lbl">Party Name</div>'
+    +'<div class="name">'+esc(d.client)+'</div>'
+    +(d.addr?'<div class="sub">'+esc(d.addr)+'</div>':'')
+    +(d.mobile?'<div class="sub">📞 '+esc(d.mobile)+'</div>':'')
+    +(d.gstin?'<div class="sub" style="color:var(--accent)">GSTIN: '+esc(d.gstin)+'</div>':'')
+    +'</div>'
+    +'<div class="qp-r">'
+    +'<div class="lbl">Date</div>'
+    +'<div class="date">'+esc(d.date)+'</div>'
+    +'</div>';
+
+  // Amount in words footer bar
+  document.getElementById('pvAdv').innerHTML=
+    '★ 80% Advance And 20% After Installation.&nbsp;&nbsp;'
+    +'<b>Amount in Words:</b> '+words(Math.round(grand));
+
+  // Item rows — NO blank rows added; the flex spacer handles the gap
+  var rows='';
+  d.items.forEach(function(it,i){
+    rows+=
+      '<tr>'
+      +'<td class="ac">'+(i+1)+'</td>'
+      +'<td class="al" style="font-weight:500">'+esc(it.desc)+'</td>'
+      +'<td class="ac area-c">'+esc(it.area||'—')+'</td>'
+      +'<td class="ac">'+it.qty+'</td>'
+      +'<td class="ar">'+fmt(it.mrp)+'</td>'
+      +'<td class="ac">'+(it.disc?it.disc+'%':'0%')+'</td>'
+      +'<td class="ar">'+fmt(it.discAmt)+'</td>'
+      +'<td class="ar" style="padding-right:16px">'+fmt(it.amt)+'</td>'
+      +'</tr>';
+  });
+  document.getElementById('pvItems').innerHTML=rows;
+
+  // Total / tax — rendered as divs, sit just above Amount in Words bar
+  var tots='';
+  if(cp>0) tots+=
+    '<div class="tax-bar">'
+    +'<span class="tlabel">CGST ('+cp+'%)</span>'
+    +'<span class="tval">'+R(sub*cp/100)+'</span>'
+    +'</div>';
+  if(sp>0) tots+=
+    '<div class="tax-bar">'
+    +'<span class="tlabel">SGST ('+sp+'%)</span>'
+    +'<span class="tval">'+R(sub*sp/100)+'</span>'
+    +'</div>';
+  tots+=
+    '<div class="total-bar">'
+    +'<span class="tlabel">Total</span>'
+    +'<span class="tval">'+R(grand)+'</span>'
+    +'</div>';
+  document.getElementById('pvTotals').innerHTML=tots;
+}
+
+// ── Save & Preview ────────────────────────
+function saveAndPreview(){
+  var client=(document.getElementById('q_client').value||'').trim();
+  var mobile=(document.getElementById('q_mobile').value||'').trim();
+  if(!client||!mobile){alert('Party name and mobile required');return;}
+  var items=getItems();
+  if(!items.length){alert('Add at least one item');return;}
+  var cp=nv(document.getElementById('q_cgst').value);
+  var sp=nv(document.getElementById('q_sgst').value);
+  var sub=items.reduce(function(s,i){return s+i.amt;},0);
+  var d={
+    performa_no:document.getElementById('q_pno').value,
+    created_by:ROLE,client:client,mobile:mobile,
+    addr:document.getElementById('q_addr').value,
+    gstin:document.getElementById('q_gstin').value,
+    date:document.getElementById('q_date').value,
+    subtotal:sub,cgst_pct:cp,sgst_pct:sp,
+    grand:sub+sub*cp/100+sub*sp/100,items:items
+  };
+  gas('saveQuotation',d)
+    .then(function(r){if(r&&r.ok&&r.performaNo){d.performa_no=r.performaNo;document.getElementById('q_pno').value=r.performaNo;}else if(r&&!r.ok){alert('Not saved: '+(r.msg||''));}buildPreview(d);showPreview();})
+    .catch(function(e){alert('Not saved: '+(e&&e.message||e));buildPreview(d);showPreview();});
+}
+function quickPrint(){
+  var items=getItems();
+  if(!items.length){alert('Add items first');return;}
+  var cp=nv(document.getElementById('q_cgst').value);
+  var sp=nv(document.getElementById('q_sgst').value);
+  var sub=items.reduce(function(s,i){return s+i.amt;},0);
+  var d={
+    performa_no:document.getElementById('q_pno').value,
+    created_by:ROLE,
+    client:(document.getElementById('q_client').value||'').trim()||'(Party Name)',
+    mobile:document.getElementById('q_mobile').value,
+    addr:document.getElementById('q_addr').value,
+    gstin:document.getElementById('q_gstin').value,
+    date:document.getElementById('q_date').value,
+    subtotal:sub,cgst_pct:cp,sgst_pct:sp,
+    grand:sub+sub*cp/100+sub*sp/100,items:items
+  };
+  buildPreview(d);showPreview();
+  setTimeout(function(){triggerPrint();},400);
+}
+function triggerPrint(){window.print();}
+function showPreview(){
+  document.getElementById('builderUI').style.display='none';
+  document.getElementById('previewWrap').style.display='block';
+  window.scrollTo(0,0);
+}
+function goBack(){
+  document.getElementById('builderUI').style.display='block';
+  document.getElementById('previewWrap').style.display='none';
+}
+
+// ── Init ──────────────────────────────────
+function escQ(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+VT.boot('decor', function(){
+  gas('getConfig',{}).then(function(cfg){
+    CFG=cfg;ROLE=cfg.role||'';
+    document.getElementById('q_by').value=ROLE;
+    document.getElementById('qhInfo').innerHTML=escQ(cfg.companyAddress)+'<br>'+escQ(cfg.companyContact);
+    document.getElementById('qBankRows').innerHTML=String(cfg.bankDetails||'').split('\n').filter(function(l){return l.trim();}).map(function(l){
+      var i=l.indexOf(':');var k=i>0?l.slice(0,i):'';var v=i>0?l.slice(i+1):l;
+      return '<div class="qbank-row"><span class="l">'+escQ(k.trim())+'</span><span>'+escQ(v.trim())+'</span></div>';}).join('');
+    document.getElementById('qTerms').innerHTML=String(cfg.quoteTerms||'').split('\n').filter(function(l){return l.trim();}).map(function(l){return '<li>'+escQ(l.trim())+'</li>';}).join('');
+  }).catch(function(){});
+  gas('getNextPerformaNo',{}).then(function(r){
+    document.getElementById('q_pno').value=(r&&r.ok&&r.next)?r.next:'VT-0001';
+  }).catch(function(){document.getElementById('q_pno').value='VT-0001';});
+});
+document.getElementById('q_date').value=today();
+addRow();addRow();addRow();
+</script>
+</body>
+</html>

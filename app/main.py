@@ -13,7 +13,7 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage, o2d_reports,
-               o2d_screens, payments, purchase, reconcile, roles, timeline, doc_numbers, whatsapp, daily_reports)
+               o2d_screens, payments, purchase, decor, attendance, reconcile, roles, timeline, doc_numbers, whatsapp, daily_reports)
 
 
 @asynccontextmanager
@@ -21,9 +21,11 @@ async def lifespan(app):
     auth.check_config()
     db.init_pool()
     scheduler = daily_reports.start_scheduler()   # 7:30 PM IST delivery reports (VT_SCHEDULER=off disables)
+    att_jobs = attendance.start_scheduler()       # WhatsApp retries every 5 min + the daily auto check-out
     yield
-    if scheduler:
-        scheduler.stop()
+    for s in (scheduler, att_jobs):
+        if s:
+            s.stop()
     db.close_pool()
 
 
@@ -39,7 +41,7 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' 
 # The Payments / Delegation / Purchase screens keep their original look, which uses Tailwind, Chart.js, jsPDF, SheetJS and
 # Font Awesome. The scripts are served from this app (static/vendor), so script-src stays "self"; only stylesheets and fonts
 # may come from the two CDNs that host Font Awesome and Google Fonts.
-MODULE_PATHS = ("/payments", "/delegation", "/purchase")
+MODULE_PATHS = ("/payments", "/delegation", "/purchase", "/decor", "/attendance")
 CSP_MODULE = ("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com "
               "https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com data:; "
               "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com; connect-src 'self'; frame-ancestors 'none'; "
@@ -62,7 +64,7 @@ async def security_headers(request, call_next):
     response.headers["Content-Security-Policy"] = (CSP_MODULE if path.startswith(MODULE_PATHS) else
                                                    CSP_INLINE if path.startswith("/sales") else CSP)
     if request.url.path.startswith(("/auth", "/admin", "/access", "/orders", "/lookups", "/people", "/links",
-                                    "/o2d", "/sales", "/payments", "/delegation", "/purchase")):
+                                    "/o2d", "/sales", "/payments", "/delegation", "/purchase", "/decor", "/attendance")):
         response.headers["Cache-Control"] = "no-store"
     elif request.url.path.endswith((".js", ".css")):
         # No build-time hashing on these files, so without this a browser can keep running JS/CSS from
@@ -259,7 +261,7 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        d.full_date AS order_received_date,
        o.order_via_key, c.channel_name AS order_via,
        o.submission_type_key, st.type_name AS submission_type,
-       o.delivery_status_key, ds.status_name AS delivery_status,
+       o.delivery_status_key, ds.status_name AS delivery_status, ds.dispatch_route, ds.amount_effect,
        o.ready_by_person_key, rp.full_name AS ready_by,
        o.colour_making_person_key, cp.full_name AS colour_making_by,
        o.delivered_by_person_key, dp.full_name AS delivered_by, dp.phone_number AS delivered_by_phone,
@@ -511,6 +513,8 @@ app.include_router(o2d_cartage.router)
 app.include_router(payments.router)
 app.include_router(delegation.router)
 app.include_router(purchase.router)
+app.include_router(decor.router)
+app.include_router(attendance.router)
 app.include_router(module_admin.router)
 app.include_router(whatsapp.router)
 app.include_router(daily_reports.router)

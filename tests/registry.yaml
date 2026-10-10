@@ -153,9 +153,27 @@ entries:
     tests:
       - tests/test_order_journey.py::test_godown_to_dispatch_journey
       - tests/test_order_journey.py::test_sent_to_the_company_behaves_like_godown_to_dispatch
-      - tests/test_order_journey.py::test_dispatch_for_shop_journey_uses_the_new_label_and_stays_off_godown_receiving
+      - tests/test_order_journey.py::test_statuses_that_stay_with_the_godown_reach_no_dispatch_screen
+      - tests/test_order_journey.py::test_dispatch_for_shop_journey_uses_the_new_label_and_closes_on_the_shop_screen
       - tests/test_order_journey.py::test_cancelled_goes_straight_to_shop_dispatch_ready_and_never_to_godown_receiving
+      - tests/test_order_journey.py::test_received_box_shows_to_every_user_of_the_screen_not_only_the_one_who_closed_it
       - tests/test_order_journey.py::test_admin_sees_the_same_lists_per_dispatch_screen
+      - tests/test_order_journey.py::test_old_open_orders_stay_on_the_shop_box_but_old_closed_ones_do_not
+  - id: CLIENT-FEEDBACK-1
+    what: Client feedback round - amount shown entered / 100, Goods Return subtracted (rows, totals, Excel, PDF), Dispatch for Shop on the Godown dashboard only, delivery-status settings, Under-processing card, cartage by receiving date, daily delivery reports, dates start as today
+    speed: slow
+    tests:
+      - tests/test_client_feedback.py::test_entered_amount_is_shown_divided_by_100_everywhere_but_the_form_keeps_what_was_entered
+      - tests/test_client_feedback.py::test_goods_return_is_subtracted_in_dashboards_exports_and_pdf_reports
+      - tests/test_client_feedback.py::test_dispatch_for_shop_is_offered_on_the_godown_dashboard_only_and_the_admin_can_change_that
+      - tests/test_client_feedback.py::test_delivery_status_settings_goes_to_and_amount_in_reports
+      - tests/test_client_feedback.py::test_under_processing_card_counts_and_filters_like_a_stage
+      - tests/test_client_feedback.py::test_cartage_follows_the_date_of_receiving_not_the_order_or_delivery_date
+      - tests/test_client_feedback.py::test_daily_delivery_reports_are_built_stored_listed_and_downloadable
+      - tests/test_client_feedback.py::test_scheduler_runs_the_day_once_after_7_30_pm_only
+      - tests/test_client_feedback_ui.py::test_godown_receiving_date_starts_as_today_and_shop_dispatch_second_box_is_received
+      - tests/test_client_feedback_ui.py::test_overview_under_processing_card_filters_the_board_and_the_shop_box_keeps_tracking
+      - tests/test_client_feedback_ui.py::test_purchase_dates_start_as_today
   - id: ADMIN-UI-1
     what: Admin portal in a real browser - bulk upload with inline fix, filters, export, undo, bulk members
     speed: slow
@@ -255,3 +273,31 @@ entries:
       - tests/test_modules.py::test_master_lists_are_managed_in_setup_and_protected_when_used
       - tests/test_modules.py::test_new_pages_and_module_tiles_follow_access
       - tests/test_modules.py::test_admin_overview_kpis
+  - id: DECOR-1
+    what: VT Decor - clients, stage payments (wallpaper 40/30/20/10 from Setup), items raise the contract, owner-only edits, challan photos, GP = received minus expenses, quotation numbering
+    speed: slow
+    tests: [tests/test_decor.py::test_decor_flow]
+  - id: DECOR-2
+    what: VT Decor - view-only access cannot save; product types, stages and settings are Setup lists
+    speed: fast
+    tests: [tests/test_decor.py::test_view_only_staff_cannot_save, tests/test_decor.py::test_decor_lists_are_set_up_in_setup]
+  - id: ATT-1
+    what: Attendance - late / half-day / absent rules read from Setup, weekly off, hours worked
+    speed: fast
+    tests: [tests/test_attendance.py::test_time_rules_follow_the_settings_not_the_code]
+  - id: ATT-2
+    what: Attendance - GPS check-in and check-out with photo, one record a day, WhatsApp sent once and only when set up, no-WhatsApp employees
+    speed: slow
+    tests: [tests/test_attendance.py::test_check_in_out_flow_with_location_photo_and_whatsapp]
+  - id: ATT-3
+    what: Attendance - the 8 PM auto check-out closes open days once and sends one summary
+    speed: slow
+    tests: [tests/test_attendance.py::test_auto_checkout_closes_open_days_once]
+  - id: ATT-4
+    what: Attendance - salary with sandwich rule, advances by month, PINs hashed with lockout and a pass for the salary view
+    speed: slow
+    tests: [tests/test_attendance.py::test_salary_sandwich_advances_and_pins]
+  - id: ATT-5
+    what: Attendance - monthly report, streaks, employee list, view-only owners, Setup places and the open-link switch
+    speed: slow
+    tests: [tests/test_attendance.py::test_reports_streaks_and_employee_list, tests/test_attendance.py::test_link_switch_and_setup_lists]

@@ -111,18 +111,20 @@ def run_if_due(now: datetime | None = None) -> bool:
 
 
 class Scheduler:
-    def __init__(self):
+    """A thread that calls `job()` every minute (and again after RETRY_AFTER_FAILURE_S when it raises)."""
+    def __init__(self, job=None, name="daily-reports"):
+        self._job = job or run_if_due
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name="daily-reports", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
 
     def _loop(self):
         wait = 30
         while not self._stop.wait(wait):
             wait = 60
             try:
-                run_if_due()
+                self._job()
             except Exception:
-                log.exception("Daily delivery report run failed - trying again in %s minutes", RETRY_AFTER_FAILURE_S // 60)
+                log.exception("Background job %s failed - trying again in %s minutes", self._thread.name, RETRY_AFTER_FAILURE_S // 60)
                 wait = RETRY_AFTER_FAILURE_S
 
     def start(self):

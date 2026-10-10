@@ -1157,6 +1157,8 @@
   function resetAddForm() {
     editingEntry = null;
     $('entryForm').reset();
+    // both dates start as today (IST); change them if the material or the bill is from another day
+    $('materialReceivedDate').value = $('invoiceDate').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     photoItems = [];
     currentPdfDoc = null;
     $('addSheetTitle').textContent = 'New Purchase Entry';

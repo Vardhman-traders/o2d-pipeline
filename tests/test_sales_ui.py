@@ -55,8 +55,9 @@ def base_url(migrated_db_url):
 
     port = _free_port()
     env = {**os.environ, "DATABASE_URL": migrated_db_url, "JWT_SECRET": "k" * 48}
+    log = open(os.environ["VT_TEST_SERVER_LOG"], "w") if os.environ.get("VT_TEST_SERVER_LOG") else subprocess.DEVNULL   # set it to see server errors
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
-                            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            cwd=ROOT, env=env, stdout=log, stderr=log)
     url = f"http://127.0.0.1:{port}"
     for _ in range(60):
         try:
@@ -118,8 +119,8 @@ def test_one_order_through_every_role_screen(base_url):
         godown.click("#godown_saveBtn")
         expect(godown.locator("#godown_completedBody")).to_contain_text(dc, timeout=8000)      # Under Processing
         expect(godown.locator("#godown_pendingBody")).not_to_contain_text(dc)                   # no longer Pending
-        shop.evaluate("refreshCurrent()")                                                       # the Shop's New Orders list refreshes
-        expect(shop.locator("#shop_ordersBody")).not_to_contain_text(dc, timeout=8000)          # it moved out of New Orders
+        shop.evaluate("refreshCurrent()")                                                       # the Shop's New Orders box keeps tracking it,
+        expect(shop.locator("#shop_ordersBody tr", has_text=dc)).to_contain_text("Delivered", timeout=8000)   # with the Godown status updated
 
         dispatch = page_for("godown_dispatch")
         expect(dispatch.locator("#dispatch_pendingBody")).to_contain_text(dc, timeout=8000)

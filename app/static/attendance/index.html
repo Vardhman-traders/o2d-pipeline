@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Vardhman Traders — Attendance</title>
+<script>window.VT_MODULE = 'attendance'; window.VT_PUBLIC_PAGE = true;</script>
+<script src="../modules/api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160deg,#e8edf8 0%,#f0f4ff 100%);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1rem 3rem}
+.card{background:#fff;border-radius:28px;box-shadow:0 12px 56px rgba(26,35,126,0.14);width:100%;max-width:390px;overflow:hidden}
+
+.hdr{background:linear-gradient(160deg,#0d1b5e 0%,#1a237e 45%,#283593 100%);padding:2rem 1.5rem 1.75rem;text-align:center;position:relative}
+.hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#1de9b6,#00acc1,#1de9b6);background-size:200% 100%;animation:shimmer 3s linear infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.logo-wrap{width:88px;height:88px;background:#fff;border-radius:18px;margin:0 auto 1rem;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(0,0,0,0.22);overflow:hidden;border:3px solid rgba(255,255,255,0.3)}
+.logo-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a237e,#3949ab);color:#fff;font-weight:900;font-size:1.6rem}
+.hdr-company{font-size:1.4rem;font-weight:900;color:#fff;line-height:1.2;margin-bottom:.15rem}
+.hdr-tagline{font-size:.68rem;color:rgba(255,255,255,0.55);font-weight:500;letter-spacing:.15em;text-transform:uppercase;margin-bottom:.9rem}
+.hdr-date{display:inline-flex;align-items:center;gap:.4rem;background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.2);border-radius:20px;padding:.32rem 1rem;font-size:.72rem;color:rgba(255,255,255,0.92);font-weight:500}
+
+.steps{display:flex;align-items:center;justify-content:center;gap:.35rem;padding:1.2rem 1.5rem .1rem}
+.sd{width:8px;height:8px;border-radius:50%;background:#e2e8f0;transition:all .3s}
+.sd.active{background:#1a237e;width:22px;border-radius:4px}
+.sd.done{background:#22c55e}
+
+.body{padding:1.25rem 1.5rem 1.5rem}
+.sec{display:none}.sec.on{display:block}
+.sec-title{font-size:1rem;font-weight:700;color:#1a1f36;margin-bottom:.22rem}
+.sec-hint{font-size:.76rem;color:#6b7280;margin-bottom:1.1rem;line-height:1.55}
+
+.checkout-banner{background:linear-gradient(135deg,#064e3b,#065f46);border-radius:16px;padding:1rem 1.1rem;margin-bottom:1rem;display:flex;align-items:center;gap:.85rem}
+.checkout-banner-icon{font-size:2rem;flex-shrink:0}
+.checkout-banner-title{font-size:.95rem;font-weight:800;color:#fff}
+.checkout-banner-sub{font-size:.72rem;color:rgba(255,255,255,.7);margin-top:.1rem}
+
+.checkin-info{background:#f0fdf4;border:2px solid #86efac;border-radius:14px;padding:.85rem 1.1rem;margin-bottom:1rem}
+.checkin-info-row{display:flex;justify-content:space-between;font-size:.8rem;padding:.2rem 0}
+.checkin-info-key{color:#6b7280;font-weight:600}
+.checkin-info-val{color:#1a1f36;font-weight:800}
+
+.loc-sites{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:1rem}
+.site-card{background:#f8faff;border:2px solid #e2e8f0;border-radius:14px;padding:.85rem .75rem;text-align:center;transition:all .25s}
+.site-card.active-site{border-color:#22c55e;background:#f0fdf4}
+.site-card.inactive-site{border-color:#e2e8f0;opacity:.55}
+.site-icon{font-size:1.7rem;margin-bottom:.3rem}
+.site-name{font-size:.8rem;font-weight:800;color:#1a1f36;margin-bottom:.15rem}
+.site-dist{font-size:.68rem;color:#6b7280;font-weight:500}
+.site-dist.ok{color:#15803d;font-weight:700}
+.site-dist.far{color:#b45309}
+
+.loc-row{display:flex;align-items:center;gap:.75rem;background:#f8faff;border:2px solid #e2e8f0;border-radius:16px;padding:.95rem 1.1rem;margin-bottom:.75rem;cursor:pointer;transition:all .2s;user-select:none}
+.loc-row:active{opacity:.82}
+.loc-row.detecting{border-color:#fbbf24;background:#fffbeb}
+.loc-row.ok{border-color:#22c55e;background:#f0fdf4;cursor:default}
+.loc-row.far{border-color:#f97316;background:#fff7ed}
+.loc-row.denied{border-color:#ef4444;background:#fef2f2}
+.loc-icon{font-size:1.5rem;flex-shrink:0}
+.loc-title{font-size:.85rem;font-weight:700;color:#1a1f36;line-height:1.25}
+.loc-sub{font-size:.68rem;color:#6b7280;margin-top:.1rem}
+
+.site-badge{display:none;align-items:center;gap:.5rem;background:linear-gradient(135deg,#0d1b5e,#1a237e);border-radius:10px;padding:.55rem .85rem;margin-bottom:.9rem}
+.site-badge.show{display:flex}
+.site-badge-icon{font-size:1.1rem}
+.site-badge-text{font-size:.8rem;font-weight:700;color:#fff}
+.site-badge-sub{font-size:.65rem;color:rgba(255,255,255,.65);margin-top:.05rem}
+
+.field-lbl{display:block;font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.38rem}
+.dropdown-wrap{position:relative;margin-bottom:1.1rem}
+.dropdown-wrap::after{content:'▼';position:absolute;right:1.1rem;top:50%;transform:translateY(-50%);font-size:.7rem;color:#6b7280;pointer-events:none}
+select{width:100%;padding:.88rem 2.5rem .88rem 1.1rem;border:2px solid #e2e8f0;border-radius:13px;font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;font-weight:600;color:#1a1f36;background:#fafbff;outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+select:focus{border-color:#1a237e;box-shadow:0 0 0 4px rgba(26,35,126,.09)}
+select option{font-weight:500}
+select:disabled{opacity:.6;cursor:wait}
+
+.name-card{background:linear-gradient(135deg,#f0f4ff,#e8edf8);border:2px solid #c7d2fe;border-radius:13px;padding:.9rem 1.1rem;margin-top:-.6rem;margin-bottom:1.1rem;display:none;align-items:center;gap:.75rem}
+.name-card.show{display:flex}
+.name-avatar{width:42px;height:42px;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:900;color:#fff;flex-shrink:0}
+.name-text{font-size:.95rem;font-weight:800;color:#1a1f36}
+.name-sub{font-size:.68rem;color:#6b7280;margin-top:.05rem}
+
+.selfie-box{border-radius:16px;padding:1.25rem;margin-bottom:1rem;text-align:center;color:#fff}
+.selfie-box.checkin-mode{background:linear-gradient(135deg,#1a237e,#3949ab)}
+.selfie-box.checkout-mode{background:linear-gradient(135deg,#064e3b,#065f46)}
+.selfie-box .big-icon{font-size:2.8rem;margin-bottom:.45rem}
+.selfie-box h3{font-size:.95rem;font-weight:800;margin-bottom:.25rem}
+.selfie-box p{font-size:.72rem;color:rgba(255,255,255,.72);line-height:1.6}
+
+.camera-btn-wrap{position:relative;width:100%;margin-bottom:1rem}
+.camera-btn-label{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.45rem;width:100%;padding:1.2rem;border:2.5px dashed #6366f1;border-radius:16px;background:#f5f3ff;cursor:pointer;transition:all .2s;text-align:center}
+.camera-btn-label.has-photo{border-style:solid;border-color:#22c55e;background:#f0fdf4}
+.camera-btn-label .btn-icon{font-size:2.4rem}
+.camera-btn-label .btn-title{font-size:.93rem;font-weight:800;color:#3730a3}
+.camera-btn-label.has-photo .btn-title{color:#15803d}
+.camera-btn-label .btn-sub{font-size:.7rem;color:#6b7280}
+#cameraInput{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer}
+
+.preview-wrap{display:none;margin-bottom:.75rem;border-radius:16px;overflow:hidden;position:relative}
+#photoPreview{width:100%;max-height:260px;object-fit:cover;display:block;border-radius:16px}
+.preview-badge{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.55);color:#fff;font-size:.68rem;font-weight:700;padding:.35rem .75rem;text-align:center}
+.retake-row{display:none;justify-content:center;margin-bottom:.75rem}
+.retake-link{background:none;border:none;color:#6366f1;font-family:'Plus Jakarta Sans',sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;text-decoration:underline;padding:.3rem}
+
+.alert{border-radius:12px;padding:.75rem 1rem;font-size:.77rem;font-weight:600;margin-bottom:.9rem;display:none;line-height:1.55;border:1.5px solid}
+.alert.show{display:block}
+.a-warn{background:#fff7ed;color:#c2410c;border-color:#fed7aa}
+.a-err{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+
+.btn-main{width:100%;padding:1rem;border:none;border-radius:14px;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;font-weight:800;cursor:pointer;letter-spacing:.02em;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:.5rem;box-shadow:0 4px 20px rgba(26,35,126,.3);margin-top:.1rem}
+.btn-main.checkin-btn{background:linear-gradient(135deg,#0d1b5e,#3949ab)}
+.btn-main.checkout-btn{background:linear-gradient(135deg,#064e3b,#065f46);box-shadow:0 4px 20px rgba(6,78,59,.3)}
+.btn-main:hover{transform:translateY(-1px)}
+.btn-main:active{transform:translateY(0)}
+.btn-main:disabled{background:#9ca3af;cursor:not-allowed;box-shadow:none;transform:none}
+
+/* ── SALARY SECTION ──────────────────────────────────────── */
+.salary-divider{height:1px;background:linear-gradient(90deg,transparent,#e2e8f0,transparent);margin:1.5rem 0 1.25rem}
+
+.salary-section{margin-bottom:.5rem}
+
+.sal-header-card{background:linear-gradient(135deg,#1a237e,#283593);border-radius:18px;padding:1.1rem 1.2rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:.85rem}
+.sal-header-left{display:flex;align-items:center;gap:.8rem}
+.sal-icon-box{width:42px;height:42px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0}
+.sal-header-title{font-size:1rem;font-weight:900;color:#fff}
+.sal-header-sub{font-size:.68rem;color:rgba(255,255,255,.65);margin-top:.1rem}
+.new-badge{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:.2rem .6rem;font-size:.65rem;font-weight:800;color:#fff;letter-spacing:.04em}
+
+.sal-loading{text-align:center;padding:1.5rem 1rem;color:#9ca3af;font-size:.82rem;font-weight:600}
+
+.sal-no-salary{background:#f8faff;border:2px solid #e2e8f0;border-radius:14px;padding:1.2rem;text-align:center;color:#9ca3af;font-size:.8rem;font-weight:600;line-height:1.6}
+
+.sal-month-pill{display:flex;align-items:center;justify-content:space-between;background:#f8faff;border:1.5px solid #e2e8f0;border-radius:12px;padding:.55rem .9rem;margin-bottom:.85rem}
+.sal-month-label{font-size:.72rem;color:#6b7280;font-weight:600}
+.sal-month-name{font-size:.82rem;font-weight:800;color:#1a1f36}
+
+.sal-stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:.55rem;margin-bottom:.85rem}
+.sal-stat-tile{border-radius:13px;padding:.75rem .85rem;border:1.5px solid;font-family:'Plus Jakarta Sans',sans-serif;text-align:left;width:100%;cursor:pointer;position:relative;transition:transform .15s,box-shadow .15s}
+.sal-stat-tile:active{transform:scale(.97)}
+.sal-stat-tile:focus-visible{outline:3px solid #1a237e;outline-offset:2px}
+.sal-stat-tile.green{background:#f0fdf4;border-color:#86efac}
+.sal-stat-tile.red{background:#fef2f2;border-color:#fecaca}
+.sal-stat-tile.amber{background:#fffbeb;border-color:#fde68a}
+.sal-stat-tile.purple{background:#faf5ff;border-color:#d8b4fe}
+.sal-stat-tile.green.open{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.sal-stat-tile.red.open{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.15)}
+.sal-stat-tile.amber.open{border-color:#d97706;box-shadow:0 0 0 3px rgba(217,119,6,.15)}
+.sal-stat-tile.purple.open{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.15)}
+.sal-stat-lbl{font-size:.62rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem}
+.sal-stat-val{font-size:1.3rem;font-weight:900}
+.sal-stat-tile.green .sal-stat-val{color:#166534}
+.sal-stat-tile.red .sal-stat-val{color:#dc2626}
+.sal-stat-tile.amber .sal-stat-val{color:#92400e}
+.sal-stat-tile.purple .sal-stat-val{color:#6d28d9}
+.sal-stat-note{font-size:.62rem;color:#9ca3af;margin-top:.15rem}
+.sal-stat-chev{position:absolute;top:.7rem;right:.75rem;font-size:.7rem;color:#9ca3af;transition:transform .2s}
+.sal-stat-tile.open .sal-stat-chev{transform:rotate(180deg)}
+.sal-tap-hint{font-size:.66rem;color:#9ca3af;font-weight:600;text-align:center;margin:-.45rem 0 .85rem}
+
+/* ── DAY LIST PANEL ──────────────────────────────────────── */
+.day-list-panel{border-radius:14px;border:1.5px solid;margin:-.3rem 0 .85rem;overflow:hidden;animation:dlOpen .2s ease-out}
+@keyframes dlOpen{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.day-list-panel{animation:none}.sal-stat-chev{transition:none}}
+.day-list-panel.green{border-color:#86efac;background:#f0fdf4}
+.day-list-panel.red{border-color:#fecaca;background:#fef2f2}
+.day-list-panel.amber{border-color:#fde68a;background:#fffbeb}
+.day-list-panel.purple{border-color:#d8b4fe;background:#faf5ff}
+.dl-head{display:flex;align-items:center;justify-content:space-between;padding:.6rem .9rem}
+.dl-title{font-size:.8rem;font-weight:800;color:#1a1f36}
+.dl-close{background:none;border:none;font-family:inherit;font-size:.72rem;font-weight:700;color:#6b7280;cursor:pointer;padding:.2rem .4rem;text-decoration:underline}
+.dl-list{background:#fff;max-height:260px;overflow-y:auto}
+.dl-row{display:flex;align-items:center;gap:.7rem;padding:.55rem .9rem;border-top:1px solid #f1f5f9}
+.dl-date{min-width:54px}
+.dl-date-num{font-size:.85rem;font-weight:900;color:#1a1f36;line-height:1.1}
+.dl-date-day{font-size:.62rem;color:#9ca3af;font-weight:700}
+.dl-info{flex:1;font-size:.72rem;color:#374151;font-weight:600;line-height:1.45}
+.dl-info .dl-auto{color:#9ca3af;font-weight:600}
+.dl-note{font-size:.68rem;color:#9ca3af;font-weight:600}
+.dl-empty{background:#fff;padding:1rem;text-align:center;font-size:.76rem;color:#6b7280;font-weight:600}
+
+.net-salary-card{background:linear-gradient(135deg,#0d1b5e,#1a237e);border-radius:16px;padding:1rem 1.2rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:.85rem}
+.net-left-label{font-size:.7rem;color:rgba(255,255,255,.6);font-weight:600;margin-bottom:.2rem}
+.net-amount{font-size:1.7rem;font-weight:900;color:#fff}
+.net-right{text-align:right}
+.net-days-label{font-size:.65rem;color:rgba(255,255,255,.55);margin-bottom:.1rem}
+.net-days-val{font-size:.95rem;font-weight:800;color:#fff}
+
+.advance-strip{background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:.7rem .9rem;margin-bottom:.85rem;display:flex;align-items:center;justify-content:space-between}
+.advance-strip-label{font-size:.75rem;font-weight:700;color:#92400e}
+.advance-strip-val{font-size:.9rem;font-weight:900;color:#c2410c}
+
+.breakdown-card{background:#f8faff;border:1.5px solid #e2e8f0;border-radius:14px;overflow:hidden;margin-bottom:.85rem}
+.bk-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem .9rem;border-bottom:1px solid #f0f4ff}
+.bk-row:last-child{border-bottom:none}
+.bk-row.sep{background:#f0f4ff;padding:.38rem .9rem}
+.bk-sep-lbl{font-size:.65rem;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.08em}
+.bk-lbl{font-size:.8rem;color:#374151}
+.bk-sub{font-size:.65rem;color:#9ca3af;margin-top:.08rem}
+.bk-val{font-size:.82rem;font-weight:800;color:#1a1f36;text-align:right}
+.bk-val.red{color:#dc2626}
+.bk-val.green{color:#15803d}
+.bk-val.amber{color:#c2410c}
+.bk-val.bold{font-size:.9rem}
+
+.sal-note{background:#f0f4ff;border:1.5px solid #c7d2fe;border-radius:12px;padding:.7rem .9rem;font-size:.72rem;color:#3730a3;font-weight:600;line-height:1.55;margin-bottom:.5rem}
+
+/* ── PIN LOCK ────────────────────────────────────────────── */
+.pin-lock-box{background:#f8faff;border:2px solid #c7d2fe;border-radius:16px;padding:1.4rem 1.2rem;text-align:center}
+.pin-lock-icon{font-size:2.5rem;margin-bottom:.5rem}
+.pin-lock-title{font-size:.95rem;font-weight:900;color:#1a1f36;margin-bottom:.2rem}
+.pin-lock-sub{font-size:.95rem;font-weight:900;color:#1a237e;margin-bottom:1rem;line-height:1.55}
+.pin-input-row{display:flex;gap:.5rem;justify-content:center;margin-bottom:.85rem}
+.pin-digit{width:48px;height:54px;border:2px solid #e2e8f0;border-radius:12px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;font-size:1.4rem;font-weight:900;color:#1a237e;background:#fff;outline:none;transition:border-color .2s}
+.pin-digit:focus{border-color:#1a237e;box-shadow:0 0 0 3px rgba(26,35,126,.1)}
+.pin-err{font-size:.75rem;color:#dc2626;font-weight:700;margin-bottom:.75rem;display:none}
+.pin-err.show{display:block}
+.pin-submit-btn{width:100%;padding:.85rem;border:none;border-radius:12px;background:linear-gradient(135deg,#1a237e,#3949ab);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:.95rem;font-weight:800;cursor:pointer;transition:all .2s}
+.pin-submit-btn:active{opacity:.85}
+.pin-unlocked-bar{display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:.5rem .85rem;margin-bottom:.85rem}
+.pin-unlocked-txt{font-size:.75rem;font-weight:700;color:#166534}
+.pin-lock-again{background:none;border:none;font-size:.72rem;color:#6b7280;font-weight:700;cursor:pointer;text-decoration:underline}
+
+/* ── DONE / ALREADY SCREENS ─────────────────────────────── */
+#doneScreen{display:none;text-align:center}
+.done-circle{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:2.8rem;margin:0 auto 1rem;animation:pop .5s cubic-bezier(.175,.885,.32,1.275) both}
+.done-circle.checkin{background:#f0fdf4;border:3px solid #86efac}
+.done-circle.checkout{background:#f0fdf4;border:3px solid #6ee7b7}
+@keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+.done-heading{font-size:1.3rem;font-weight:800;color:#1a1f36;margin-bottom:.2rem}
+.done-msg{font-size:.8rem;color:#6b7280;margin-bottom:1rem;line-height:1.55}
+.done-selfie{width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid #86efac;margin:0 auto .9rem;display:none}
+.done-card{background:#f8faff;border:1.5px solid #e2e8f0;border-radius:14px;padding:1rem 1.1rem;text-align:left}
+.done-row{display:flex;justify-content:space-between;align-items:center;padding:.46rem 0;border-bottom:1px solid #f0f4ff;font-size:.79rem}
+.done-row:last-child{border-bottom:none}
+.done-key{color:#6b7280;font-weight:500}
+.done-val{color:#1a1f36;font-weight:700;text-align:right;max-width:58%}
+.wa-pending{color:#b45309}
+.wa-ok{color:#15803d}
+
+#alreadyScreen{display:none;text-align:center}
+.already-circle{width:88px;height:88px;background:#fdf4ff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:2.8rem;margin:0 auto 1.1rem;border:3px solid #d8b4fe;animation:pop .5s cubic-bezier(.175,.885,.32,1.275) both}
+.already-heading{font-size:1.2rem;font-weight:800;color:#1a1f36;margin-bottom:.4rem}
+.already-msg{font-size:.82rem;color:#6b7280;line-height:1.65}
+
+.spin{display:inline-block;width:16px;height:16px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.footer{margin-top:1.2rem;text-align:center;font-size:.65rem;color:#9ca3af;font-weight:500}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="hdr">
+    <div class="logo-wrap"><div class="logo-fallback">VT</div></div>
+    <div class="hdr-company">Vardhman Traders</div>
+    <div class="hdr-tagline">Employee Attendance Portal</div>
+    <div class="hdr-date">📅 <span id="dateChip"></span></div>
+  </div>
+
+  <div class="steps">
+    <div class="sd active" id="d0"></div>
+    <div class="sd" id="d1"></div>
+    <div class="sd" id="d2"></div>
+  </div>
+
+  <div class="body">
+
+    <!-- STEP 1: NAME + LOCATION -->
+    <div class="sec on" id="s0">
+      <div class="sec-title" id="s0Title">👋 Mark Your Attendance</div>
+      <div class="sec-hint" id="s0Hint">Works for both Godown and Shop — we'll detect your location automatically</div>
+
+      <div class="checkout-banner" id="checkoutBanner" style="display:none">
+        <div class="checkout-banner-icon">🏁</div>
+        <div>
+          <div class="checkout-banner-title">Time to Check Out!</div>
+          <div class="checkout-banner-sub" id="checkoutBannerSub">You checked in earlier today</div>
+        </div>
+      </div>
+
+      <div class="checkin-info" id="checkinInfoBox" style="display:none">
+        <div class="checkin-info-row">
+          <span class="checkin-info-key">✅ Checked in at</span>
+          <span class="checkin-info-val" id="checkinInfoTime">—</span>
+        </div>
+        <div class="checkin-info-row">
+          <span class="checkin-info-key">📍 Location</span>
+          <span class="checkin-info-val" id="checkinInfoSite">—</span>
+        </div>
+      </div>
+
+      <div class="loc-sites">
+        <div class="site-card" id="siteGodown">
+          <div class="site-icon">🏭</div>
+          <div class="site-name">Godown</div>
+          <div class="site-dist" id="distGodown">Detecting…</div>
+        </div>
+        <div class="site-card" id="siteShop">
+          <div class="site-icon">🏪</div>
+          <div class="site-name">Shop</div>
+          <div class="site-dist" id="distShop">Detecting…</div>
+        </div>
+      </div>
+
+      <div class="loc-row detecting" id="locRow" onclick="detectLocation()">
+        <div class="loc-icon" id="locIco">⏳</div>
+        <div>
+          <div class="loc-title" id="locTitle">Detecting your location…</div>
+          <div class="loc-sub" id="locSub">Please wait</div>
+        </div>
+      </div>
+
+      <div class="site-badge" id="siteBadge">
+        <div class="site-badge-icon" id="badgeIcon">📍</div>
+        <div>
+          <div class="site-badge-text" id="badgeText"></div>
+          <div class="site-badge-sub" id="badgeSub"></div>
+        </div>
+      </div>
+
+      <div class="alert a-warn" id="alertBox"></div>
+
+      <label class="field-lbl">Select Your Name</label>
+      <div class="dropdown-wrap">
+        <select id="empSelect" onchange="onNameSelect()" disabled>
+          <option value="">⏳ Loading employees…</option>
+        </select>
+      </div>
+
+      <div class="name-card" id="nameCard">
+        <div class="name-avatar" id="nameAvatar"></div>
+        <div>
+          <div class="name-text" id="nameText"></div>
+          <div class="name-sub" id="nameSub">Vardhman Traders Employee</div>
+        </div>
+      </div>
+
+      <button class="btn-main checkin-btn" id="nextBtn" onclick="goStep2()" disabled>Continue →</button>
+
+      <!-- ── SALARY SECTION ─── -->
+      <div id="salarySection" style="display:none">
+        <div class="salary-divider"></div>
+        <div class="salary-section">
+
+          <div class="sal-header-card">
+            <div class="sal-header-left">
+              <div class="sal-icon-box">💰</div>
+              <div>
+                <div class="sal-header-title">Meri Salary</div>
+                <div class="sal-header-sub" id="salHeaderSub">PIN se unlock karo</div>
+              </div>
+            </div>
+            <div class="new-badge">🔐 PIN</div>
+          </div>
+
+          <div class="pin-lock-box" id="pinLockBox">
+            <div class="pin-lock-icon">🔒</div>
+            <div class="pin-lock-title">Salary dekhne ke liye PIN daalo</div>
+            <div class="pin-lock-sub">PIN nahi pata? 📞 Rahul se poochho</div>
+            <div class="pin-input-row">
+              <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p1" oninput="pinMove(this,'p2')">
+              <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p2" oninput="pinMove(this,'p3')" onkeydown="pinBack(event,this,'p1')">
+              <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p3" oninput="pinMove(this,'p4')" onkeydown="pinBack(event,this,'p2')">
+              <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p4" oninput="pinMove(this,null)"  onkeydown="pinBack(event,this,'p3')">
+            </div>
+            <div class="pin-err" id="pinErr">❌ Galat PIN hai! Dobara try karo.</div>
+            <button class="pin-submit-btn" onclick="submitPIN()">🔓 Salary Dekho</button>
+          </div>
+
+          <div id="salaryContent" style="display:none"></div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- STEP 2: SELFIE -->
+    <div class="sec" id="s1">
+      <div class="selfie-box checkin-mode" id="selfieBox">
+        <div class="big-icon" id="selfieIcon">🤳</div>
+        <h3 id="selfieTitle">Take Your Live Selfie</h3>
+        <p id="selfieHint">Tap the button below — your front camera will open.<br>Take a clear photo of your face.</p>
+      </div>
+
+      <div class="camera-btn-wrap">
+        <label class="camera-btn-label" id="cameraLabel" for="cameraInput">
+          <div class="btn-icon">📸</div>
+          <div class="btn-title">Tap Here to Open Camera</div>
+          <div class="btn-sub">Front camera opens automatically</div>
+        </label>
+        <input type="file" id="cameraInput" accept="image/*" capture="user" onchange="onPhotoTaken(event)">
+      </div>
+
+      <div class="preview-wrap" id="previewWrap">
+        <img id="photoPreview" alt="selfie">
+        <div class="preview-badge">📸 Vardhman Traders — <span id="stampText"></span></div>
+      </div>
+      <div class="retake-row" id="retakeRow">
+        <button class="retake-link" onclick="retakePhoto()">🔄 Retake Photo</button>
+      </div>
+
+      <div class="alert a-err" id="photoAlert"></div>
+      <button class="btn-main checkin-btn" id="submitBtn" onclick="submitAction()" disabled>✅ &nbsp;Submit</button>
+    </div>
+
+    <!-- DONE -->
+    <div id="doneScreen">
+      <div class="done-circle checkin" id="doneCircle">✅</div>
+      <div class="done-heading" id="doneHeading">Attendance Marked!</div>
+      <div class="done-msg" id="doneMsg"></div>
+      <img id="doneSelfie" class="done-selfie" alt="selfie">
+      <div class="done-card" id="doneCard"></div>
+    </div>
+
+    <!-- ALREADY -->
+    <div id="alreadyScreen">
+      <div class="already-circle" id="alreadyCircle">🔒</div>
+      <div class="already-heading" id="alreadyHeading">Already Marked Today!</div>
+      <div class="already-msg" id="alreadyMsg"></div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    Vardhman Traders &nbsp;·&nbsp; Attendance System &nbsp;·&nbsp; Godown & Shop
+    <br>
+    <span onclick="ownerLogin()" style="cursor:pointer;color:#6b7280;font-size:.62rem;font-weight:600;opacity:.45;padding:.4rem .7rem;display:inline-block;margin-top:.4rem;border:1px solid #e2e8f0;border-radius:8px">🔐 Owner Login</span>
+    <span id="homeLink" onclick="VT.home()" style="display:none;cursor:pointer;color:#1a237e;font-size:.7rem;font-weight:700;padding:.4rem .7rem;margin-top:.4rem;border:1px solid #c7d2fe;border-radius:8px;margin-left:.4rem">⌂ Home</span>
+  </div>
+</div>
+
+<script>
+var uLat=null,uLng=null,locationOk=false,photoB64=null,detectedSite='';
+var EMPLOYEES=[],isSubmitting=false,isCheckoutMode=false,todayStatus=null,selectedName='';
+var MAX_DIM=800,JPEG_QUALITY=0.62,SUBMIT_TIMEOUT_MS=18000;
+
+/* Salary tiles — din ki list */
+var SAL_DAY_LISTS=null, OPEN_DAY_KEY='';
+var DAY_LIST_META={
+  present:{title:'Present',  color:'green',  empty:'Is mahine abhi tak koi Present din nahi.'},
+  late:   {title:'Late',     color:'amber',  empty:'Is mahine koi Late din nahi 🎉'},
+  halfDay:{title:'Half Day', color:'purple', empty:'Is mahine koi Half Day nahi 🎉'},
+  absent: {title:'Absent',   color:'red',    empty:'Is mahine koi Absent din nahi 🎉'}
+};
+
+(function(){
+  var d=new Date();
+  document.getElementById('dateChip').textContent=d.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+})();
+
+window.onload=function(){
+  try{ if(sessionStorage.getItem('vt_token')) document.getElementById('homeLink').style.display='inline-block'; }catch(e){}
+  fetch('/attendance/public/status').then(function(r){return r.json();}).then(function(s){
+    if(s&&s.open===false&&!sessionStorage.getItem('vt_token')){ document.body.innerHTML='<div style="font-family:system-ui;padding:32px;max-width:420px;margin:40px auto;text-align:center"><h2>Sign in required</h2><p>Open the portal, sign in, and choose Attendance.</p><p><a href="/">Go to the portal</a></p></div>'; return; }
+    loadEmployees(); detectLocation();
+  }).catch(function(){ loadEmployees(); detectLocation(); });
+};
+
+function loadEmployees(){
+  VT.run
+    .withSuccessHandler(function(list){
+      EMPLOYEES=list||[];
+      var sel=document.getElementById('empSelect');
+      sel.innerHTML='<option value="">-- Tap to select your name --</option>';
+      for(var i=0;i<EMPLOYEES.length;i++){
+        var opt=document.createElement('option');
+        opt.value=EMPLOYEES[i].name;
+        opt.textContent=EMPLOYEES[i].name+' — '+EMPLOYEES[i].role;
+        sel.appendChild(opt);
+      }
+      sel.disabled=false;
+    })
+    .withFailureHandler(function(){
+      document.getElementById('empSelect').innerHTML='<option value="">⚠️ Could not load — reload page</option>';
+    })
+    .getEmployees();
+}
+
+function ownerLogin(){
+  window.location.href='/attendance/dashboard.html';
+}
+
+function dots(n){
+  for(var i=0;i<3;i++){
+    var el=document.getElementById('d'+i);
+    el.className='sd';
+    if(i===n) el.classList.add('active');
+    else if(i<n) el.classList.add('done');
+  }
+}
+function showSec(n){
+  ['s0','s1'].forEach(function(id,i){ document.getElementById(id).className='sec'+(i===n?' on':''); });
+  dots(n);
+}
+
+function detectLocation(){
+  setLoc('detecting','⏳','Detecting your location…','Checking Godown & Shop…');
+  locationOk=false; detectedSite='';
+  document.getElementById('siteBadge').className='site-badge';
+  document.getElementById('distGodown').textContent='Detecting…';
+  document.getElementById('distShop').textContent='Detecting…';
+  document.getElementById('siteGodown').className='site-card';
+  document.getElementById('siteShop').className='site-card';
+  checkNext();
+
+  if(!navigator.geolocation){ setLoc('denied','❌','GPS not supported','Use Chrome browser'); return; }
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos){
+      uLat=pos.coords.latitude; uLng=pos.coords.longitude;
+      VT.run
+        .withSuccessHandler(function(r){
+          if(r.distGodown!==undefined){
+            document.getElementById('distGodown').textContent=r.distGodown+'m away';
+            document.getElementById('distGodown').className='site-dist '+(r.distGodown<=100?'ok':'far');
+          }
+          if(r.distShop!==undefined){
+            document.getElementById('distShop').textContent=r.distShop+'m away';
+            document.getElementById('distShop').className='site-dist '+(r.distShop<=100?'ok':'far');
+          }
+          if(r.status==='ok'){
+            detectedSite=r.site;
+            if(r.site==='Godown'){
+              document.getElementById('distGodown').textContent=r.dist+'m — ✓ You\'re here';
+              document.getElementById('distGodown').className='site-dist ok';
+              document.getElementById('siteGodown').className='site-card active-site';
+              document.getElementById('siteShop').className='site-card inactive-site';
+            } else {
+              document.getElementById('distShop').textContent=r.dist+'m — ✓ You\'re here';
+              document.getElementById('distShop').className='site-dist ok';
+              document.getElementById('siteShop').className='site-card active-site';
+              document.getElementById('siteGodown').className='site-card inactive-site';
+            }
+            setLoc('ok','📍','Location verified ✓','Within '+r.dist+'m of '+r.site);
+            var si=r.site==='Godown'?'🏭':'🏪';
+            document.getElementById('badgeIcon').textContent=si;
+            document.getElementById('badgeText').textContent='At: '+r.site;
+            document.getElementById('badgeSub').textContent='You are '+r.dist+' metres from the '+r.site;
+            document.getElementById('siteBadge').className='site-badge show';
+            locationOk=true; checkNext();
+          } else {
+            setLoc('far','⚠️','Not at Godown or Shop','Tap here to retry');
+            showAlert('⚠️ You must be within '+(r.radius||40)+'m of Godown or Shop.\nGodown: '+r.distGodown+'m | Shop: '+r.distShop+'m');
+          }
+        })
+        .withFailureHandler(function(){ setLoc('denied','❌','Server error','Reload and try again'); })
+        .checkLocation(uLat,uLng);
+    },
+    function(){
+      setLoc('denied','🔒','Location denied — tap to retry','Allow location when browser asks');
+      showAlert('❌ Please allow location access. Tap above to retry.');
+    },
+    {enableHighAccuracy:true,timeout:12000,maximumAge:0}
+  );
+}
+
+function setLoc(cls,ico,title,sub){
+  var row=document.getElementById('locRow');
+  row.className='loc-row '+cls;
+  document.getElementById('locIco').textContent=ico;
+  document.getElementById('locTitle').textContent=title;
+  document.getElementById('locSub').textContent=sub;
+  row.onclick=cls==='ok'?null:detectLocation;
+}
+function showAlert(msg){ var a=document.getElementById('alertBox'); a.textContent=msg; a.className='alert a-warn show'; }
+
+function onNameSelect(){
+  var sel=document.getElementById('empSelect');
+  var name=sel.value;
+  var card=document.getElementById('nameCard');
+
+  if(name){
+    selectedName=name;
+    var words=name.split(' ');
+    var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
+    document.getElementById('nameAvatar').textContent=initials;
+    document.getElementById('nameText').textContent=name;
+    var role='';
+    for(var i=0;i<EMPLOYEES.length;i++){ if(EMPLOYEES[i].name===name){role=EMPLOYEES[i].role;break;} }
+    document.getElementById('nameSub').textContent=role||'Vardhman Traders Employee';
+    card.classList.add('show');
+
+    VT.run
+      .withSuccessHandler(function(status){
+        todayStatus=status;
+        applyModeUI(status);
+        checkNext();
+      })
+      .withFailureHandler(function(){ todayStatus=null; checkNext(); })
+      .getTodayStatus(name);
+
+    loadSalarySection(name);
+
+  } else {
+    selectedName='';
+    card.classList.remove('show');
+    resetToCheckinMode();
+    document.getElementById('salarySection').style.display='none';
+    checkNext();
+  }
+}
+
+function loadSalarySection(name){
+  var sec=document.getElementById('salarySection');
+  sec.style.display='block';
+  document.getElementById('salHeaderSub').textContent='PIN se unlock karo';
+  document.getElementById('pinLockBox').style.display='block';
+  document.getElementById('salaryContent').style.display='none';
+  document.getElementById('salaryContent').innerHTML='';
+  document.getElementById('pinErr').className='pin-err';
+  SAL_DAY_LISTS=null; OPEN_DAY_KEY='';
+  ['p1','p2','p3','p4'].forEach(function(id){ document.getElementById(id).value=''; });
+}
+
+/* ── PIN functions ─────────────────────────────────────── */
+function pinMove(el, nextId){
+  if(el.value.length === 1 && nextId){
+    document.getElementById(nextId).focus();
+  }
+  if(el.id==='p4' && el.value.length===1){
+    setTimeout(submitPIN, 120);
+  }
+}
+
+function pinBack(e, el, prevId){
+  if(e.key==='Backspace' && el.value==='' && prevId){
+    document.getElementById(prevId).focus();
+  }
+}
+
+function submitPIN(){
+  var pin = ['p1','p2','p3','p4'].map(function(id){ return document.getElementById(id).value; }).join('');
+  if(pin.length < 4){
+    document.getElementById('pinErr').textContent='❌ 4 digits ka PIN daalo!';
+    document.getElementById('pinErr').className='pin-err show';
+    return;
+  }
+  document.getElementById('pinErr').className='pin-err';
+
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='ok'){
+        document.getElementById('pinLockBox').style.display='none';
+        document.getElementById('salaryContent').style.display='block';
+        document.getElementById('salaryContent').innerHTML='<div class="sal-loading">⏳ Salary load ho rahi hai…</div>';
+        document.getElementById('salHeaderSub').textContent='Unlocked ✓';
+
+        var unlockedBar='<div class="pin-unlocked-bar"><span class="pin-unlocked-txt">🔓 Salary unlocked hai</span><button class="pin-lock-again" onclick="lockSalaryAgain()">🔒 Lock karo</button></div>';
+
+        VT.run
+          .withSuccessHandler(function(salData){
+            var content=document.getElementById('salaryContent');
+            content.innerHTML=unlockedBar;
+            renderSalaryCard(salData, true);
+          })
+          .withFailureHandler(function(){
+            document.getElementById('salaryContent').innerHTML=unlockedBar+'<div class="sal-no-salary">Salary load nahi ho saki. Dobara try karo.</div>';
+          })
+          .getEmployeeSalaryView(selectedName);
+
+      } else if(r.status==='wrong_pin'){
+        document.getElementById('pinErr').textContent='❌ Galat PIN hai! Dobara try karo.';
+        document.getElementById('pinErr').className='pin-err show';
+        ['p1','p2','p3','p4'].forEach(function(id){ document.getElementById(id).value=''; });
+        document.getElementById('p1').focus();
+
+      } else if(r.status==='no_pin'){
+        document.getElementById('pinErr').textContent='⚠️ Aapka PIN set nahi hai. Rahul se sampark karo.';
+        document.getElementById('pinErr').className='pin-err show';
+      } else {
+        document.getElementById('pinErr').textContent='❌ Kuch problem aayi. Dobara try karo.';
+        document.getElementById('pinErr').className='pin-err show';
+      }
+    })
+    .withFailureHandler(function(){
+      document.getElementById('pinErr').textContent='❌ Server se connect nahi ho saka. Dobara try karo.';
+      document.getElementById('pinErr').className='pin-err show';
+    })
+    .verifyEmployeePIN(selectedName, pin);
+}
+
+function lockSalaryAgain(){
+  document.getElementById('pinLockBox').style.display='block';
+  document.getElementById('salaryContent').style.display='none';
+  document.getElementById('salaryContent').innerHTML='';
+  document.getElementById('salHeaderSub').textContent='PIN se unlock karo';
+  SAL_DAY_LISTS=null; OPEN_DAY_KEY='';
+  ['p1','p2','p3','p4'].forEach(function(id){ document.getElementById(id).value=''; });
+  document.getElementById('pinErr').className='pin-err';
+}
+
+/* ── Clickable stat tile ──────────────────────────────── */
+function statTile(key, color, label, value, note){
+  return '<button type="button" class="sal-stat-tile '+color+'" id="tile-'+key+'" aria-expanded="false" aria-controls="dayListPanel" onclick="toggleDayList(\''+key+'\')">'
+    +'<span class="sal-stat-chev" aria-hidden="true">▼</span>'
+    +'<div class="sal-stat-lbl">'+label+'</div>'
+    +'<div class="sal-stat-val">'+value+'</div>'
+    +'<div class="sal-stat-note">'+note+'</div>'
+    +'</button>';
+}
+
+function toggleDayList(key){
+  var panel=document.getElementById('dayListPanel');
+  if(!panel) return;
+  var keys=['present','late','halfDay','absent'];
+
+  if(OPEN_DAY_KEY===key){
+    OPEN_DAY_KEY='';
+    panel.style.display='none';
+    panel.innerHTML='';
+  } else {
+    OPEN_DAY_KEY=key;
+    panel.innerHTML=buildDayListHtml(key);
+    panel.className='day-list-panel '+DAY_LIST_META[key].color;
+    panel.style.display='block';
+  }
+
+  keys.forEach(function(k){
+    var t=document.getElementById('tile-'+k);
+    if(!t) return;
+    var isOpen=(k===OPEN_DAY_KEY);
+    t.classList.toggle('open', isOpen);
+    t.setAttribute('aria-expanded', isOpen?'true':'false');
+  });
+}
+
+function buildDayListHtml(key){
+  var meta=DAY_LIST_META[key];
+  var list=(SAL_DAY_LISTS && SAL_DAY_LISTS[key]) ? SAL_DAY_LISTS[key] : null;
+  var html='<div class="dl-head">'
+    +'<div class="dl-title">'+meta.title+' ke din'+(list?' ('+list.length+')':'')+'</div>'
+    +'<button type="button" class="dl-close" onclick="toggleDayList(\''+key+'\')">Band karo</button>'
+    +'</div>';
+
+  if(!list){
+    return html+'<div class="dl-empty">Din ki list abhi available nahi hai. Page reload karke dobara PIN daalo.</div>';
+  }
+  if(!list.length){
+    return html+'<div class="dl-empty">'+meta.empty+'</div>';
+  }
+
+  html+='<div class="dl-list">';
+  for(var i=0;i<list.length;i++){
+    var d=list[i];
+    var info='';
+    if(d.inTime){
+      info='In '+esc(fmt12(d.inTime));
+      if(d.outTime){
+        info+=' &nbsp;·&nbsp; Out '+esc(fmt12(d.outTime));
+        if(d.autoOut) info+=' <span class="dl-auto">(auto)</span>';
+      }
+    }
+    var note=d.note?'<div class="dl-note">'+esc(d.note)+'</div>':'';
+    html+='<div class="dl-row">'
+      +'<div class="dl-date"><div class="dl-date-num">'+esc(d.label)+'</div><div class="dl-date-day">'+esc(d.dayName)+'</div></div>'
+      +'<div class="dl-info">'+(info||'')+note+'</div>'
+      +'</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function fmt12(hhmm){
+  if(!hhmm) return '';
+  var p=hhmm.toString().split(':');
+  var h=parseInt(p[0],10), m=parseInt(p[1],10);
+  if(isNaN(h)||isNaN(m)) return hhmm;
+  var ap=h>=12?'PM':'AM';
+  var h12=h%12; if(h12===0) h12=12;
+  return h12+':'+(m<10?'0':'')+m+' '+ap;
+}
+
+function esc(s){
+  return (s===null||s===undefined?'':s).toString().replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function renderSalaryCard(r, append){
+  var content=document.getElementById('salaryContent');
+  var subEl=document.getElementById('salHeaderSub');
+
+  if(r.status==='no_salary'){
+    subEl.textContent='Salary not set';
+    if(append) content.innerHTML += '<div class="sal-no-salary">💼 Aapki salary abhi set nahi ki gayi hai.<br>Malik se sampark karein.</div>';
+    else content.innerHTML='<div class="sal-no-salary">💼 Aapki salary abhi set nahi ki gayi hai.<br>Malik se sampark karein.</div>';
+    return;
+  }
+  if(r.status==='error'){
+    subEl.textContent='Error';
+    if(append) content.innerHTML += '<div class="sal-no-salary">⚠️ Kuch galat ho gaya. Baad mein try karein.</div>';
+    else content.innerHTML='<div class="sal-no-salary">⚠️ Kuch galat ho gaya. Baad mein try karein.</div>';
+    return;
+  }
+
+  SAL_DAY_LISTS=r.dayLists||null;
+  OPEN_DAY_KEY='';
+
+  subEl.textContent=r.monthName+' '+r.year+' ka hisaab';
+  var s=r.stats;
+  var html='';
+
+  html+='<div class="sal-month-pill">'
+    +'<span class="sal-month-label">Month</span>'
+    +'<span class="sal-month-name">'+r.monthName+' '+r.year+'</span>'
+    +'</div>';
+
+  html+='<div class="sal-stats-grid">'
+    +statTile('present','green', 'Present', s.present, 'On time')
+    +statTile('late',   'amber', 'Late',    s.late,    'No deduction')
+    +statTile('halfDay','purple','Half Day',s.halfDay, '−0.5 din')
+    +statTile('absent', 'red',   'Absent',  s.absent+(s.incomplete||0), '−1 din')
+    +'</div>';
+  html+='<div class="sal-tap-hint">👆 Kisi bhi box pe tap karo — us category ke din dikhenge</div>';
+  html+='<div id="dayListPanel" class="day-list-panel" role="region" aria-live="polite" style="display:none"></div>';
+
+  html+='<div class="net-salary-card">'
+    +'<div><div class="net-left-label">Abhi tak ki salary</div><div class="net-amount">₹'+fmt(r.netSalary)+'</div></div>'
+    +'<div class="net-right"><div class="net-days-label">Paid / Worked days</div><div class="net-days-val">'+r.paidDays+' / '+(r.workedDays||r.baseDays)+'</div></div>'
+    +'</div>';
+
+  if(r.totalAdvance>0){
+    html+='<div class="advance-strip">'
+      +'<div class="advance-strip-label">💸 Advance liya (is maheene)</div>'
+      +'<div class="advance-strip-val">−₹'+fmt(r.totalAdvance)+'</div>'
+      +'</div>';
+  }
+
+  html+='<div class="breakdown-card">'
+    +'<div class="bk-row sep"><div class="bk-sep-lbl">Salary Breakdown</div></div>'
+    +'<div class="bk-row"><div><div class="bk-lbl">Monthly gross salary</div></div><div class="bk-val">₹'+fmt(r.monthlySalary)+'</div></div>'
+    +'<div class="bk-row"><div><div class="bk-lbl">Per day rate</div><div class="bk-sub">₹'+fmt(r.monthlySalary)+' ÷ '+r.baseDays+' days</div></div><div class="bk-val">₹'+fmt(r.perDaySalary)+'</div></div>'
+    +'<div class="bk-row sep"><div class="bk-sep-lbl">Deductions</div></div>'
+    +'<div class="bk-row"><div><div class="bk-lbl">Absent ('+s.absent+' din)</div></div><div class="bk-val red">−₹'+fmt(Math.round(s.absent*r.perDaySalary))+'</div></div>'
+    +'<div class="bk-row"><div><div class="bk-lbl">Half day ('+s.halfDay+' × 0.5)</div></div><div class="bk-val red">−₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</div></div>';
+
+  if(r.totalAdvance>0){
+    var advList='';
+    for(var a=0;a<r.advances.length;a++){
+      advList+='<div class="bk-row"><div><div class="bk-lbl">Advance — '+esc(r.advances[a].date.substring(0,10))+'</div>'+(r.advances[a].note?'<div class="bk-sub">'+esc(r.advances[a].note)+'</div>':'')+'</div><div class="bk-val amber">−₹'+fmt(r.advances[a].amount)+'</div></div>';
+    }
+    html+=advList;
+  }
+
+  html+='<div class="bk-row"><div><div class="bk-lbl" style="font-weight:800">Net payable salary</div></div><div class="bk-val green bold">₹'+fmt(r.netSalary)+'</div></div>'
+    +'</div>';
+
+  html+='<div class="sal-note">ℹ️ Yeh abhi tak ki earned salary hai. Final amount Rahul se confirm karein.</div>';
+
+  if(append) content.innerHTML += html;
+  else content.innerHTML = html;
+}
+
+function fmt(n){
+  return Math.round(Number(n)).toLocaleString('en-IN');
+}
+
+function applyModeUI(status){
+  if(status&&status.checkedIn&&!status.checkedOut){
+    isCheckoutMode=true;
+    document.getElementById('checkoutBanner').style.display='flex';
+    document.getElementById('checkoutBannerSub').textContent='Checked in at '+status.checkInTime+' — ready to check out';
+    document.getElementById('checkinInfoBox').style.display='block';
+    document.getElementById('checkinInfoTime').textContent=status.checkInTime;
+    document.getElementById('checkinInfoSite').textContent=detectedSite||'—';
+    document.getElementById('s0Title').textContent='🏁 Check Out';
+    document.getElementById('s0Hint').textContent='You have already checked in today. Tap Continue to check out.';
+    var btn=document.getElementById('nextBtn');
+    btn.className='btn-main checkout-btn';
+    btn.textContent='Continue to Check Out →';
+  } else if(status&&status.checkedIn&&status.checkedOut){
+    isCheckoutMode=false;
+    showAlreadyCheckedOut(status);
+  } else {
+    resetToCheckinMode();
+  }
+}
+
+function resetToCheckinMode(){
+  isCheckoutMode=false;
+  document.getElementById('checkoutBanner').style.display='none';
+  document.getElementById('checkinInfoBox').style.display='none';
+  document.getElementById('s0Title').textContent='👋 Mark Your Attendance';
+  document.getElementById('s0Hint').textContent='Works for both Godown and Shop — we\'ll detect your location automatically';
+  var btn=document.getElementById('nextBtn');
+  btn.className='btn-main checkin-btn';
+  btn.textContent='Continue →';
+}
+
+function checkNext(){
+  var hasName=document.getElementById('empSelect').value!=='';
+  document.getElementById('nextBtn').disabled=!(locationOk&&hasName);
+}
+
+function goStep2(){
+  if(!locationOk||!selectedName) return;
+  if(isCheckoutMode){
+    document.getElementById('selfieBox').className='selfie-box checkout-mode';
+    document.getElementById('selfieIcon').textContent='🤳';
+    document.getElementById('selfieTitle').textContent='Check-Out Selfie';
+    document.getElementById('selfieHint').textContent='Take a selfie to confirm your check-out.\nMake sure your face is clearly visible.';
+    document.getElementById('submitBtn').className='btn-main checkout-btn';
+    document.getElementById('submitBtn').innerHTML='🏁 &nbsp;Confirm Check Out';
+  } else {
+    document.getElementById('selfieBox').className='selfie-box checkin-mode';
+    document.getElementById('selfieIcon').textContent='🤳';
+    document.getElementById('selfieTitle').textContent='Take Your Live Selfie';
+    document.getElementById('selfieHint').textContent='Tap the button below — your front camera will open.\nTake a clear photo of your face.';
+    document.getElementById('submitBtn').className='btn-main checkin-btn';
+    document.getElementById('submitBtn').innerHTML='✅ &nbsp;Submit Attendance';
+  }
+  showSec(1);
+}
+
+function onPhotoTaken(e){
+  var file=e.target.files[0];
+  if(!file) return;
+  document.getElementById('photoAlert').className='alert';
+  var lbl=document.getElementById('cameraLabel');
+  lbl.querySelector('.btn-icon').textContent='⏳';
+  lbl.querySelector('.btn-title').textContent='Compressing photo…';
+  lbl.querySelector('.btn-sub').textContent='Just a moment…';
+  if(file.size>25*1024*1024){
+    document.getElementById('photoAlert').textContent='❌ Photo too large. Lower camera quality and try again.';
+    document.getElementById('photoAlert').className='alert a-err show';
+    resetCameraLabel(); return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    compressImage(ev.target.result,MAX_DIM,JPEG_QUALITY,function(compressed){
+      photoB64=compressed;
+      document.getElementById('photoPreview').src=photoB64;
+      document.getElementById('previewWrap').style.display='block';
+      var now=new Date();
+      document.getElementById('stampText').textContent=now.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
+      document.getElementById('retakeRow').style.display='flex';
+      var lbl2=document.getElementById('cameraLabel');
+      lbl2.classList.add('has-photo');
+      lbl2.querySelector('.btn-icon').textContent='✅';
+      lbl2.querySelector('.btn-title').textContent='Photo Taken!';
+      lbl2.querySelector('.btn-sub').textContent='Tap "Retake" to change it';
+      document.getElementById('submitBtn').disabled=false;
+    },function(){
+      photoB64=ev.target.result;
+      document.getElementById('photoPreview').src=photoB64;
+      document.getElementById('previewWrap').style.display='block';
+      document.getElementById('retakeRow').style.display='flex';
+      document.getElementById('submitBtn').disabled=false;
+      resetCameraLabel();
+    });
+  };
+  reader.onerror=function(){
+    document.getElementById('photoAlert').textContent='❌ Could not read photo. Try again.';
+    document.getElementById('photoAlert').className='alert a-err show';
+    resetCameraLabel();
+  };
+  reader.readAsDataURL(file);
+}
+
+function compressImage(dataUrl,maxDim,quality,onDone,onFail){
+  try{
+    var img=new Image();
+    img.onload=function(){
+      try{
+        var w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){ if(w>=h){h=Math.round(h*(maxDim/w));w=maxDim;}else{w=Math.round(w*(maxDim/h));h=maxDim;} }
+        var canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        onDone(canvas.toDataURL('image/jpeg',quality));
+      }catch(err){onFail&&onFail();}
+    };
+    img.onerror=function(){onFail&&onFail();};
+    img.src=dataUrl;
+  }catch(err){onFail&&onFail();}
+}
+
+function resetCameraLabel(){
+  var lbl=document.getElementById('cameraLabel');
+  lbl.classList.remove('has-photo');
+  lbl.querySelector('.btn-icon').textContent='📸';
+  lbl.querySelector('.btn-title').textContent='Tap Here to Open Camera';
+  lbl.querySelector('.btn-sub').textContent='Front camera opens automatically';
+}
+
+function retakePhoto(){
+  photoB64=null;
+  document.getElementById('previewWrap').style.display='none';
+  document.getElementById('retakeRow').style.display='none';
+  document.getElementById('submitBtn').disabled=true;
+  document.getElementById('photoAlert').className='alert';
+  resetCameraLabel();
+  document.getElementById('cameraInput').value='';
+}
+
+function submitAction(){
+  if(!selectedName||!locationOk||!photoB64||isSubmitting) return;
+  isSubmitting=true;
+  document.getElementById('photoAlert').className='alert';
+  if(isCheckoutMode){ doCheckoutAttempt(selectedName,true); }
+  else { doCheckinAttempt(selectedName,true); }
+}
+
+/* ── WHATSAPP: background notify (turant) ───────────────── */
+function notifyWhatsApp(rowIndex, name){
+  if(!rowIndex||!name) return;
+  function setWA(text, cls){
+    var el=document.getElementById('waStatus');
+    if(!el) return;
+    el.textContent=text;
+    el.className=cls;
+  }
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r && (r.status==='sent' || r.status==='nothing')){
+        setWA('✅ Group mein bhej diya','wa-ok');
+      } else {
+        setWA('⏳ Thodi der mein pahunch jaayega','wa-pending');
+      }
+    })
+    .withFailureHandler(function(){
+      setWA('⏳ Thodi der mein pahunch jaayega','wa-pending');
+    })
+    .notifyAttendance(rowIndex, name);
+}
+
+function doCheckinAttempt(name,allowRetry){
+  var btn=document.getElementById('submitBtn');
+  btn.disabled=true; btn.innerHTML='<div class="spin"></div>&nbsp; Saving attendance…';
+  var timedOut=false;
+  var timer=setTimeout(function(){
+    timedOut=true;
+    if(allowRetry){ btn.innerHTML='<div class="spin"></div>&nbsp; Slow network — retrying…'; doCheckinAttempt(name,false); }
+    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
+  },SUBMIT_TIMEOUT_MS);
+  VT.run
+    .withSuccessHandler(function(r){
+      if(timedOut) return;
+      clearTimeout(timer); isSubmitting=false;
+      if(r.status==='ok'){
+        showCheckinSuccess(name,r.time,r.dist,r.site);
+        notifyWhatsApp(r.rowIndex, name);
+      }
+      else if(r.status==='already_marked'){
+        showAlreadyCheckin(name,r.time);
+        notifyWhatsApp(r.rowIndex, name);   // pehli try ka message pending ho toh bhej do
+      }
+      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
+      else{ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
+    })
+    .withFailureHandler(function(){
+      if(timedOut) return;
+      clearTimeout(timer); isSubmitting=false;
+      btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance';
+      showPhotoErr('❌ Could not reach server. Check internet and try again.');
+    })
+    .saveAttendance({name:name,lat:uLat,lng:uLng,photo:photoB64});
+}
+
+function doCheckoutAttempt(name,allowRetry){
+  var btn=document.getElementById('submitBtn');
+  btn.disabled=true; btn.innerHTML='<div class="spin"></div>&nbsp; Saving check-out…';
+  var timedOut=false;
+  var timer=setTimeout(function(){
+    timedOut=true;
+    if(allowRetry){ btn.innerHTML='<div class="spin"></div>&nbsp; Slow network — retrying…'; doCheckoutAttempt(name,false); }
+    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
+  },SUBMIT_TIMEOUT_MS);
+  VT.run
+    .withSuccessHandler(function(r){
+      if(timedOut) return;
+      clearTimeout(timer); isSubmitting=false;
+      if(r.status==='ok'){
+        showCheckoutSuccess(name,r.time,r.hoursWorked,r.checkInTime);
+        notifyWhatsApp(r.rowIndex, name);
+      }
+      else if(r.status==='already_checkout'){
+        showAlreadyCheckedOut2(name,r.time);
+        notifyWhatsApp(r.rowIndex, name);
+      }
+      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
+      else{ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
+    })
+    .withFailureHandler(function(){
+      if(timedOut) return;
+      clearTimeout(timer); isSubmitting=false;
+      btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out';
+      showPhotoErr('❌ Could not reach server. Check internet and try again.');
+    })
+    .saveCheckout({name:name,lat:uLat,lng:uLng,photo:photoB64});
+}
+
+function showPhotoErr(msg){ var a=document.getElementById('photoAlert'); a.textContent=msg; a.className='alert a-err show'; }
+
+function hideAll(){
+  document.querySelectorAll('.sec').forEach(function(s){s.className='sec';});
+  document.querySelector('.steps').style.visibility='hidden';
+}
+
+var WA_ROW_HTML='<span id="waStatus" class="wa-pending">⏳ Bhej rahe hain…</span>';
+
+function showCheckinSuccess(name,time,dist,site){
+  hideAll();
+  document.getElementById('doneScreen').style.display='block';
+  document.getElementById('doneCircle').className='done-circle checkin';
+  document.getElementById('doneCircle').textContent='✅';
+  document.getElementById('doneHeading').textContent='Checked In!';
+  document.getElementById('doneMsg').textContent='Thank you, '+name+'! Your attendance is marked at '+site+'.';
+  if(photoB64){var sp=document.getElementById('doneSelfie');sp.src=photoB64;sp.style.display='block';}
+  var now=new Date();
+  var siteIcon=site==='Godown'?'🏭':'🏪';
+  buildDoneCard([['👤 Name',name],['🕐 Check-in',time||now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})],['📅 Date',now.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})],[siteIcon+' Location',site],['📍 Distance',dist+'m'],['📸 Photo','Saved ✓'],['📲 WhatsApp',WA_ROW_HTML],['🏁 Check-out','Please check out before leaving']]);
+}
+
+function showCheckoutSuccess(name,time,hoursWorked,checkInTime){
+  hideAll();
+  document.getElementById('doneScreen').style.display='block';
+  document.getElementById('doneCircle').className='done-circle checkout';
+  document.getElementById('doneCircle').textContent='🏁';
+  document.getElementById('doneHeading').textContent='Checked Out!';
+  document.getElementById('doneMsg').textContent='Good work today, '+name+'! Have a safe journey home.';
+  if(photoB64){var sp=document.getElementById('doneSelfie');sp.src=photoB64;sp.style.display='block';}
+  var now=new Date();
+  buildDoneCard([['👤 Name',name],['🕐 Check-in',checkInTime||'—'],['🏁 Check-out',time||now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})],['⏱️ Hours Worked',hoursWorked||'—'],['📅 Date',now.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})],['📸 Photo','Saved ✓'],['📲 WhatsApp',WA_ROW_HTML]]);
+}
+
+function buildDoneCard(rows){
+  document.getElementById('doneCard').innerHTML=rows.map(function(r){
+    return '<div class="done-row"><span class="done-key">'+r[0]+'</span><span class="done-val">'+r[1]+'</span></div>';
+  }).join('');
+}
+
+function showAlreadyCheckin(name,markedTime){
+  hideAll();
+  document.getElementById('alreadyScreen').style.display='block';
+  document.getElementById('alreadyCircle').textContent='🔒';
+  document.getElementById('alreadyHeading').textContent='Already Checked In!';
+  document.getElementById('alreadyMsg').innerHTML='Hi <strong>'+name+'</strong>, your check-in was already marked today at <strong>'+markedTime+'</strong>.<br><br>Only 1 check-in per day is allowed.';
+}
+
+function showAlreadyCheckedOut(status){
+  hideAll();
+  document.getElementById('alreadyScreen').style.display='block';
+  document.getElementById('alreadyCircle').textContent='✅';
+  document.getElementById('alreadyHeading').textContent='Already Done for Today!';
+  document.getElementById('alreadyMsg').innerHTML='You have already checked in and checked out today.<br><br>Check-in: <strong>'+status.checkInTime+'</strong> &nbsp;|&nbsp; Check-out: <strong>'+status.checkOutTime+'</strong><br>Hours worked: <strong>'+(status.hoursWorked||'—')+'</strong>';
+}
+
+function showAlreadyCheckedOut2(name,time){
+  hideAll();
+  document.getElementById('alreadyScreen').style.display='block';
+  document.getElementById('alreadyCircle').textContent='✅';
+  document.getElementById('alreadyHeading').textContent='Already Checked Out!';
+  document.getElementById('alreadyMsg').innerHTML='Hi <strong>'+name+'</strong>, you already checked out today at <strong>'+time+'</strong>.';
+}
+</script>
+</body>
+</html>

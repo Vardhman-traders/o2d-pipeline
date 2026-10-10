@@ -69,7 +69,8 @@ def map_order(o: dict) -> dict:
         "deliveryStatusRaw": o["delivery_status"] or "",   # the stored name the routing rules use (deliveryStatus may be a label)
         "materialDeliveryDateTime": _iso_datetime(o["material_delivery_datetime"]),
         "dateOfReceiving": _iso_date(o["date_of_receiving"]), "paymentStatus": o["payment_status"] or "",
-        "amountReceived": _num(config.shown_amount(o["amount_received"])),   # shown value (entered / 100)
+        "amountReceived": _num(config.shown_amount(o["amount_received"], o.get("amount_effect"))),   # shown value (entered / 100, minus for a sales return)
+        "dispatchRoute": o.get("dispatch_route") or "",
         "amountReceivedRaw": _num(o["amount_received"]),                      # exactly as entered: what the edit forms start from
         "lastUpdatedAt": o["last_updated_at"].isoformat() if o.get("last_updated_at") else "",
         "deliveredByWhom": o["delivered_by"] or "",
@@ -175,21 +176,25 @@ def _has(v) -> bool:
 
 
 # ------------------------------------------------------------------ where an order shows (the order's journey)
-# 1. Logged by the shop            -> Shop "New orders" + Godown "Pending orders" (nothing else)
-# 2. Godown sets a delivery status -> leaves both; Godown "Under processing" until it is dispatched, and
-#       "Godown to Dispatch" / "Sent to the Company" / any other status  -> Godown Dispatch "Ready for dispatch"
-#       "Dispatch for Shop" (stored as Shop) or Cancelled                -> Shop Dispatch & Receiving "Ready for dispatch"
-# 3. Dispatch is filled in         -> leaves "Ready for dispatch" and Godown "Under processing"; "Awaiting receiving" on the same
-#       dispatch screen (Godown Dispatch orders are also Awaiting receiving on the Godown Receiving screen)
-# 4. Receiving date + payment set  -> leaves every "Awaiting receiving"; "Received" on the Godown Receiving screen
+# 1. Logged by the shop            -> Shop "New Orders" + Godown "Pending Orders". The Shop box is the tracker: the order stays there
+#       and its Godown status / Delivered by columns update as it moves on. It is also the only place a closed order stays visible
+#       (until 11 PM), see 5.
+# 2. Godown sets a delivery status -> leaves Godown "Pending Orders"; Godown "Under Processing" until it is dispatched, and the status's
+#       "Goes to" setting (Setup > Dropdown values > Delivery status) decides the dispatch screen:
+#       Godown Dispatch  (e.g. Godown to Dispatch, Sent to the Company) -> its "Ready for dispatch"
+#       Shop Dispatch & Receiving (Dispatch for Shop - stored as Shop - and Cancelled) -> its "Ready for dispatch"
+#       Stays with the godown (e.g. Processing, Delivery for NextDay) -> no dispatch screen
+# 3. Dispatch is filled in         -> Godown Dispatch order: "Awaiting receiving" on Godown Dispatch and on Godown Receiving
+#                                     Shop Dispatch & Receiving order: the receiving details are filled on the same screen
+# 4. Receiving date + payment set  -> the order is fully closed: leaves every "Awaiting receiving"; shows in "Received"
+#       (Godown Receiving for godown-side orders, Shop Dispatch & Receiving for shop-side ones)
+# 5. At 11 PM IST every dashboard resets: closed orders vanish from the screens (the data stays), open ones stay.
 # The rules below decide the lists from the order itself, so they hold for admin ("see everything") exactly as for each role.
-SHOP_SIDE = ("shop", "cancelled")
-
-
 def _side(o: dict) -> str | None:
-    """'shop' (Dispatch for Shop / Cancelled), 'godown' (any other status) or None (no status yet)."""
-    status = (o.get("deliveryStatusRaw") or "").strip().lower()
-    return "shop" if status in SHOP_SIDE else ("godown" if status else None)
+    """Where the order goes after the godown: 'shop' / 'godown' (a dispatch screen), 'stay' (stays with the godown) or None (no status yet)."""
+    if not (o.get("deliveryStatusRaw") or "").strip():
+        return None
+    return {"shop": "shop", "none": "stay"}.get(o.get("dispatchRoute"), "godown")
 
 
 def _is_cancelled_type(o: dict) -> bool:
@@ -212,16 +217,31 @@ def under_processing(o: dict) -> bool:
     return _side(o) is not None and not _delivered(o)
 
 
+def is_closed(o: dict) -> bool:
+    """Fully closed: delivered and received (an order typed Cancelled needs no action either)."""
+    return (_delivered(o) and _received(o)) or _is_cancelled_type(o)
+
+
 def ready_for_dispatch(o: dict, side: str | None) -> bool:
-    return not _delivered(o) and _side(o) is not None and (side is None or _side(o) == side)
+    """Godown Dispatch: not delivered yet. Shop Dispatch & Receiving: not fully closed (delivered with receiving still open stays, tagged)."""
+    s = _side(o)
+    if s not in ("shop", "godown") or (side is not None and s != side):
+        return False
+    return not _delivered(o) if s == "godown" else not is_closed(o)
 
 
-def awaiting_receiving_dispatch(o: dict, side: str | None) -> bool:
-    return _delivered(o) and not _received(o) and (side is None or _side(o) == side or (side == "godown" and _side(o) is None))
+def awaiting_receiving_dispatch(o: dict) -> bool:
+    """The Godown Dispatch screen's second box."""
+    return _delivered(o) and not _received(o) and _side(o) in ("godown", None)
 
 
 def awaiting_receiving_godown(o: dict) -> bool:
-    return _delivered(o) and not _received(o) and _side(o) in ("godown", None)
+    return _delivered(o) and not _received(o) and _side(o) != "shop"
+
+
+def received_shop(o: dict) -> bool:
+    """The Shop Dispatch & Receiving screen's "Received" box: closed, and not yet cleaned up at 11 PM."""
+    return _side(o) == "shop" and _delivered(o) and _received(o) and closed_since_cleanup(o)
 
 
 CLEANUP_AT = time(23, 0)
@@ -243,15 +263,28 @@ def closed_since_cleanup(o: dict, now: datetime | None = None) -> bool:
 
 
 def received_godown(o: dict) -> bool:
-    return _delivered(o) and _received(o) and _side(o) in ("godown", None) and closed_since_cleanup(o)
+    return _delivered(o) and _received(o) and _side(o) != "shop" and closed_since_cleanup(o)
+
+
+def _shop_box_orders(user) -> list[dict]:
+    """The Shop's own orders that are not fully closed or were closed since the last 11 PM - chosen in the database, so a long history
+    of closed orders can never push an old open one out of the list."""
+    from . import main
+    vis_sql, vis_params = roles.visibility(user)
+    open_or_recent = (f"((NOT {roles._CLOSED} AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled') OR {roles._SINCE_CLEANUP})")
+    with db.cursor() as cur:
+        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {open_or_recent} ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s",
+                    vis_params + [500])
+        return [map_order(r) for r in cur.fetchall()]
 
 
 # ------------------------------------------------------------------ read screens
 @router.get("/shop")
 def shop_screen(user=Depends(access.require_page("o2d_shop"))):
-    # "recentOrders" is the Shop's New orders list: every order the godown has not picked up yet
+    # "recentOrders" is the Shop's New Orders box: every order that is not fully closed, plus the ones closed since the last 11 PM
+    # (the status columns update as the order moves on; at 11 PM the closed ones drop off)
     return {"ok": True, "dropdowns": _dropdowns("shop"),
-            "recentOrders": [o for o in _orders(user) if awaiting_godown(o)], "dateWindow": dashboard_window()}
+            "recentOrders": [o for o in _shop_box_orders(user) if not is_closed(o) or closed_since_cleanup(o)], "dateWindow": dashboard_window()}
 
 
 @router.get("/godown")
@@ -271,9 +304,15 @@ def dispatch_screen(view_as: str | None = Query(default=None),
     side = {"shop_dispatch": "shop", "godown_dispatch": "godown"}.get(role)   # admin without "View as" sees both sides
     orders = _orders(user)
     pending = [o for o in orders if ready_for_dispatch(o, side)]
-    completed = [o for o in orders if awaiting_receiving_dispatch(o, side)]
+    for o in pending:
+        if _delivered(o):
+            o["stuckReason"] = "Receiving pending"      # shop side: dispatched, receiving details still to fill
+    # second box: Godown Dispatch -> "Awaiting receiving"; Shop Dispatch & Receiving -> "Received" (closed, until 11 PM)
+    completed = [o for o in orders if (awaiting_receiving_dispatch(o) if side == "godown" else received_shop(o) if side == "shop"
+                                       else awaiting_receiving_dispatch(o) or received_shop(o))]
     for o in completed:
-        o["stuckReason"] = "Receiving pending"
+        if not _received(o):
+            o["stuckReason"] = "Receiving pending"
     return {"ok": True, "dropdowns": _dropdowns(role), "pending": pending, "completed": completed,
             "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
 
@@ -297,6 +336,7 @@ def admin_orders(date_from: date | None = None, date_to: date | None = None,
 
 
 STAGES = ("Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled")
+UNDER_PROCESSING = "Under processing (godown)"   # not a stage: the Godown dashboard's Under Processing, selectable like one
 CARD_COLUMNS = ("sl_no, dc_inv_no, order_date, stage, created_by, amount_received, submission_type, channel, "
                 "shipping_location, detailed_remarks, delivery_status, payment_status, ready_by, colour_making_by, "
                 "delivered_by, cartage, material_delivery_datetime, date_of_receiving")
@@ -339,8 +379,15 @@ def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=5
             cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND v.stage = %s "
                         f"ORDER BY v.timestamp_created DESC LIMIT %s", params + [stage, per_stage])
             columns[stage] = [_card(r) for r in cur.fetchall()]
+        if chosen and UNDER_PROCESSING in chosen:       # the Under processing scorecard was clicked: its own column
+            cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND v.delivery_status IS NOT NULL "
+                        "AND v.material_delivery_datetime IS NULL ORDER BY v.timestamp_created DESC LIMIT %s", params + [per_stage])
+            columns[UNDER_PROCESSING] = [_card(r) for r in cur.fetchall()]
+    stages = [{"name": s, "count": counts.get(s, 0), "orders": columns.get(s, [])} for s in STAGES]
+    if chosen and UNDER_PROCESSING in chosen:
+        stages.append({"name": UNDER_PROCESSING, "count": under_processing_count, "orders": columns.get(UNDER_PROCESSING, [])})
     return {"ok": True, "total": sum(counts.values()), "selected": chosen or [], "underProcessing": under_processing_count,
-            "stages": [{"name": s, "count": counts.get(s, 0), "orders": columns.get(s, [])} for s in STAGES]}
+            "stages": stages}
 
 
 def _created_by_names() -> list[str]:
