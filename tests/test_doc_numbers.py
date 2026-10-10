@@ -32,8 +32,18 @@ D = date(2026, 10, 2)
 
 
 def test_series_and_financial_year():
-    assert dn.series_of(" challan ") == "Challan" and dn.series_of("INVOICE") == "Invoice"
-    assert dn.series_of("Cancelled") is None and dn.series_of(None) is None
+    class _Types:   # the admin setting: which submission types are numbered bills
+        series = {"challan": "challan", "invoice": "invoice", "send material": "challan", "cancelled": None}
+
+        def execute(self, sql, params=()):
+            self.name = params[0].strip().lower() if params else ""
+
+        def fetchone(self):
+            return {"bill_series": self.series[self.name]} if self.name in self.series else None
+    cur = _Types()
+    assert dn.series_of(cur, " challan ") == "Challan" and dn.series_of(cur, "INVOICE") == "Invoice"
+    assert dn.series_of(cur, "Send Material") == "Challan"          # any type can be set up as a bill series
+    assert dn.series_of(cur, "Cancelled") is None and dn.series_of(cur, "Unknown type") is None and dn.series_of(cur, None) is None
     assert dn.fy_label(date(2026, 3, 31)) == "2025-26" and dn.fy_label(date(2026, 4, 1)) == "2026-27"
     assert dn.fy_bounds(date(2026, 10, 2)) == (date(2026, 4, 1), date(2027, 3, 31))
 

@@ -485,7 +485,8 @@ def doc_gaps(user=Depends(ANY_VIEWER)):
     """Bill numbers nobody has punched: Challan per day (from 1), Invoice per financial year."""
     with db.cursor() as cur:
         out = doc_numbers.open_gaps(cur, today_ist())
-    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": _can_punch(user), **out}
+        series_types = doc_numbers.types_by_series(cur)
+    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": _can_punch(user), "seriesTypes": series_types, **out}
 
 
 def _can_punch(user) -> bool:
@@ -760,13 +761,17 @@ def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
 
 
 @router.get("/doc-check")
-def doc_check(doc_type: str, date_: date = Query(alias="date"), number: int = Query(ge=0),
+def doc_check(type_name: str, date_: date = Query(alias="date"), number: str = Query(max_length=50),
               user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
-    """Used by the order form while a number is typed: is it already taken, does it skip ahead of the series?"""
-    if doc_type not in ("Challan", "Invoice"):
-        return {"ok": True, "duplicate": False, "skipped": []}
+    """Used by the order form while a number is typed: which bill series is this submission type (if any), is the number digits,
+    already taken, or skipping ahead of the series?"""
     with db.cursor() as cur:
-        return {"ok": True, **doc_numbers.check_entry(cur, doc_type, date_, number)}
+        series = doc_numbers.series_of(cur, type_name)
+        if not series:
+            return {"ok": True, "series": None, "duplicate": False, "skipped": []}
+        if not number.strip().isdigit():
+            return {"ok": True, "series": series, "notDigits": True, "duplicate": False, "skipped": []}
+        return {"ok": True, "series": series, **doc_numbers.check_entry(cur, series, date_, int(number))}
 
 
 # ------------------------------------------------------------------ WhatsApp alert
