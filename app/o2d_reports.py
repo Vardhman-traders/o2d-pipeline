@@ -6,7 +6,7 @@ Same rule as the order screens decides which orders a person's report contains (
 the reports at all is the admin-set page access "o2d_reports".
 """
 import io
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
@@ -39,8 +39,8 @@ ORDER_COLS = [("Order date", "order_received_date", 22, "L"), ("DC / Inv No", "d
               ("Type", "submission_type", 22, "L"), ("Address", "shipping_location", 52, "L"),
               ("Remarks", "detailed_remarks", 62, "L")]
 _STATUS = "lower(btrim(COALESCE(ds.status_name, '')))"
-_SHOP = f"{_STATUS} = 'shop'"
-_GODOWN_SIDE = f"{_STATUS} NOT IN ('', 'shop', 'cancelled')"   # same split the two dispatch screens use
+_SHOP = "ds.dispatch_route = 'shop'"             # same split the two dispatch screens use: the status's "Goes to" setting
+_GODOWN_SIDE = "ds.dispatch_route = 'godown'"
 _AWAITING_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No", "dc_inv_no", 21, "L"), ("Address", "shipping_location", 58, "L"),
                   ("Delivered on", "material_delivery_datetime", 30, "L"), ("Delivered by", "delivered_by_full", 50, "L"),
                   ("Payment status", "payment_status", 28, "L"), ("Cartage (Rs)", "cartage", 24, "R")]
@@ -113,7 +113,7 @@ def _fmt(field: str, v) -> str:
 
 def _prepare(row: dict) -> dict:
     r = dict(row)
-    r["amount_received"] = config.shown_amount(row.get("amount_received"))   # the "entered / 100" display rule
+    r["amount_received"] = config.shown_amount(row.get("amount_received"), row.get("amount_effect"))   # entered / 100, minus for a sales return
     r["delivered_by_full"] = " - ".join(x for x in (row.get("delivered_by"), row.get("delivered_by_detail")) if x)
     return r
 

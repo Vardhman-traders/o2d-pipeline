@@ -22,6 +22,7 @@ MAX_BYTES = 8 * 1024 * 1024          # the screens shrink photos first; this onl
 MAX_PER_KIND = 5                     # photos per order and kind
 LINK_SECONDS = 600
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic"}
+PDF_MODULES = {"decor"}   # modules whose documents (challans) may also be a PDF
 # which O2D pages may attach / see each kind of photo
 UPLOAD_PAGES = {"dispatch": ("o2d_shop_dispatch", "o2d_godown_dispatch"),
                 "receiving": ("o2d_receiving", "o2d_shop_dispatch")}
@@ -135,11 +136,12 @@ def order_photos(sl_no: int, user=Depends(ANY_VIEWER)):
 # ------------------------------------------------------------------ generic files for the other modules
 # (Delegation task proofs, Purchase invoice photos, ...). Same storage, same signed links, but any module/record.
 def put_file(module: str, record_key: int, kind: str, user, data: bytes, content_type: str) -> int:
-    if content_type not in EXT:
-        raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image.")
+    ext = EXT.get(content_type) or ("pdf" if content_type == "application/pdf" and module in PDF_MODULES else None)
+    if not ext:
+        raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image." + (" (A PDF is also fine here.)" if module in PDF_MODULES else ""))
     if not data or len(data) > MAX_BYTES:
         raise HTTPException(413, "Photo is too large (8 MB maximum)." if data else "Empty photo.")
-    key = f"{module}/{record_key}/{uuid.uuid4().hex}.{EXT[content_type]}"
+    key = f"{module}/{record_key}/{uuid.uuid4().hex}.{ext}"
     storage().put_object(Bucket=_bucket(), Key=key, Body=data, ContentType=content_type)
     try:
         with db.cursor() as cur:

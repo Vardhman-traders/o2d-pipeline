@@ -61,6 +61,8 @@
   .ms-item input { width: auto; }
   .ms-search { margin-bottom: 8px; padding: 6px 8px; font-size: 13px; }
   .ms-clear { background: none; border: none; color: var(--blue-2); font-size: 12px; cursor: pointer; padding: 0 0 4px; text-align: left; }
+  #dispatch_completedTable .dispatch-recv-col { display: none; }
+  #dispatch_completedTable.shop-recv .dispatch-recv-col { display: table-cell; }
   .ov-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
   .ov-card { text-align: left; font: inherit; cursor: pointer; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-left: 4px solid var(--c, #999); border-radius: 12px; padding: 12px 14px; }
   .ov-card:hover { border-color: var(--c, var(--blue-2)); }
@@ -676,10 +678,10 @@
       </div>
 
       <div class="card accent-dispatch">
-        <h2>✅ Awaiting Receiving <span class="count" id="dispatch_completedCount">0</span></h2>
+        <h2>✅ <span id="dispatch_completedTitle">Awaiting Receiving</span> <span class="count" id="dispatch_completedCount">0</span></h2>
         <div class="table-scroll">
-          <table>
-            <thead><tr><th>Order Date</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th>Cartage</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
+          <table id="dispatch_completedTable">
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th>Cartage</th><th class="dispatch-recv-col">Received On</th><th class="dispatch-recv-col">Payment</th><th class="dispatch-recv-col">Amount</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
             <tbody id="dispatch_completedBody"></tbody>
           </table>
         </div>
@@ -1121,7 +1123,7 @@
   /* ================= OVERVIEW (admin) ================= */
   var STAGE_COLORS = {
     'Awaiting godown': '#c98a12', 'Awaiting dispatch': '#2563eb', 'Awaiting receiving': '#7c3aed',
-    'Closed': '#1f9d55', 'Cancelled': '#d8433f'
+    'Closed': '#1f9d55', 'Cancelled': '#d8433f', 'Under processing (godown)': '#7c3aed'
   };
 
   function el_(tag, props, text) {
@@ -1484,9 +1486,11 @@
           summaryEl.appendChild(card);
         });
         // the Godown dashboard's "Under Processing": a delivery status is set, not dispatched yet (information card, not a stage filter)
-        var upCard = el_('div', { class: 'ov-card', id: 'ov_underProcessing', style: '--c:#7c3aed;cursor:default', title: 'Orders the godown has sent on that are not dispatched yet (Godown dashboard: Under Processing)' });
+        var UP = 'Under processing (godown)';
+        var upCard = el_('button', { type: 'button', class: 'ov-card' + (chosen.indexOf(UP) !== -1 ? ' sel' : ''), id: 'ov_underProcessing', style: '--c:#7c3aed', title: 'Show only: orders the godown has sent on that are not dispatched yet (Godown dashboard: Under Processing)' });
         upCard.appendChild(el_('div', { class: 'n' }, String(data.underProcessing || 0)));
-        upCard.appendChild(el_('div', { class: 'l' }, 'Under processing (godown)'));
+        upCard.appendChild(el_('div', { class: 'l' }, UP));
+        upCard.onclick = function () { overviewPickStage(UP); };
         summaryEl.appendChild(upCard);
         summaryEl.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
 
@@ -1544,7 +1548,7 @@
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
         fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
         shopRenderOrders(data.recentOrders);
-        document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders: every order the godown has not picked up yet. It moves out as soon as the godown sets a delivery status. Use Search for older records.';
+        document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders tracks every order that is not fully closed, with its Godown status and Delivered by updating as it moves on. Orders that were fully closed stay until 11 PM, then drop off. Use Search for older records.';
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getShopData(CURRENT_TOKEN);
@@ -1838,9 +1842,15 @@
         fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
         fillSelect_('dispatch_deliveredByWhom', data.dropdowns.deliveredByWhom);
         fillSelect_('dispatch_paymentStatus', data.dropdowns.paymentStatus);
+        // Shop Dispatch & Receiving: the second box is "Received" (fully closed, until the 11 PM reset); Godown Dispatch: "Awaiting Receiving"
+        var shopSide = CURRENT_ROLE === 'shop_dispatch';
+        document.getElementById('dispatch_completedTitle').textContent = shopSide ? 'Received' : 'Awaiting Receiving';
+        document.getElementById('dispatch_completedTable').classList.toggle('shop-recv', shopSide);
         dispatchRenderPending(data.pending);
         var noteEl = document.getElementById('dispatch_dateWindowNote');
-        if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
+        if (noteEl) noteEl.textContent = shopSide
+          ? '📅 Ready for Dispatch lists every order that is not fully closed. Once the receiving details are filled in it moves to Received, which clears at 11 PM.'
+          : '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
         dispatchRenderCompleted(data.completed);
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
@@ -1858,7 +1868,7 @@
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td>' + (o.dcNo||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
-        '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td>' + statusPill(o.deliveryStatus) + stuckBadgeHtml_(o.stuckReason) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -1877,6 +1887,8 @@
         '<td>' + (o.dcNo||'') + '</td>' +
         '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + stuckBadgeHtml_(o.stuckReason) + '</td>' +
         '<td>' + (o.deliveredByWhom||'') + (o.deliveredByDetail ? ' <span style="color:var(--muted);">(' + o.deliveredByDetail + ')</span>' : '') + '</td><td>' + (o.cartage||'') + '</td>' +
+        '<td class="dispatch-recv-col">' + formatDateDisplay(o.dateOfReceiving) + '</td><td class="dispatch-recv-col">' + (o.paymentStatus||'') + '</td>' +
+        '<td class="dispatch-recv-col">' + formatAmount_(o.amountReceived) + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -2162,7 +2174,7 @@
     document.getElementById('receiving_editCard').style.display = 'block';
     document.getElementById('receiving_editingSlNo').textContent = '- ' + o.shippingLocation + ' (DC ' + o.dcNo + ')';
     document.getElementById('receivingEditForm').dataset.slNo = slNo;
-    setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || '');
+    setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || isoToday_());
     document.getElementById('receiving_paymentStatus').value = o.paymentStatus || '';
     document.getElementById('receiving_amountReceived').value = o.amountReceivedRaw || '';
     photoBoxInit_('receivingPhoto', '📷 Receiving photo');

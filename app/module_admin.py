@@ -4,6 +4,7 @@
   - the settings that used to be constants in the scripts (delegation scoring rules, first day of the week);
   - the KPI blocks the admin overview shows for each module.
 """
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -49,10 +50,31 @@ MASTERS: dict[str, dict[str, Any]] = {
               "role": "payment", "where": "party_kind = 'payment'", "defaults": {"party_kind": "payment"},
               "fields": [{"name": "company_key", "label": "Company", "type": "select", "source": "company", "required": True},
                          {"name": "txn_type_key", "label": "Offered for", "type": "select", "source": "txn_type", "blank": "Every type"}]},
+    "decor_type": {"label": "VT Decor - product types", "table": "dim_decor_product_type", "key": "type_key", "name": "type_name",
+                   "kind": "decor_type", "role": None, "where": "TRUE", "defaults": {},
+                   "fields": [{"name": "percent_stages", "label": "Each stage brings a share of the contract (like Wallpaper)", "type": "bool"}]},
+    "decor_stage": {"label": "VT Decor - stages of each product type", "table": "dim_decor_stage", "key": "stage_key", "name": "stage_name",
+                    "kind": "decor_stage", "role": None, "where": "TRUE", "defaults": {},
+                    "fields": [{"name": "product_type_key", "label": "Product type", "type": "select", "source": "decor_type", "required": True},
+                               {"name": "target_pct", "label": "Share of the contract, % (only for types that split by percentage)", "type": "number"}]},
+    "decor_expense_type": {"label": "VT Decor - expense types (suggestions)", "table": "dim_decor_expense_type", "key": "expense_type_key",
+                           "name": "expense_type_name", "kind": "decor_expense_type", "role": None, "where": "TRUE", "defaults": {}, "fields": []},
+    "att_location": {"label": "Attendance - work places (GPS spot)", "table": "dim_att_location", "key": "location_key", "name": "location_name",
+                     "kind": "att_location", "role": None, "where": "TRUE", "defaults": {},
+                     "fields": [{"name": "latitude", "label": "Latitude (e.g. 28.7004323)", "type": "decimal", "min": -90, "max": 90, "required": True},
+                                {"name": "longitude", "label": "Longitude (e.g. 77.1288457)", "type": "decimal", "min": -180, "max": 180, "required": True},
+                                {"name": "radius_m", "label": "Allowed distance in metres (check-in works within this)", "type": "number", "min": 5, "max": 5000},
+                                {"name": "icon", "label": "Icon shown in the WhatsApp message", "type": "text", "max": 8}]},
+    "att_employee": {"label": "Attendance - employees", "table": "dim_att_employee", "key": "employee_key", "name": "employee_name",
+                     "kind": "att_employee", "role": None, "where": "TRUE", "defaults": {},
+                     "fields": [{"name": "role_title", "label": "Designation", "type": "text", "max": 100},
+                                {"name": "is_active", "label": "Active (shown on the check-in page)", "type": "bool"},
+                                {"name": "skip_whatsapp", "label": "No WhatsApp message for this person's check-in / check-out", "type": "bool"}]},
     "vendor": {"label": "Vendors (purchase)", "table": "dim_party", "key": "party_key", "name": "party_name", "kind": "party",
                "role": "vendor", "where": "party_kind = 'vendor'", "defaults": {"party_kind": "vendor"}, "fields": []},
 }
-SOURCES = {"company": ("dim_company", "company_key", "company_name"), "txn_type": ("dim_txn_type", "txn_type_key", "type_name")}
+SOURCES = {"company": ("dim_company", "company_key", "company_name"), "txn_type": ("dim_txn_type", "txn_type_key", "type_name"),
+           "decor_type": ("dim_decor_product_type", "type_key", "type_name")}
 
 
 def _spec(master: str) -> dict:
@@ -147,6 +169,17 @@ def _values(spec, body: MasterIn, cur) -> dict:
                 v = int(v or 0)
             except (TypeError, ValueError):
                 raise HTTPException(422, f"{f['label']} must be a number.")
+            if not f.get("min", v) <= v <= f.get("max", v):
+                raise HTTPException(422, f"{f['label']} must be between {f['min']} and {f['max']}.")
+        elif f["type"] == "decimal":
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(422, f"{f['label']} must be a number.")
+            if not f.get("min", v) <= v <= f.get("max", v):
+                raise HTTPException(422, f"{f['label']} must be between {f['min']} and {f['max']}.")
+        elif f["type"] == "text":
+            v = " ".join(str(v or "").split())[: f.get("max", 100)] or None
         elif f["type"] == "select":
             allowed = {o[0] for o in (_options(cur, *SOURCES[f["source"]], blank=f.get("blank")) if f.get("source") else f["options"])}
             v = None if v in ("", None) else v
@@ -248,18 +281,79 @@ SETTINGS = [
     {"key": "deleg_revise_penalty", "group": "Delegation", "label": "Points taken each time a manager sends a task back", "default": -3, "min": -1000, "max": 0},
     {"key": "deleg_extend_penalty", "group": "Delegation", "label": "Points taken each time a missed deadline is moved", "default": -5, "min": -1000, "max": 0},
     {"key": "deleg_week_start_dow", "group": "Delegation", "label": "First day of the working week (0 = Sunday ... 6 = Saturday)", "default": 6, "min": 0, "max": 6},
+    {"key": "att_late_after", "group": "Attendance", "type": "time", "default": "10:30", "label": "Check-in at or after this time counts as Late"},
+    {"key": "att_half_day_checkin", "group": "Attendance", "type": "time", "default": "14:00", "label": "Check-in at or after this time counts as Half Day"},
+    {"key": "att_absent_before", "group": "Attendance", "type": "time", "default": "14:00", "label": "Check-out before this time makes the day Absent"},
+    {"key": "att_half_day_before", "group": "Attendance", "type": "time", "default": "17:00", "label": "Check-out before this time (but after the one above) makes it a Half Day"},
+    {"key": "att_full_day_until", "group": "Attendance", "type": "time", "default": "20:00", "label": "Check-out up to this time is a normal day (later is also a normal day)"},
+    {"key": "att_auto_checkout_time", "group": "Attendance", "type": "time", "default": "20:00", "label": "Time recorded for someone who forgot to check out"},
+    {"key": "att_auto_run_time", "group": "Attendance", "type": "time", "default": "21:00", "label": "The auto check-out is done each day after this time"},
+    {"key": "att_weekly_off_day", "group": "Attendance", "default": 1, "min": 0, "max": 6, "label": "Weekly off day (0 = Sunday ... 6 = Saturday; paid, not counted absent)"},
+    {"key": "att_salary_base_days", "group": "Attendance", "default": 30, "min": 20, "max": 31, "label": "Days a month's salary is divided by"},
+    {"key": "att_employee_link_on", "group": "Attendance", "default": 1, "min": 0, "max": 1, "label": "Check-in page open to anyone with the link (1) or only to people signed in to the portal (0)"},
+    {"key": "att_pin_max_attempts", "group": "Attendance", "default": 5, "min": 3, "max": 20, "label": "Wrong salary PINs allowed before the PIN is locked"},
+    {"key": "att_pin_lock_minutes", "group": "Attendance", "default": 15, "min": 1, "max": 1440, "label": "Minutes a locked PIN stays locked"},
+    {"key": "decor_statement_note", "group": "VT Decor", "type": "text", "max": 300,
+     "default": "Computer-generated statement. UPI: 9811354356 | Bank: City Union Bank | A/C: 512020010025966 | IFSC: CIUB0000244",
+     "label": "Line printed at the bottom of a client's PDF statement (e.g. your UPI / bank details)"},
+    {"key": "decor_company_address", "group": "VT Decor", "type": "text", "max": 200, "default": "Shop No.134-135 Shiva Market Pitampura, Delhi 110034",
+     "label": "Quotation header - address"},
+    {"key": "decor_company_contact", "group": "VT Decor", "type": "text", "max": 200,
+     "default": "M.NO: 9958179979, 9811354356  |  vt_decorpaints@yahoo.com", "label": "Quotation header - phone and email"},
+    {"key": "decor_bank_details", "group": "VT Decor", "type": "textarea", "max": 600,
+     "default": "Bank: City Union Bank, Sector-8, Rohini\nA/C No.: 512020010025966\nIFSC: CIUB0000244\nUPI: 9811354356 / E/6ED155H117@CUB",
+     "label": "Quotation bank details (one per line, as Label: value)"},
+    {"key": "decor_quote_terms", "group": "VT Decor", "type": "textarea", "max": 800,
+     "default": "Order once placed, no return, no exchange.\nPlease check product code & quantity before order.\nDelivery within 07 to 15 days.",
+     "label": "Quotation terms of sale (one per line)"},
 ]
+TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def setting_value(s: dict):
+    """The stored value of a setting in the type the screen shows it (int, decimal, time or text)."""
+    kind = s.get("type", "int")
+    raw = config.get(s["key"])
+    if raw is None or raw == "":
+        return s["default"]
+    if kind == "int":
+        return mc.int_setting(s["key"], s["default"])
+    if kind == "number":
+        try:
+            return float(raw)
+        except ValueError:
+            return s["default"]
+    return str(raw)
+
+
+def check_setting(s: dict, value):
+    """The value to store (as text) for a setting, or a plain 422 saying what is wrong."""
+    kind = s.get("type", "int")
+    if kind in ("int", "number"):
+        try:
+            v = int(value) if kind == "int" else float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(422, f"{s['label']} must be a number.")
+        if not s["min"] <= v <= s["max"]:
+            raise HTTPException(422, f"{s['label']} must be between {s['min']} and {s['max']}.")
+        return str(v)
+    v = str(value if value is not None else "").strip()
+    if kind == "time" and not TIME_RE.match(v):
+        raise HTTPException(422, f"{s['label']} must be a time like 20:00.")
+    if kind in ("text", "textarea") and len(v) > s.get("max", 300):
+        raise HTTPException(422, f"{s['label']} can be at most {s.get('max', 300)} characters.")
+    return v
 
 
 @router.get("/module-settings")
 def get_settings(admin=Depends(ADMIN)):
-    return [{**s, "value": mc.int_setting(s["key"], s["default"])} for s in SETTINGS]
+    return [{**s, "type": s.get("type", "int"), "value": setting_value(s)} for s in SETTINGS]
 
 
 class SettingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: str
-    value: int
+    value: int | float | str
 
 
 @router.put("/module-settings")
@@ -267,9 +361,8 @@ def put_setting(body: SettingIn, admin=Depends(ADMIN)):
     spec = next((s for s in SETTINGS if s["key"] == body.key), None)
     if not spec:
         raise HTTPException(422, "Unknown setting.")
-    if not spec["min"] <= body.value <= spec["max"]:
-        raise HTTPException(422, f"{spec['label']} must be between {spec['min']} and {spec['max']}.")
-    config.set_value(body.key, str(body.value), admin["username"])
+    stored = check_setting(spec, body.value)
+    config.set_value(body.key, stored, admin["username"])
     with db.cursor() as cur:
         audit(cur, admin, "module.setting", body.key, {"value": body.value})
     return {"ok": True}

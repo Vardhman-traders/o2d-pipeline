@@ -176,7 +176,7 @@ function formDialog({ title, fields, submitLabel = 'Save', onSubmit }) {
     } else if (f.type === 'password') {
       input = h('input', { type: 'text', autocomplete: 'off', value: f.value || '' });
     } else {
-      input = h('input', { type: f.type || 'text', value: f.value ?? '', autocomplete: 'off', maxlength: f.maxlength });
+      input = h('input', { type: f.type || 'text', value: f.value ?? '', autocomplete: 'off', maxlength: f.maxlength, step: f.step });
     }
     inputs[f.name] = input;
     const label = h('label', {}, f.label);

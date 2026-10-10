@@ -764,6 +764,9 @@
           if (!list.length) { sel.innerHTML = '<option value="">No staff added yet</option>'; return; }
           sel.innerHTML = '<option value="">-- Select Staff --</option>' +
             list.map(function (s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.name) + '</option>'; }).join('');
+          sel.selectedIndex = 1;   // the first staff member is pre-selected (the most used one); change it if needed
+          var due = document.getElementById('taskDueDate');
+          if (due && !due.value) due.value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });   // deadline starts as today
         })
         .withFailureHandler(onGenericError)
         .getAssignableStaff();
@@ -785,7 +788,7 @@
         .withSuccessHandler(function (msg) {
           showToast(msg);
           document.getElementById('taskDesc').value = '';
-          document.getElementById('taskDueDate').value = '';
+          document.getElementById('taskDueDate').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           loadDashboard();
         })
         .withFailureHandler(onGenericError)

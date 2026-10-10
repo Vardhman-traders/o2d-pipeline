@@ -30,6 +30,11 @@ WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturd
 # Extra single-choice settings on a lookup list's values: slug -> [(column, label, [(value, label)])]. Add one here (plus the column) and
 # Setup > Dropdown values shows it as a column and in Add / Edit.
 LOOKUP_FIELDS = {
+    "delivery-statuses": [
+        ("dispatch_route", "Goes to", [
+            ("godown", "Godown Dispatch - ready for dispatch"), ("shop", "Shop Dispatch & Receiving - ready for dispatch"),
+            ("none", "Stays with the godown (under processing, no dispatch screen)")]),
+        ("amount_effect", "Amount in reports", [("", "Normal - the amount is added"), ("subtract", "Sales return - the amount is subtracted")])],
     "submission-types": [("bill_series", "Bill number series", [
         ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
         ("invoice", "Invoice - one running series per financial year")])],
@@ -55,10 +60,14 @@ def display_label(kind: str, name: str | None) -> str | None:
 AMOUNT_RECEIVED_DIVISOR = 100
 
 
-def shown_amount(v):
-    """The amount as dashboards show it (None stays None)."""
+def shown_amount(v, effect=None):
+    """The amount as dashboards show it (None stays None): entered / 100, and negative for a sales return (delivery status whose
+    "Amount in reports" is "subtract", e.g. Goods Return). The admin views apply the same rule in SQL (migration 025)."""
     from decimal import Decimal
-    return None if v is None else (Decimal(str(v)) / AMOUNT_RECEIVED_DIVISOR).quantize(Decimal("0.01"))
+    if v is None:
+        return None
+    out = (Decimal(str(v)) / AMOUNT_RECEIVED_DIVISOR).quantize(Decimal("0.01"))
+    return -out if effect == "subtract" else out
 
 
 DELIVERED_BY_TERMS_KEY = "delivered_by_custom_terms"

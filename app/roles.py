@@ -58,6 +58,11 @@ def can_access(user, allowed_roles) -> bool:
 # st = dim_submission_type. %s is the user's user_key (repeated where needed).
 _OPEN = "(o.material_delivery_datetime IS NULL OR o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL)"
 _STATUS = "lower(btrim(ds.status_name))"
+# fully closed orders stay listed only until the 11 PM IST clean-up: closed (updated) after the most recent 11 PM
+_SINCE_CLEANUP = ("o.last_updated_at > ((date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') + interval '23 hours' - "
+                  "CASE WHEN (now() AT TIME ZONE 'Asia/Kolkata')::time >= time '23:00' THEN interval '0 hours' "
+                  "ELSE interval '1 day' END) AT TIME ZONE 'Asia/Kolkata')")
+_CLOSED = "(o.material_delivery_datetime IS NOT NULL AND o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL)"
 VISIBILITY = {
     # shop: only orders they created
     "shop": ("o.created_by_user_key = %s", 1),
@@ -66,16 +71,16 @@ VISIBILITY = {
     "godown": ("((o.delivery_status_key IS NULL AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled')"
                " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL)"
                " OR o.last_updated_by_user_key = %s)", 1),
-    # shop dispatch & receiving: 'Shop' ("Dispatch for Shop") and Cancelled orders that are not fully closed, plus ones they last touched
-    "shop_dispatch": (f"(({_STATUS} IN ('shop', 'cancelled') AND {_OPEN}) OR o.last_updated_by_user_key = %s)", 1),
-    # godown dispatch: non-'Shop', non-cancelled orders not fully closed, plus ones they last touched
-    "godown_dispatch": (f"(({_STATUS} IS NOT NULL AND {_STATUS} NOT IN ('shop', 'cancelled') AND {_OPEN})"
+    # shop dispatch & receiving: orders whose delivery status "goes to" the shop side (Dispatch for Shop, Cancelled) that are not fully
+    # closed, the ones closed since the last 11 PM clean-up (the "Received" box), plus ones they last touched
+    "shop_dispatch": (f"((ds.dispatch_route = 'shop' AND ({_OPEN} OR {_SINCE_CLEANUP})) OR o.last_updated_by_user_key = %s)", 1),
+    # godown dispatch: orders whose delivery status "goes to" Godown Dispatch, not fully closed, plus ones they last touched
+    "godown_dispatch": (f"((ds.dispatch_route = 'godown' AND {_OPEN})"
                         " OR o.last_updated_by_user_key = %s)", 1),
-    # receiving: delivered godown-side orders (not 'Shop', not Cancelled: those are received on the shop dispatch screen)
-    # still missing receiving details, plus ones they last touched
-    "receiving": (f"((o.material_delivery_datetime IS NOT NULL AND {_STATUS} IS DISTINCT FROM 'shop'"
-                  f" AND {_STATUS} IS DISTINCT FROM 'cancelled'"
-                  " AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL))"
+    # receiving: delivered godown-side orders (not the shop side: those are received on the shop dispatch screen) still missing
+    # receiving details or received since the last 11 PM clean-up (the "Received" box), plus ones they last touched
+    "receiving": ("((o.material_delivery_datetime IS NOT NULL AND ds.dispatch_route IS DISTINCT FROM 'shop'"
+                  f" AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL OR {_SINCE_CLEANUP}))"
                   " OR o.last_updated_by_user_key = %s)", 1),
     # admin: sees every order, and (per config.editable_fields_for_role) may edit any
     # field - a full super-user, same powers as every operating role combined.

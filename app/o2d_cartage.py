@@ -103,7 +103,7 @@ def _row(r: dict) -> dict:
             "readyBy": r["ready_by"] or "", "colourMakingBy": r["colour_making_by"] or "",
             "deliveryStatus": r["delivery_status"] or "", "deliveredOn": ist(r["material_delivery_datetime"]),
             "dateOfReceiving": _iso(r["date_of_receiving"]) or "", "paymentStatus": r["payment_status"] or "",
-            "amountReceived": _num(config.shown_amount(r["amount_received"])), "deliveredBy": r["delivered_by_full"],
+            "amountReceived": _num(config.shown_amount(r["amount_received"], r.get("amount_effect"))), "deliveredBy": r["delivered_by_full"],
             "deliveredByName": r["delivered_by"] or "", "cartage": _num(r["cartage"]),
             "lastUpdatedBy": r["last_updated_by"] or "", "lastUpdatedAt": ist(r["last_updated_at"]), "createdBy": r["created_by"] or ""}
 

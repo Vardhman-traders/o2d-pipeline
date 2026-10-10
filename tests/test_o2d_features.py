@@ -75,10 +75,10 @@ def test_porter_needs_details_and_other_people_clear_them(client, db_conn, seed)
     assert r["success"] is False and "details" in r["message"]
     r = client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json={**base, "deliveredByDetail": "  Ramesh   MH12 "}).json()
     assert r["success"] is True
-    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["completed"] if o["dcNo"] == "90101")
+    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == "90101")   # shop side: stays in Ready until received
     assert order["deliveredByWhom"] == "Porter" and order["deliveredByDetail"] == "Ramesh MH12"
     client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json={**base, "deliveredByWhom": "Amit", "deliveredByDetail": "ignored"})
-    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["completed"] if o["dcNo"] == "90101")
+    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == "90101")
     assert order["deliveredByWhom"] == "Amit" and order["deliveredByDetail"] == ""
 
 

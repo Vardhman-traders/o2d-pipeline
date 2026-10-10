@@ -153,7 +153,7 @@ def test_order_lifecycle_across_role_screens(client, db_conn, seed, monkeypatch)
     assert r["success"] is True
     p = client.get("/o2d/receiving", headers=rec).json()
     done = [o for o in p["completed"] if o["dcNo"] == dc]
-    assert done and done[0]["amountReceived"] == 1500 and done[0]["paymentStatus"] == "Paid"
+    assert done and done[0]["amountReceived"] == 15 and done[0]["amountReceivedRaw"] == 1500    # shown 15 (entered / 100) and done[0]["paymentStatus"] == "Paid"
 
 
 def test_alert_failure_never_fails_the_save(client, db_conn, seed, monkeypatch):

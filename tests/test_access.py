@@ -77,7 +77,7 @@ def test_role_matrix_and_person_exceptions(client, db_conn, seed):
     c1, c1_key = login(client, db_conn, "cashier")
     c2, _ = login(client, db_conn, "cashier")
     m = client.get("/admin/access/matrix", headers=admin).json()
-    assert "cashier" in m["roles"] and "admin" not in m["roles"] and len(m["pages"]) == 20
+    assert "cashier" in m["roles"] and "admin" not in m["roles"] and len(m["pages"]) == 24
 
     assert client.put("/admin/access/matrix", headers=admin,
                       json={"page_key": "dashboard_orders", "role": "cashier", "allowed": True}).status_code == 200

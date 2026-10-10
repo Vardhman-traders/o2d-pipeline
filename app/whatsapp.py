@@ -36,6 +36,28 @@ ALERTS: dict[str, dict] = {
                          "delivery_status": "Delivery status", "address": "Address", "remarks": "Remarks",
                          "delivered_by": "Delivered by"},
         "template": DISPATCH_TEMPLATE},
+    "att_checkin": {
+        "label": "Attendance - check-in message",
+        "when": "When an employee checks in (the attendance page), unless the employee is set to 'no WhatsApp' in Setup > Dropdown values > Attendance employees.",
+        "placeholders": {"icon": "Status colour dot", "name": "Employee", "time": "Check-in time (12-hour)", "status": "Present / Late / Half Day",
+                         "site_icon": "Place icon", "site": "Godown / Shop", "dist": "Distance, like ' (12m)'", "date": "Date (dd Mon yyyy)"},
+        "template": ("{icon} *CHECK-IN* — Vardhman Traders\n━━━━━━━━━━━━━━━━━━━━\n👤 *Naam:* {name}\n🕐 *Time:* {time}\n📊 *Status:* {status}\n"
+                     "{site_icon} *Location:* {site}{dist}\n📅 *Date:* {date}\n━━━━━━━━━━━━━━━━━━━━")},
+    "att_checkout": {
+        "label": "Attendance - check-out message",
+        "when": "When an employee checks out, or the owner checks someone out by hand.",
+        "placeholders": {"name": "Employee", "check_in": "Check-in time", "check_out": "Check-out time", "hours": "Hours worked",
+                         "final_status": "Present / Late / Half Day / Absent", "by_line": "'Checkout by: Owner (Manual)' line, empty otherwise",
+                         "date": "Date (dd Mon yyyy)"},
+        "template": ("🔴 *CHECK-OUT* — Vardhman Traders\n━━━━━━━━━━━━━━━━━━━━\n👤 *Naam:* {name}\n🕐 *Check-in:* {check_in}\n"
+                     "🏁 *Check-out:* {check_out}\n⏱️ *Hours:* {hours}\n📊 *Final Status:* {final_status}\n{by_line}📅 *Date:* {date}\n"
+                     "━━━━━━━━━━━━━━━━━━━━")},
+    "att_auto_summary": {
+        "label": "Attendance - auto check-out summary",
+        "when": "Once a day after the auto check-out runs: one message listing everyone who forgot to check out.",
+        "placeholders": {"auto_time": "The auto check-out time (12-hour)", "list": "Numbered list: name, check-in time, status", "date": "Date (dd Mon yyyy)"},
+        "template": ("🌙 *AUTO CHECK-OUT* — Vardhman Traders\n━━━━━━━━━━━━━━━━━━━━\nInhone checkout nahi kiya tha — system ne {auto_time} pe kar diya:\n\n"
+                     "{list}\n\n📅 {date}\n━━━━━━━━━━━━━━━━━━━━")},
     "delivery_day_summary": {
         "label": "Daily delivery summary (7:30 PM)",
         "when": "Every day at 7:30 PM IST, after the per-person delivery reports are built: one message listing each delivery person's orders.",
@@ -107,7 +129,10 @@ def send_text(key: str, text: str, post=_http_post, ignore_switch: bool = False)
         return {"skipped": True, "reason": "WhatsApp credentials not set."}
     if not settings["group_id"]:
         return {"skipped": True, "reason": "WhatsApp group not set."}
-    body = json.dumps({"recipientIds": [settings["group_id"]], "message": [text]}).encode()
+    payload = {"recipientIds": [settings["group_id"]], "message": [text]}
+    if os.environ.get("WHATSAPP_CHANNEL_ID", "").strip().isdigit():   # only when the account has more than one WhatsApp number
+        payload["channelId"] = int(os.environ["WHATSAPP_CHANNEL_ID"].strip())
+    body = json.dumps(payload).encode()
     headers = {"Content-Type": "application/json", **headers}
     code, reply = post(API_URL, body, headers)
     return {"code": code, "body": reply}

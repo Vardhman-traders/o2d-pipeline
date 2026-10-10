@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vardhman Traders — Owner Dashboard</title>
+<script>window.VT_MODULE = 'attendance_owner';</script>
+<script src="../modules/api.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160deg,#e8edf8 0%,#f0f4ff 100%);min-height:100vh;color:#1a1f36}
+
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem}
+.login-card{background:#fff;border-radius:24px;padding:2.5rem 2rem;max-width:400px;width:100%;box-shadow:0 12px 56px rgba(26,35,126,0.14);text-align:center}
+.login-logo{width:80px;height:80px;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:18px;margin:0 auto 1.2rem;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.8rem;box-shadow:0 4px 20px rgba(26,35,126,.3)}
+.login-title{font-size:1.4rem;font-weight:900;margin-bottom:.3rem}
+.login-sub{font-size:.85rem;color:#6b7280;margin-bottom:1.8rem}
+.master-hint{font-size:.72rem;color:#9ca3af;margin-bottom:1rem;background:#f8faff;border-radius:8px;padding:.5rem .8rem;border:1px solid #e2e8f0}
+.login-input{width:100%;padding:.95rem 1.1rem;border:2px solid #e2e8f0;border-radius:13px;font-family:'Plus Jakarta Sans',sans-serif;font-size:1rem;font-weight:600;background:#fafbff;outline:none;margin-bottom:.9rem}
+.login-input:focus{border-color:#1a237e}
+.login-err{color:#dc2626;font-size:.8rem;font-weight:600;margin-bottom:.7rem;display:none}
+.login-err.show{display:block}
+
+.btn{padding:.9rem 1.4rem;border:none;border-radius:13px;background:linear-gradient(135deg,#0d1b5e,#3949ab);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:.95rem;font-weight:800;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;justify-content:center;gap:.45rem;box-shadow:0 4px 20px rgba(26,35,126,.25)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 8px 26px rgba(26,35,126,.35)}
+.btn:disabled{background:#9ca3af;cursor:not-allowed;box-shadow:none;transform:none}
+.btn-full{width:100%}
+.btn-sm{padding:.55rem .9rem;font-size:.78rem;border-radius:10px;box-shadow:none}
+.btn-danger{background:linear-gradient(135deg,#dc2626,#b91c1c)}
+.btn-green{background:linear-gradient(135deg,#064e3b,#065f46)}
+.btn-purple{background:linear-gradient(135deg,#5b21b6,#7c3aed)}
+.btn-amber{background:linear-gradient(135deg,#b45309,#d97706)}
+.btn-ghost{background:#f3f4f6;color:#374151;box-shadow:none}
+.btn-ghost:hover{background:#e5e7eb;box-shadow:none;transform:none}
+
+.master-badge{display:inline-flex;align-items:center;gap:.35rem;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;border-radius:8px;padding:.3rem .7rem;font-size:.72rem;font-weight:800;margin-left:.5rem}
+
+.dash-wrap{display:none;max-width:1200px;margin:0 auto;padding:1.2rem}
+.top-bar{display:flex;align-items:center;justify-content:space-between;background:#fff;border-radius:18px;padding:.9rem 1.4rem;margin-bottom:1.1rem;box-shadow:0 6px 22px rgba(26,35,126,.08);flex-wrap:wrap;gap:.8rem}
+.brand{display:flex;align-items:center;gap:.85rem}
+.brand-logo{width:42px;height:42px;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:11px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1rem}
+.brand-name{font-size:1.05rem;font-weight:900}
+.brand-sub{font-size:.7rem;color:#6b7280;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+
+.tabs{display:flex;gap:.35rem;background:#f1f5f9;padding:.3rem;border-radius:12px;margin-bottom:1.2rem;flex-wrap:wrap}
+.tab{flex:1;min-width:90px;padding:.7rem .9rem;border:none;background:transparent;border-radius:9px;font-family:'Plus Jakarta Sans',sans-serif;font-size:.82rem;font-weight:700;color:#64748b;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:.4rem}
+.tab.active{background:#fff;color:#1a237e;box-shadow:0 2px 8px rgba(26,35,126,.08)}
+
+.view{display:none}.view.active{display:block}
+
+.card{background:#fff;border-radius:18px;padding:1.4rem;box-shadow:0 6px 22px rgba(26,35,126,.08);margin-bottom:1.1rem}
+.card-title{font-size:1rem;font-weight:800;margin-bottom:.2rem;display:flex;align-items:center;gap:.4rem}
+.card-sub{font-size:.78rem;color:#6b7280;margin-bottom:1rem}
+
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.7rem;margin-bottom:1.1rem}
+.stat{background:#fff;border-radius:14px;padding:1rem 1.1rem;box-shadow:0 4px 16px rgba(26,35,126,.06);border-left:4px solid #1a237e}
+.stat.green{border-left-color:#22c55e}.stat.amber{border-left-color:#f59e0b}
+.stat.red{border-left-color:#ef4444}.stat.purple{border-left-color:#8b5cf6}
+.stat.gray{border-left-color:#94a3b8}.stat.teal{border-left-color:#0d9488}
+.stat.orange{border-left-color:#f97316}
+.stat-val{font-size:1.5rem;font-weight:900;line-height:1.1}
+.stat-lbl{font-size:.68rem;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:.2rem}
+
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;padding:.6rem .8rem;font-size:.7rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;background:#f8faff;border-bottom:1px solid #e2e8f0;position:sticky;top:0}
+.tbl td{padding:.65rem .8rem;font-size:.82rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+.tbl tr:hover td{background:#f8faff}
+.tbl-wrap{max-height:520px;overflow-y:auto;border-radius:12px;border:1px solid #f1f5f9}
+
+.pill{display:inline-block;padding:.18rem .55rem;border-radius:6px;font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.pill.green{background:#dcfce7;color:#166534}.pill.amber{background:#fef3c7;color:#92400e}
+.pill.red{background:#fee2e2;color:#991b1b}.pill.purple{background:#ede9fe;color:#5b21b6}
+.pill.gray{background:#f1f5f9;color:#475569}.pill.teal{background:#ccfbf1;color:#0f766e}
+.pill.orange{background:#fff7ed;color:#c2410c}
+
+.search-row{display:flex;gap:.6rem;margin-bottom:1rem;flex-wrap:wrap}
+.search-box{flex:1;min-width:200px;position:relative}
+.search-box input{width:100%;padding:.75rem 1rem .75rem 2.4rem;border:2px solid #e2e8f0;border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:.9rem;font-weight:600;background:#fafbff;outline:none}
+.search-box input:focus{border-color:#1a237e}
+.search-box::before{content:'🔍';position:absolute;left:.85rem;top:50%;transform:translateY(-50%);font-size:.9rem;opacity:.6}
+
+.form-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:.6rem;margin-bottom:1rem}
+@media(max-width:600px){.form-grid{grid-template-columns:1fr}}
+.input{padding:.75rem 1rem;border:2px solid #e2e8f0;border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:.9rem;font-weight:600;background:#fafbff;outline:none;width:100%}
+.input:focus{border-color:#1a237e}
+
+/* ── SALARY TAB ─────────────────────────────────────────── */
+.sal-emp-row{display:flex;align-items:center;gap:1rem;background:#f8faff;border:1.5px solid #e2e8f0;border-radius:14px;padding:.9rem 1.1rem;margin-bottom:1rem}
+.sal-emp-avatar{width:44px;height:44px;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1rem;flex-shrink:0}
+.sal-emp-name{font-size:.95rem;font-weight:800;color:#1a1f36}
+.sal-emp-role{font-size:.72rem;color:#6b7280;margin-top:.05rem}
+.sal-emp-salary{margin-left:auto;text-align:right}
+.sal-emp-salary-val{font-size:1.1rem;font-weight:900;color:#1a237e}
+.sal-emp-salary-lbl{font-size:.65rem;color:#9ca3af}
+.sal-emp-salary.not-set .sal-emp-salary-val{color:#dc2626;font-size:.82rem}
+
+.sal-set-card{background:linear-gradient(135deg,#f0f4ff,#e8edf8);border:2px solid #c7d2fe;border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1rem}
+.sal-set-title{font-size:.88rem;font-weight:800;color:#1a237e;margin-bottom:.3rem}
+.sal-set-sub{font-size:.72rem;color:#6b7280;margin-bottom:1rem;line-height:1.55}
+.sal-set-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:.6rem;align-items:end}
+@media(max-width:500px){.sal-set-grid{grid-template-columns:1fr}}
+.sal-set-label{font-size:.68rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem}
+
+.rules-box{background:linear-gradient(135deg,#f0f4ff,#e8edf8);border:1.5px solid #c7d2fe;border-radius:12px;padding:.85rem 1.1rem;margin-bottom:1rem;font-size:.78rem;color:#374151;line-height:1.7}
+.rules-box strong{color:#1a237e}
+
+/* ── ADVANCE SECTION ────────────────────────────────────── */
+.adv-form-card{background:#fff7ed;border:2px solid #fed7aa;border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1rem}
+.adv-form-title{font-size:.88rem;font-weight:800;color:#c2410c;margin-bottom:.25rem}
+.adv-form-sub{font-size:.72rem;color:#92400e;margin-bottom:1rem;line-height:1.5}
+.adv-form-grid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.6rem;align-items:end}
+@media(max-width:600px){.adv-form-grid{grid-template-columns:1fr 1fr}}
+
+.adv-item{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1.5px solid #fed7aa;border-radius:12px;padding:.7rem 1rem;margin-bottom:.5rem}
+.adv-item-left{flex:1}
+.adv-item-name{font-size:.85rem;font-weight:800;color:#1a1f36}
+.adv-item-date{font-size:.68rem;color:#9ca3af;margin-top:.08rem}
+.adv-item-note{font-size:.72rem;color:#6b7280;margin-top:.12rem;font-style:italic}
+.adv-item-amt{font-size:1rem;font-weight:900;color:#c2410c;margin:0 1rem;white-space:nowrap}
+.adv-total-bar{background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:.65rem 1rem;display:flex;align-items:center;justify-content:space-between;margin-top:.5rem;margin-bottom:.5rem}
+.adv-total-lbl{font-size:.78rem;font-weight:700;color:#374151}
+.adv-total-val{font-size:1rem;font-weight:900;color:#dc2626}
+
+/* ── SALARY REPORT ─────────────────────────────────────── */
+.slip-header{background:linear-gradient(135deg,#0d1b5e,#1a237e,#283593);border-radius:16px;padding:1.5rem;margin-bottom:1rem;color:#fff;display:flex;align-items:center;gap:1rem}
+.slip-logo{width:52px;height:52px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.2rem;flex-shrink:0}
+.slip-company{font-size:1.1rem;font-weight:900}
+.slip-tagline{font-size:.7rem;color:rgba(255,255,255,.65);margin-top:.1rem}
+.slip-month{font-size:.75rem;background:rgba(255,255,255,.15);border-radius:8px;padding:.25rem .7rem;margin-top:.4rem;display:inline-block}
+
+.sal-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:.6rem;margin-bottom:1rem}
+.sal-stat{background:#fff;border-radius:12px;padding:.75rem 1rem;box-shadow:0 3px 12px rgba(26,35,126,.07);text-align:center;border-top:3px solid #e2e8f0}
+.sal-stat.green{border-top-color:#22c55e}.sal-stat.red{border-top-color:#ef4444}
+.sal-stat.amber{border-top-color:#f59e0b}.sal-stat.purple{border-top-color:#8b5cf6}
+.sal-stat.orange{border-top-color:#f97316}.sal-stat.adv{border-top-color:#c2410c}
+.sal-stat-val{font-size:1.3rem;font-weight:900;line-height:1.1}
+.sal-stat-lbl{font-size:.62rem;color:#6b7280;font-weight:700;text-transform:uppercase;margin-top:.15rem}
+
+.slip-table{width:100%;border-collapse:collapse;margin-bottom:1rem}
+.slip-table td{padding:.65rem .9rem;font-size:.85rem;border-bottom:1px solid #f1f5f9}
+.slip-table tr:last-child td{border-bottom:none}
+.slip-table .lbl{color:#6b7280;font-weight:600;width:55%}
+.slip-table .val{font-weight:800;color:#1a1f36;text-align:right}
+.slip-table .val.red{color:#dc2626}.slip-table .val.green{color:#16a34a}.slip-table .val.amber{color:#c2410c}
+.slip-table .sep td{background:#f8faff;font-size:.72rem;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.06em;padding:.4rem .9rem}
+.slip-net{background:linear-gradient(135deg,#0d1b5e,#1a237e);border-radius:14px;padding:1rem 1.4rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.slip-net-lbl{font-size:.85rem;font-weight:700;color:rgba(255,255,255,.8)}
+.slip-net-val{font-size:1.6rem;font-weight:900;color:#fff}
+
+.advance-badge{display:inline-flex;align-items:center;gap:.4rem;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:.3rem .75rem;font-size:.72rem;font-weight:700;color:#c2410c;margin-bottom:.5rem}
+
+.month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:.4rem;margin-top:1rem}
+.day-head{font-size:.65rem;font-weight:800;color:#64748b;text-transform:uppercase;text-align:center;padding:.3rem 0}
+.day{background:#fff;border:1.5px solid #f1f5f9;border-radius:10px;padding:.5rem .3rem;text-align:center;min-height:72px;display:flex;flex-direction:column;justify-content:center;gap:.1rem}
+.day.empty{background:transparent;border:none}
+.day-num{font-size:.95rem;font-weight:800;color:#1a1f36}
+.day-st{font-size:.55rem;font-weight:700;text-transform:uppercase;border-radius:4px;padding:.06rem .2rem}
+.day-hrs{font-size:.55rem;color:#6b7280;font-weight:600}
+.day.green{background:#f0fdf4;border-color:#86efac}.day.green .day-st{background:#dcfce7;color:#166534}
+.day.amber{background:#fffbeb;border-color:#fde68a}.day.amber .day-st{background:#fef3c7;color:#92400e}
+.day.purple{background:#faf5ff;border-color:#d8b4fe}.day.purple .day-st{background:#ede9fe;color:#5b21b6}
+.day.red{background:#fef2f2;border-color:#fecaca}.day.red .day-st{background:#fee2e2;color:#991b1b}
+.day.gray{background:#f8fafc;border-color:#e2e8f0;opacity:.7}.day.gray .day-st{background:#f1f5f9;color:#64748b}
+.day.orange{background:#fff7ed;border-color:#fed7aa}.day.orange .day-st{background:#ffedd5;color:#c2410c}
+.day.future{background:#fafbfc;border-color:#e5e7eb;opacity:.4}
+
+.empty-state{text-align:center;padding:2.5rem 1rem;color:#64748b}
+.empty-state .emoji{font-size:2.5rem;margin-bottom:.5rem;display:block}
+
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1a1f36;color:#fff;padding:.85rem 1.4rem;border-radius:12px;font-size:.85rem;font-weight:700;box-shadow:0 8px 26px rgba(0,0,0,.25);z-index:1000;opacity:0;transition:opacity .25s,transform .25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.err{background:#dc2626}.toast.ok{background:#16a34a}
+
+.spin{display:inline-block;width:14px;height:14px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+
+.legend{display:flex;gap:.8rem;flex-wrap:wrap;margin-top:1rem;font-size:.7rem;color:#64748b;font-weight:600}
+.legend-item{display:inline-flex;align-items:center;gap:.3rem}
+.legend-dot{width:10px;height:10px;border-radius:3px}
+.summary-name{font-size:1.05rem;font-weight:800;display:flex;align-items:center;gap:.5rem;margin-bottom:.15rem}
+.summary-role{font-size:.78rem;color:#6b7280;margin-bottom:.9rem}
+
+.streak-day-btn{padding:.5rem .9rem;border:2px solid #e2e8f0;border-radius:10px;background:#f8faff;font-family:'Plus Jakarta Sans',sans-serif;font-size:.8rem;font-weight:700;color:#374151;cursor:pointer;transition:all .2s}
+.streak-day-btn:hover{border-color:#1a237e;color:#1a237e;background:#eef2ff}
+.streak-day-btn.active{background:#1a237e;color:#fff;border-color:#1a237e}
+
+.streak-info{background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1.5px solid #fecaca;border-radius:14px;padding:1rem 1.2rem;margin-bottom:1rem;display:flex;align-items:center;gap:1rem}
+.streak-info-icon{font-size:2.2rem;flex-shrink:0}
+.streak-info-title{font-size:1rem;font-weight:800;color:#991b1b}
+.streak-info-sub{font-size:.78rem;color:#b91c1c;margin-top:.15rem}
+.streak-info.all-good{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#86efac}
+.streak-info.all-good .streak-info-title{color:#166534}
+.streak-info.all-good .streak-info-sub{color:#15803d}
+
+.streak-emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.65rem;margin-top:.5rem}
+.streak-emp-card{background:#fff;border:1.5px solid #fecaca;border-radius:12px;padding:.85rem 1rem;display:flex;align-items:center;gap:.75rem}
+.streak-emp-avatar{width:38px;height:38px;background:linear-gradient(135deg,#dc2626,#b91c1c);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.9rem;font-weight:900;color:#fff;flex-shrink:0}
+.streak-emp-name{font-size:.85rem;font-weight:800;color:#1a1f36}
+.streak-emp-role{font-size:.7rem;color:#6b7280;margin-top:.05rem}
+
+.streak-timeline{display:flex;flex-direction:column;gap:.35rem;max-height:400px;overflow-y:auto;padding-right:.2rem}
+.streak-day-row{display:flex;align-items:center;gap:.75rem;padding:.55rem .85rem;border-radius:10px;border:1.5px solid #f1f5f9;background:#fafbff;font-size:.8rem}
+.streak-day-row.present{border-color:#86efac;background:#f0fdf4}
+.streak-day-row.late{border-color:#fde68a;background:#fffbeb}
+.streak-day-row.halfday{border-color:#d8b4fe;background:#faf5ff}
+.streak-day-row.absent{border-color:#fecaca;background:#fef2f2}
+.sdr-date{font-size:.72rem;font-weight:700;color:#64748b;min-width:90px}
+.sdr-status{font-weight:800;min-width:75px}
+.sdr-time{font-size:.72rem;color:#6b7280}
+.sdr-hours{font-size:.72rem;color:#6b7280;margin-left:auto}
+
+.emp-streak-header{display:flex;align-items:center;gap:1rem;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:14px;padding:1rem 1.2rem;margin-bottom:1rem;color:#fff}
+.emp-streak-avatar{width:48px;height:48px;background:rgba(255,255,255,.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:900;flex-shrink:0}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal{background:#fff;border-radius:20px;padding:2rem;max-width:380px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,.2)}
+.modal-title{font-size:1rem;font-weight:800;margin-bottom:.4rem}
+.modal-sub{font-size:.8rem;color:#6b7280;margin-bottom:1.2rem;line-height:1.55}
+.modal-row{display:flex;gap:.6rem;align-items:center;margin-bottom:1rem}
+.modal-btns{display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem}
+
+#pdfArea{display:none}
+#salPrintArea{display:none}
+@media print{
+  body>*:not(#salPrintArea):not(#pdfArea){display:none!important}
+  #pdfArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36}
+  #salPrintArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36;max-width:700px;margin:0 auto}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="loginScreen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">VT</div>
+    <div class="login-title">Owner Dashboard</div>
+    <div class="login-sub">Vardhman Traders · Secure Access</div>
+    <div class="master-hint">🔐 Owner password ya Master password dono kaam karenge</div>
+    <input class="login-input" type="password" id="pwdInput" placeholder="Password daalo" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-err" id="loginErr">❌ Galat password. Dobara try karein.</div>
+    <button class="btn btn-full" id="loginBtn" onclick="doLogin()">🔓 Dashboard Kholo</button>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="dash-wrap" id="dashScreen">
+  <div class="top-bar">
+    <div class="brand">
+      <div class="brand-logo">VT</div>
+      <div>
+        <div class="brand-name">Vardhman Traders <span id="masterBadgeTop" style="display:none" class="master-badge">⚡ Master</span></div>
+        <div class="brand-sub">Owner Dashboard</div>
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">🔒 Logout</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('today')"  id="t-today">📅 Today</button>
+    <button class="tab" onclick="showTab('report')" id="t-report">📊 Monthly</button>
+    <button class="tab" onclick="showTab('salary')" id="t-salary">💰 Salary</button>
+    <button class="tab" onclick="showTab('advance')" id="t-advance">💸 Advance</button>
+    <button class="tab" onclick="showTab('streak')" id="t-streak">🚨 Streak</button>
+    <button class="tab" onclick="showTab('emps')"   id="t-emps">👥 Employees</button>
+  </div>
+
+  <!-- TODAY -->
+  <div class="view active" id="v-today">
+    <div class="rules-box">
+      <strong>Attendance Rules:</strong> &nbsp;
+      <span id="rulesLine">Checkout <strong>before 2 PM → Absent</strong> &nbsp;|&nbsp;
+      Checkout <strong>2–4:59 PM → Half Day</strong> &nbsp;|&nbsp;
+      Checkout <strong>5–8 PM → Full Day</strong></span>
+    </div>
+    <div class="stat-grid" id="todayStats">
+      <div class="stat green"><div class="stat-val">—</div><div class="stat-lbl">Present</div></div>
+      <div class="stat amber"><div class="stat-val">—</div><div class="stat-lbl">Late</div></div>
+      <div class="stat purple"><div class="stat-val">—</div><div class="stat-lbl">Half Day</div></div>
+      <div class="stat teal"><div class="stat-val">—</div><div class="stat-lbl">Checked Out</div></div>
+      <div class="stat red"><div class="stat-val">—</div><div class="stat-lbl">Absent</div></div>
+      <div class="stat orange"><div class="stat-val">—</div><div class="stat-lbl">Incomplete</div></div>
+      <div class="stat gray"><div class="stat-val">—</div><div class="stat-lbl">Total</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">✅ Marked Today</div>
+      <div class="card-sub" id="todayDateSub">—</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>In</th><th>Out</th><th>Hours</th><th>Final Status</th><th>Location</th><th>Action</th></tr></thead>
+          <tbody id="markedBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">⚠️ Absent / Not Marked</div>
+      <div class="card-sub">These employees haven't marked attendance today</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Role</th></tr></thead>
+          <tbody id="absentBody"><tr><td colspan="2" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:1rem">
+      <button class="btn btn-sm btn-ghost" onclick="loadToday()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- MONTHLY REPORT -->
+  <div class="view" id="v-report">
+    <div class="card">
+      <div class="card-title">📊 Monthly Attendance Report</div>
+      <div class="card-sub">Employee search karo aur month choose karo</div>
+      <div class="search-row">
+        <div class="search-box">
+          <input id="empSearch" placeholder="Employee name type karo…" oninput="filterEmpSuggestions()" onfocus="filterEmpSuggestions()">
+          <div id="empSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:240px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+        </div>
+        <select class="input" id="monthSel" style="max-width:155px" onchange="reloadReport()"></select>
+        <select class="input" id="yearSel"  style="max-width:105px" onchange="reloadReport()"></select>
+      </div>
+      <div id="reportContent">
+        <div class="empty-state"><span class="emoji">👆</span><div>Employee search karo aur month choose karo</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SALARY TAB -->
+  <div class="view" id="v-salary">
+    <div class="card">
+      <div class="card-title">💰 Employee Salary Set Karo</div>
+      <div class="card-sub">Har employee ki salary ek baar set karo — woh fix ho jaayegi. Baad mein sirf change karne par update hogi.</div>
+
+      <div class="rules-box">
+        <strong>Salary Rules:</strong> &nbsp;
+        Base = <strong>30 working days</strong> &nbsp;|&nbsp;
+        Per Day = <strong>Monthly ÷ 30</strong> &nbsp;|&nbsp;
+        Absent = <strong>−1 din</strong> &nbsp;|&nbsp;
+        Half Day = <strong>−0.5 din</strong> &nbsp;|&nbsp;
+        Late = <strong>No deduction</strong> &nbsp;|&nbsp;
+        Advance = <strong>Amount deduct hoga</strong>
+      </div>
+
+      <div class="sal-set-card">
+        <div class="sal-set-title">➕ Salary Set / Update Karo</div>
+        <div class="sal-set-sub">Employee ka naam search karo aur monthly salary daalo. Ek baar set hone ke baad wahi salary use hogi jab tak change na karo.</div>
+        <div class="sal-set-grid">
+          <div>
+            <div class="sal-set-label">Employee Name</div>
+            <div style="position:relative">
+              <input class="input" id="salSetEmp" placeholder="Name type karo…" oninput="filterSalSetSuggestions()" onfocus="filterSalSetSuggestions()">
+              <div id="salSetSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:200px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+            </div>
+          </div>
+          <div>
+            <div class="sal-set-label">Monthly Salary (₹)</div>
+            <input class="input" type="number" id="salSetAmount" placeholder="e.g. 15000" min="1">
+          </div>
+          <button class="btn" onclick="doSetSalary()" style="height:48px;white-space:nowrap;margin-top:auto">💾 Save</button>
+        </div>
+      </div>
+
+      <div class="card-title" style="margin-bottom:.6rem">📋 All Employee Salaries</div>
+      <div class="search-row" style="margin-bottom:.8rem">
+        <div class="search-box">
+          <input id="salListSearch" placeholder="Search by name…" oninput="renderSalaryList()">
+        </div>
+      </div>
+      <div id="salaryListContent">
+        <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- PIN MANAGEMENT -->
+    <div class="card">
+      <div class="card-title">🔐 Employee Salary PIN Set Karo</div>
+      <div class="card-sub">Har employee ko ek alag PIN do — woh apni salary sirf PIN daalne ke baad dekh paayega. Bina PIN ke salary nahi dikhegi.</div>
+      <div class="sal-set-card" style="background:#fff7ed;border-color:#fed7aa">
+        <div class="sal-set-title" style="color:#c2410c">➕ PIN Set / Change Karo</div>
+        <div class="sal-set-sub">Employee naam search karo aur 4+ digit PIN daalo. Baad mein change bhi ho sakta hai.</div>
+        <div class="sal-set-grid">
+          <div>
+            <div class="sal-set-label">Employee Name</div>
+            <div style="position:relative">
+              <input class="input" id="pinSetEmp" placeholder="Name type karo…" oninput="filterPinSetSuggestions()" onfocus="filterPinSetSuggestions()">
+              <div id="pinSetSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:200px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+            </div>
+          </div>
+          <div>
+            <div class="sal-set-label">PIN (4+ digits)</div>
+            <input class="input" type="text" inputmode="numeric" id="pinSetValue" placeholder="e.g. 1234" maxlength="8">
+          </div>
+          <button class="btn btn-amber" onclick="doSetPIN()" style="height:48px;white-space:nowrap;margin-top:auto">🔐 Save PIN</button>
+        </div>
+      </div>
+      <div class="card-title" style="margin-bottom:.6rem;font-size:.9rem">📋 Sabhi Employee PINs</div>
+      <div class="card-sub">Employee ko unka PIN WhatsApp ya verbally batao</div>
+      <div id="pinListContent">
+        <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- SALARY REPORT -->
+    <div class="card">
+      <div class="card-title">🧮 Salary Calculator</div>
+      <div class="card-sub">Employee select karo — salary auto-load hogi, advance bhi deduct hoga</div>
+      <div class="search-row">
+        <div class="search-box">
+          <input id="salCalcEmp" placeholder="Employee naam type karo…" oninput="filterSalCalcSuggestions()" onfocus="filterSalCalcSuggestions()">
+          <div id="salCalcSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:220px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+        </div>
+        <select class="input" id="salMonthSel" style="max-width:155px"></select>
+        <select class="input" id="salYearSel"  style="max-width:105px"></select>
+        <button class="btn" onclick="loadSalaryReport()" style="white-space:nowrap;height:48px">🧮 Calculate</button>
+      </div>
+      <div id="salaryResult">
+        <div class="empty-state"><span class="emoji">💰</span><div>Employee select karke Calculate dabao</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADVANCE TAB -->
+  <div class="view" id="v-advance">
+    <div class="card">
+      <div class="card-title">💸 Advance Payment Daalo</div>
+      <div class="card-sub">Employee ko advance diya ho toh yahan record karo — salary calculate karte waqt automatically deduct ho jaayega</div>
+
+      <div class="adv-form-card">
+        <div class="adv-form-title">➕ Naya Advance Add Karo</div>
+        <div class="adv-form-sub">Ek mahine mein multiple advance entries ho sakti hain. Sab deduct honge.</div>
+        <div class="adv-form-grid">
+          <div>
+            <div class="sal-set-label">Employee</div>
+            <div style="position:relative">
+              <input class="input" id="advEmpName" placeholder="Naam type karo…" oninput="filterAdvEmpSuggestions()" onfocus="filterAdvEmpSuggestions()">
+              <div id="advEmpSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:200px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+            </div>
+          </div>
+          <div>
+            <div class="sal-set-label">Amount (₹)</div>
+            <input class="input" type="number" id="advAmount" placeholder="e.g. 2000" min="1">
+          </div>
+          <div>
+            <div class="sal-set-label">Note (optional)</div>
+            <input class="input" id="advNote" placeholder="e.g. Emergency advance">
+          </div>
+          <button class="btn btn-amber" onclick="doAddAdvance()" style="height:48px;white-space:nowrap;margin-top:auto">💸 Add</button>
+        </div>
+      </div>
+
+      <div class="card-title" style="margin-bottom:.4rem">📋 Advance History</div>
+      <div class="card-sub">Sabse recent pehle. Galti se daala ho toh delete kar sakte ho.</div>
+
+      <div class="search-row" style="margin-bottom:.8rem">
+        <div class="search-box">
+          <input id="advSearch" placeholder="Employee naam se filter karo…" oninput="loadAdvanceHistory()">
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="loadAdvanceHistory()">🔄 Refresh</button>
+      </div>
+
+      <div id="advanceHistoryContent">
+        <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STREAK -->
+  <div class="view" id="v-streak">
+    <div class="card">
+      <div class="card-title">🚨 Consecutive Absent Employees</div>
+      <div class="card-sub">Kitne din select karo — woh employees dikhenge jo itne working days se absent hain</div>
+      <div style="display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;margin-bottom:1.2rem">
+        <div style="font-size:.85rem;font-weight:700;color:#374151">Days absent:</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap" id="streakBtns">
+          <button class="streak-day-btn" onclick="loadStreak(1)">1 Day</button>
+          <button class="streak-day-btn" onclick="loadStreak(2)">2 Days</button>
+          <button class="streak-day-btn" onclick="loadStreak(3)">3 Days</button>
+          <button class="streak-day-btn" onclick="loadStreak(5)">5 Days</button>
+          <button class="streak-day-btn" onclick="loadStreak(7)">7 Days</button>
+          <button class="streak-day-btn" onclick="loadStreak(10)">10 Days</button>
+        </div>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input type="number" id="customDays" min="1" max="90" placeholder="Custom…" style="width:90px;padding:.5rem .7rem;border:2px solid #e2e8f0;border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:.85rem;font-weight:600;outline:none" onkeydown="if(event.key==='Enter')loadStreak(parseInt(this.value))">
+          <button class="btn btn-sm" onclick="loadStreak(parseInt(document.getElementById('customDays').value))">Go</button>
+        </div>
+      </div>
+      <div id="streakResult">
+        <div class="empty-state"><span class="emoji">👆</span><div>Days select karo upar se</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🔍 Employee Ki Individual Streak</div>
+      <div class="card-sub">Last 30 working days ka record dekho</div>
+      <div class="search-row" style="margin-bottom:1rem">
+        <div class="search-box">
+          <input id="streakEmpSearch" placeholder="Employee naam type karo…" oninput="filterStreakEmpSuggestions()" onfocus="filterStreakEmpSuggestions()">
+          <div id="streakEmpSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:220px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+        </div>
+        <button class="btn btn-sm" style="white-space:nowrap" onclick="loadEmployeeStreak()">🔍 Check</button>
+      </div>
+      <div id="empStreakResult">
+        <div class="empty-state" style="padding:1.5rem"><span class="emoji" style="font-size:1.8rem">👆</span><div>Naam search karo aur Check dabao</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EMPLOYEES -->
+  <div class="view" id="v-emps">
+    <div class="card">
+      <div class="card-title">➕ New Employee Add Karo</div>
+      <div class="card-sub">Attendance dropdown mein turant show hoga</div>
+      <div class="form-grid">
+        <input class="input" id="newEmpName" placeholder="Full Name (e.g. Ravi Kumar)">
+        <input class="input" id="newEmpRole" placeholder="Role (e.g. Sales Executive)">
+        <button class="btn" onclick="doAddEmployee()">➕ Add</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">👥 All Employees</div>
+      <div class="card-sub" id="empCountSub">Loading…</div>
+      <div class="search-row">
+        <div class="search-box">
+          <input id="empListSearch" placeholder="Search by name or role…" oninput="renderEmpList()">
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Added On</th><th style="text-align:right">Action</th></tr></thead>
+          <tbody id="empListBody"><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MANUAL CHECKOUT MODAL -->
+<div class="modal-overlay" id="checkoutModal" style="display:none" onclick="if(event.target===this)closeCheckoutModal()">
+  <div class="modal">
+    <div class="modal-title">🏁 Manual Check-Out</div>
+    <div class="modal-sub" id="modalSub">Employee ke liye checkout time set karo</div>
+    <div class="modal-row">
+      <label style="font-size:.8rem;font-weight:700;color:#64748b;white-space:nowrap">Checkout Time:</label>
+      <input class="input" type="time" id="modalTime" style="flex:1">
+    </div>
+    <div style="font-size:.75rem;color:#6b7280;margin-bottom:.5rem;line-height:1.6">
+      <span id="rulesLine2">Before 2 PM = Absent &nbsp;|&nbsp; 2–5 PM = Half Day &nbsp;|&nbsp; 5–8 PM = Full Day</span>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-ghost btn-sm" onclick="closeCheckoutModal()">Cancel</button>
+      <button class="btn btn-green btn-sm" onclick="confirmManualCheckout()">✅ Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="pdfArea"></div>
+<div id="salPrintArea"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+var PWD='', ALL_EMPS=[], ACT_EMPS=[], modalEmpName='', isMaster=false;
+var ALL_SALARIES=[], ALL_ADVANCES=[];
+
+/* ─── LOGIN ─── */
+function doLogin(){
+  var pwd=document.getElementById('pwdInput').value;
+  if(!pwd) return;
+  var btn=document.getElementById('loginBtn');
+  btn.disabled=true; btn.innerHTML='<div class="spin"></div>&nbsp; Checking…';
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r&&r.ok){
+        PWD=pwd;
+        isMaster=(pwd==='00000');
+        document.getElementById('loginScreen').style.display='none';
+        document.getElementById('dashScreen').style.display='block';
+        document.getElementById('loginErr').className='login-err';
+        if(isMaster) document.getElementById('masterBadgeTop').style.display='inline-flex';
+        setupReportSelectors(); setupSalarySelectors();
+        loadToday(); loadEmployeeList(); loadActiveEmployees();
+        loadSalaryList(); loadAdvanceHistory(); loadPINList();
+      } else {
+        document.getElementById('loginErr').className='login-err show';
+        btn.disabled=false; btn.innerHTML='🔓 Dashboard Kholo';
+      }
+    })
+    .withFailureHandler(function(){ btn.disabled=false; btn.innerHTML='🔓 Dashboard Kholo'; toast('Connection error','err'); })
+    .verifyOwnerPassword(pwd);
+}
+
+function logout(){ VT.toPortal(); }
+
+function portalStart(){
+  PWD='portal'; isMaster=false;
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('dashScreen').style.display='block';
+  setupReportSelectors(); setupSalarySelectors();
+  loadToday(); loadEmployeeList(); loadActiveEmployees();
+  loadSalaryList(); loadAdvanceHistory(); loadPINList();
+}
+VT.boot('attendance_owner', portalStart);
+
+/* ─── TABS ─── */
+function showTab(name){
+  ['today','report','salary','advance','streak','emps'].forEach(function(n){
+    document.getElementById('t-'+n).className='tab'+(n===name?' active':'');
+    document.getElementById('v-'+n).className='view'+(n===name?' active':'');
+  });
+  if(name==='salary'){ renderSalaryList(); loadPINList(); }
+  if(name==='advance') loadAdvanceHistory();
+}
+
+/* ─── TODAY ─── */
+function loadToday(){
+  document.getElementById('markedBody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr>';
+  document.getElementById('absentBody').innerHTML='<tr><td colspan="2" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr>';
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} renderToday(r); })
+    .withFailureHandler(function(){ toast('Could not load today','err'); })
+    .getTodayAttendance(PWD);
+}
+
+function renderToday(r){
+  if(r.rules){
+    document.getElementById('rulesLine').innerHTML='Checkout <strong>before '+r.rules.absentBefore+' → Absent</strong> &nbsp;|&nbsp; Checkout <strong>'+r.rules.absentBefore+' – '+r.rules.halfBefore+' → Half Day</strong> &nbsp;|&nbsp; Checkout <strong>'+r.rules.halfBefore+' – '+r.rules.fullUntil+' → Full Day</strong> &nbsp;|&nbsp; Late from <strong>'+r.rules.lateAfter+'</strong>';
+    document.getElementById('rulesLine2').textContent='Before '+r.rules.absentBefore+' = Absent | '+r.rules.absentBefore+' – '+r.rules.halfBefore+' = Half Day | '+r.rules.halfBefore+' – '+r.rules.fullUntil+' = Full Day';
+  }
+  document.getElementById('todayDateSub').textContent='Date: '+r.date+(r.isWeeklyOff?' · 🛌 Weekly Off (Monday)':'');
+  var present=0,late=0,halfDay=0,absent=0,checkedOut=0,incomplete=0;
+  for(var i=0;i<r.marked.length;i++){
+    var fs=r.marked[i].finalStatus;
+    if(fs==='Present') present++; else if(fs==='Late') late++;
+    else if(fs==='Half Day') halfDay++; else if(fs==='Absent') absent++;
+    else if(fs==='Incomplete') incomplete++;
+    if(r.marked[i].checkedOut) checkedOut++;
+  }
+  document.getElementById('todayStats').innerHTML=
+    '<div class="stat green"><div class="stat-val">'+present+'</div><div class="stat-lbl">Present</div></div>'
+   +'<div class="stat amber"><div class="stat-val">'+late+'</div><div class="stat-lbl">Late</div></div>'
+   +'<div class="stat purple"><div class="stat-val">'+halfDay+'</div><div class="stat-lbl">Half Day</div></div>'
+   +'<div class="stat teal"><div class="stat-val">'+checkedOut+'</div><div class="stat-lbl">Checked Out</div></div>'
+   +'<div class="stat red"><div class="stat-val">'+(absent+r.absent.length)+'</div><div class="stat-lbl">Absent</div></div>'
+   +'<div class="stat orange"><div class="stat-val">'+incomplete+'</div><div class="stat-lbl">Incomplete</div></div>'
+   +'<div class="stat gray"><div class="stat-val">'+r.totalEmployees+'</div><div class="stat-lbl">Total</div></div>';
+  if(!r.marked.length){
+    document.getElementById('markedBody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Aaj abhi tak kisi ne attendance nahi maari</td></tr>';
+  } else {
+    var rows='';
+    for(var i=0;i<r.marked.length;i++){
+      var m=r.marked[i], si=m.site==='Godown'?'🏭':'🏪';
+      var outCell=m.checkedOut?('<span class="pill teal">'+m.checkoutTime+'</span>'):'<span style="color:#94a3b8;font-size:.75rem">Not yet</span>';
+      var hoursCell=m.checkedOut?('<strong>'+m.hoursWorked+'</strong>'):'<span style="color:#94a3b8">—</span>';
+      var actionCell=m.checkedOut?'<span style="color:#94a3b8;font-size:.75rem">Done</span>':'<button class="btn btn-sm btn-green" onclick="openCheckoutModal(\''+escH(m.name)+'\')">🏁 Checkout</button>';
+      rows+='<tr><td><strong>'+escH(m.name)+'</strong>'+photoLinks(m)+'</td><td>'+m.time+'</td><td>'+outCell+'</td><td>'+hoursCell+'</td><td>'+statusPill(m.finalStatus)+'</td><td>'+si+' '+escH(m.site)+'</td><td>'+actionCell+'</td></tr>';
+    }
+    document.getElementById('markedBody').innerHTML=rows;
+  }
+  if(r.isWeeklyOff){
+    document.getElementById('absentBody').innerHTML='<tr><td colspan="2" style="text-align:center;padding:1.5rem;color:#94a3b8">🛌 Weekly off today</td></tr>';
+  } else if(!r.absent.length){
+    document.getElementById('absentBody').innerHTML='<tr><td colspan="2" style="text-align:center;padding:1.5rem;color:#16a34a"><strong>🎉 Everyone is present today!</strong></td></tr>';
+  } else {
+    var rows2='';
+    for(var i=0;i<r.absent.length;i++) rows2+='<tr><td><strong>'+escH(r.absent[i].name)+'</strong></td><td>'+escH(r.absent[i].role)+'</td></tr>';
+    document.getElementById('absentBody').innerHTML=rows2;
+  }
+}
+
+function photoLinks(m){
+  var h='';
+  if(m.photoIn) h+=' <a href="'+escH(m.photoIn)+'" target="_blank" rel="noopener" title="Check-in photo" style="text-decoration:none">📷</a>';
+  if(m.photoOut) h+=' <a href="'+escH(m.photoOut)+'" target="_blank" rel="noopener" title="Check-out photo" style="text-decoration:none">📸</a>';
+  return h;
+}
+function statusPill(s){
+  var map={'Present':'green','Late':'amber','Half Day':'purple','Absent':'red','Incomplete':'orange','Weekly Off':'gray'};
+  return '<span class="pill '+(map[s]||'gray')+'">'+s+'</span>';
+}
+
+/* ─── MANUAL CHECKOUT ─── */
+function openCheckoutModal(name){
+  modalEmpName=name;
+  var now=new Date();
+  document.getElementById('modalTime').value=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('modalSub').textContent='Checkout set kar rahe ho: '+name;
+  document.getElementById('checkoutModal').style.display='flex';
+}
+function closeCheckoutModal(){ document.getElementById('checkoutModal').style.display='none'; modalEmpName=''; }
+function confirmManualCheckout(){
+  if(!modalEmpName) return;
+  var time=document.getElementById('modalTime').value;
+  VT.run
+    .withSuccessHandler(function(r){
+      closeCheckoutModal();
+      if(r.status==='ok'){ toast('✅ '+modalEmpName+' — '+r.finalStatus+' ('+r.hoursWorked+')','ok'); loadToday(); }
+      else if(r.status==='already_checkout'){ toast('Already checked out at '+r.time,'err'); }
+      else{ toast('❌ '+(r.msg||'Failed'),'err'); }
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .manualCheckout(PWD,modalEmpName,time);
+}
+
+/* ─── SALARY LIST ─── */
+function loadSalaryList(){
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      ALL_SALARIES=r.salaries||[]; renderSalaryList();
+    })
+    .withFailureHandler(function(){ toast('Could not load salaries','err'); })
+    .getAllSalaries(PWD);
+}
+
+function renderSalaryList(){
+  var q=(document.getElementById('salListSearch')?document.getElementById('salListSearch').value:'').toLowerCase().trim();
+  var content=document.getElementById('salaryListContent');
+  if(!content) return;
+  var empSalMap={};
+  for(var s=0;s<ALL_SALARIES.length;s++) empSalMap[ALL_SALARIES[s].name.toLowerCase().trim()]=ALL_SALARIES[s].salary;
+
+  var toShow=[];
+  for(var i=0;i<ACT_EMPS.length;i++){
+    if(q&&ACT_EMPS[i].name.toLowerCase().indexOf(q)===-1) continue;
+    var sal=empSalMap[ACT_EMPS[i].name.toLowerCase().trim()]||0;
+    toShow.push({name:ACT_EMPS[i].name,role:ACT_EMPS[i].role,salary:sal});
+  }
+  if(!toShow.length){ content.innerHTML='<div class="empty-state"><span class="emoji">🔍</span><div>No employees found</div></div>'; return; }
+
+  var html='';
+  var withSal=toShow.filter(function(e){return e.salary>0;}).length;
+  var withoutSal=toShow.length-withSal;
+  html+='<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+withSal+' salary set · '+withoutSal+' pending</div>';
+  for(var i=0;i<toShow.length;i++){
+    var e=toShow[i], words=e.name.split(' ');
+    var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
+    html+='<div class="sal-emp-row">'
+      +'<div class="sal-emp-avatar">'+initials+'</div>'
+      +'<div style="flex:1"><div class="sal-emp-name">'+escH(e.name)+'</div><div class="sal-emp-role">'+escH(e.role)+'</div></div>'
+      +'<div class="sal-emp-salary'+(e.salary>0?'':' not-set')+'">'
+      +(e.salary>0?'<div class="sal-emp-salary-val">₹'+fmt(e.salary)+'</div><div class="sal-emp-salary-lbl">per month</div>'
+        :'<div class="sal-emp-salary-val">Not set</div><div class="sal-emp-salary-lbl">Click Edit</div>')
+      +'</div>'
+      +'<button class="btn btn-sm btn-ghost" style="margin-left:.6rem" onclick="prefillSalarySet(\''+escH(e.name)+'\','+e.salary+')">'+(e.salary>0?'✏️':'➕')+'</button>'
+      +'</div>';
+  }
+  content.innerHTML=html;
+}
+
+function prefillSalarySet(name,salary){
+  document.getElementById('salSetEmp').value=name;
+  document.getElementById('salSetAmount').value=salary||'';
+  document.getElementById('salSetEmp').scrollIntoView({behavior:'smooth',block:'center'});
+  document.getElementById('salSetAmount').focus();
+}
+
+function doSetSalary(){
+  var name=document.getElementById('salSetEmp').value.trim();
+  var amt=parseFloat(document.getElementById('salSetAmount').value);
+  if(!name){ toast('Employee naam daalo','err'); return; }
+  if(!amt||amt<=0){ toast('Valid salary daalo','err'); return; }
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='ok'||r.status==='updated'){
+        toast('✅ Salary set: ₹'+fmt(amt)+' for '+name,'ok');
+        document.getElementById('salSetEmp').value='';
+        document.getElementById('salSetAmount').value='';
+        loadSalaryList();
+      } else { toast('❌ '+(r.msg||'Failed'),'err'); }
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .setEmployeeSalary(PWD,name,amt);
+}
+
+/* ─── ADVANCE ─── */
+function loadAdvanceHistory(){
+  var q=(document.getElementById('advSearch')?document.getElementById('advSearch').value:'').trim();
+  document.getElementById('advanceHistoryContent').innerHTML='<div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>';
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      ALL_ADVANCES=r.advances||[];
+      renderAdvanceHistory(ALL_ADVANCES,q);
+    })
+    .withFailureHandler(function(){ toast('Could not load advances','err'); })
+    .getAllAdvances(PWD,q);
+}
+
+function renderAdvanceHistory(advances,q){
+  var content=document.getElementById('advanceHistoryContent');
+  var filtered=q?advances.filter(function(a){ return a.name.toLowerCase().indexOf(q.toLowerCase())!==-1; }):advances;
+  if(!filtered.length){
+    content.innerHTML='<div class="empty-state"><span class="emoji">💸</span><div>Koi advance record nahi mila</div></div>';
+    return;
+  }
+  var total=0; for(var a=0;a<filtered.length;a++) total+=filtered[a].amount;
+  var html='<div class="adv-total-bar"><span class="adv-total-lbl">Total advance (filtered)</span><span class="adv-total-val">₹'+fmt(total)+'</span></div>';
+  for(var i=0;i<filtered.length;i++){
+    var adv=filtered[i];
+    html+='<div class="adv-item">'
+      +'<div class="adv-item-left">'
+      +'<div class="adv-item-name">'+escH(adv.name)+'</div>'
+      +'<div class="adv-item-date">📅 '+escH(adv.date)+(adv.addedBy?' · by '+escH(adv.addedBy):'')+'</div>'
+      +(adv.note?'<div class="adv-item-note">💬 '+escH(adv.note)+'</div>':'')
+      +'</div>'
+      +'<div class="adv-item-amt">₹'+fmt(adv.amount)+'</div>'
+      +'<button class="btn btn-sm btn-danger" onclick="doDeleteAdvance('+i+',\''+escH(adv.name)+'\','+adv.amount+')" style="flex-shrink:0">🗑️</button>'
+      +'</div>';
+  }
+  content.innerHTML=html;
+}
+
+function doAddAdvance(){
+  var name=document.getElementById('advEmpName').value.trim();
+  var amt=parseFloat(document.getElementById('advAmount').value);
+  var note=document.getElementById('advNote').value.trim();
+  if(!name){ toast('Employee naam daalo','err'); return; }
+  if(!amt||amt<=0){ toast('Valid amount daalo','err'); return; }
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='ok'){
+        toast('✅ Advance added: ₹'+fmt(amt)+' for '+name,'ok');
+        document.getElementById('advEmpName').value='';
+        document.getElementById('advAmount').value='';
+        document.getElementById('advNote').value='';
+        loadAdvanceHistory();
+      } else { toast('❌ '+(r.msg||'Failed'),'err'); }
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .addAdvancePayment(PWD,name,amt,note);
+}
+
+function doDeleteAdvance(idx,name,amt){
+  if(!confirm('Delete advance of ₹'+fmt(amt)+' for '+name+'?')) return;
+  var q=(document.getElementById('advSearch')?document.getElementById('advSearch').value:'').trim();
+  var list=q?ALL_ADVANCES.filter(function(a){return a.name.toLowerCase().indexOf(q.toLowerCase())!==-1;}):ALL_ADVANCES;
+  var realIdx=(list[idx]||{}).id;
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='ok'){ toast('🗑️ Advance deleted','ok'); loadAdvanceHistory(); }
+      else{ toast('❌ '+(r.msg||'Failed'),'err'); }
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .deleteAdvance(PWD,realIdx);
+}
+
+/* ─── SALARY CALCULATOR ─── */
+var selectedSalCalcEmp=null;
+
+function setupSalarySelectors(){
+  var now=new Date();
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var ms=document.getElementById('salMonthSel'); ms.innerHTML='';
+  for(var i=0;i<12;i++){ var o=document.createElement('option'); o.value=(i+1); o.textContent=months[i]; if(i===now.getMonth())o.selected=true; ms.appendChild(o); }
+  var ys=document.getElementById('salYearSel'); ys.innerHTML='';
+  for(var y=now.getFullYear()-1;y<=now.getFullYear()+1;y++){ var o2=document.createElement('option'); o2.value=y; o2.textContent=y; if(y===now.getFullYear())o2.selected=true; ys.appendChild(o2); }
+}
+
+function filterSalCalcSuggestions(){
+  var q=(document.getElementById('salCalcEmp').value||'').toLowerCase().trim();
+  var box=document.getElementById('salCalcSuggestions');
+  if(!ACT_EMPS.length){box.style.display='none';return;}
+  var matches=ACT_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1;}).slice(0,10);
+  if(!matches.length){box.style.display='none';return;}
+  var html='';
+  for(var i=0;i<matches.length;i++)
+    html+='<div style="padding:.65rem 1rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.85rem" onmouseover="this.style.background=\'#f8faff\'" onmouseout="this.style.background=\'#fff\'" onclick="pickSalCalcEmp(\''+escH(matches[i].name)+'\',\''+escH(matches[i].role||'')+'\')" ><strong>'+escH(matches[i].name)+'</strong> <span style="color:#6b7280">— '+escH(matches[i].role||'')+'</span></div>';
+  box.innerHTML=html; box.style.display='block';
+}
+function pickSalCalcEmp(name,role){ selectedSalCalcEmp={name:name,role:role}; document.getElementById('salCalcEmp').value=name; document.getElementById('salCalcSuggestions').style.display='none'; }
+
+function loadSalaryReport(){
+  if(!selectedSalCalcEmp&&!document.getElementById('salCalcEmp').value.trim()){ toast('Pehle employee naam select karo','err'); return; }
+  var empName=selectedSalCalcEmp?selectedSalCalcEmp.name:document.getElementById('salCalcEmp').value.trim();
+  var month=parseInt(document.getElementById('salMonthSel').value,10);
+  var year=parseInt(document.getElementById('salYearSel').value,10);
+  document.getElementById('salaryResult').innerHTML='<div class="empty-state"><div class="spin" style="border-top-color:#1a237e;border-color:rgba(26,35,126,.2)"></div><div style="margin-top:.5rem">Salary calculate ho rahi hai…</div></div>';
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='error'){toast('❌ '+(r.msg||'Failed'),'err');document.getElementById('salaryResult').innerHTML='<div class="empty-state"><span class="emoji">⚠️</span><div>'+escH(r.msg||'Error')+'</div></div>';return;}
+      renderSalaryReport(r);
+    })
+    .withFailureHandler(function(){ toast('Could not calculate salary','err'); })
+    .getSalaryReport(PWD,empName,year,month,null);
+}
+
+function renderSalaryReport(r){
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mName=months[r.month-1];
+  var s=r.stats;
+  var words=r.employeeName.split(' ');
+  var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
+  var role=''; for(var i=0;i<ACT_EMPS.length;i++){if(ACT_EMPS[i].name.toLowerCase()===r.employeeName.toLowerCase()){role=ACT_EMPS[i].role;break;}}
+
+  var html='';
+  html+='<div class="slip-header"><div class="slip-logo">VT</div><div><div class="slip-company">Vardhman Traders</div><div class="slip-tagline">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
+
+  html+='<div class="sal-emp-row" style="margin-bottom:1rem">'
+    +'<div class="sal-emp-avatar">'+initials+'</div>'
+    +'<div><div class="sal-emp-name">'+escH(r.employeeName)+'</div><div class="sal-emp-role">'+escH(role)+'</div></div>'
+    +'<div class="sal-emp-salary" style="margin-left:auto;text-align:right"><div class="sal-emp-salary-val">₹'+fmt(r.monthlySalary)+'</div><div class="sal-emp-salary-lbl">gross/month</div></div>'
+    +'</div>';
+
+  if(r.totalAdvance>0)
+    html+='<div class="advance-badge">💸 Advance liya: ₹'+fmt(r.totalAdvance)+' ('+r.advances.length+' entry) — deduct hoga</div><br>';
+
+  html+='<div class="sal-stat-grid">'
+    +'<div class="sal-stat green"><div class="sal-stat-val" style="color:#16a34a">'+s.present+'</div><div class="sal-stat-lbl">Present</div></div>'
+    +'<div class="sal-stat amber"><div class="sal-stat-val" style="color:#d97706">'+s.late+'</div><div class="sal-stat-lbl">Late</div></div>'
+    +'<div class="sal-stat purple"><div class="sal-stat-val" style="color:#7c3aed">'+s.halfDay+'</div><div class="sal-stat-lbl">Half Day</div></div>'
+    +'<div class="sal-stat red"><div class="sal-stat-val" style="color:#dc2626">'+s.absent+'</div><div class="sal-stat-lbl">Absent</div></div>'
+    +(s.sandwich>0?'<div class="sal-stat orange"><div class="sal-stat-val" style="color:#ea580c">'+s.sandwich+'</div><div class="sal-stat-lbl">🥪 Sandwich</div></div>':'')
+    +(r.totalAdvance>0?'<div class="sal-stat adv"><div class="sal-stat-val" style="color:#c2410c">₹'+fmt(r.totalAdvance)+'</div><div class="sal-stat-lbl">Advance</div></div>':'')
+    +'</div>';
+
+  html+='<table class="slip-table">'
+    +'<tr class="sep"><td colspan="2">Earnings</td></tr>'
+    +'<tr><td class="lbl">Monthly gross salary</td><td class="val">₹'+fmt(r.monthlySalary)+'</td></tr>'
+    +'<tr><td class="lbl">Per day rate (÷ '+r.baseDays+' days)</td><td class="val">₹'+fmt(r.perDaySalary)+'</td></tr>'
+    +'<tr class="sep"><td colspan="2">Deductions</td></tr>'
+    +'<tr><td class="lbl">Absent ('+s.absent+' days × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.absent*r.perDaySalary))+'</td></tr>'
+    +'<tr><td class="lbl">Half Day ('+s.halfDay+' × 0.5 × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</td></tr>';
+
+  if(r.totalAdvance>0){
+    for(var a=0;a<r.advances.length;a++){
+      html+='<tr><td class="lbl">💸 Advance — '+escH(r.advances[a].date.substring(0,10))+(r.advances[a].note?' ('+escH(r.advances[a].note)+')':'')+'</td><td class="val amber">− ₹'+fmt(r.advances[a].amount)+'</td></tr>';
+    }
+  }
+
+  if(s.sandwich>0)
+    html+='<tr><td class="lbl">🥪 Sandwich ('+s.sandwich+' day — included in absent)</td><td class="val red">Counted above</td></tr>';
+
+  html+='<tr class="sep"><td colspan="2">Summary</td></tr>'
+    +'<tr><td class="lbl"><strong>Total deduction ('+r.totalDeductionDays+' days)</strong></td><td class="val red"><strong>− ₹'+fmt(r.deductionAmount)+'</strong></td></tr>'
+    +(r.totalAdvance>0?'<tr><td class="lbl"><strong>Total advance</strong></td><td class="val amber"><strong>− ₹'+fmt(r.totalAdvance)+'</strong></td></tr>':'')
+    +'<tr><td class="lbl">Paid days</td><td class="val green">'+r.totalPaidDays+' / '+r.baseDays+' days</td></tr>'
+    +'</table>';
+
+  html+='<div class="slip-net"><div class="slip-net-lbl">💰 Net Payable Salary</div><div class="slip-net-val">₹'+fmt(r.netSalary)+'</div></div>';
+
+  // Calendar
+  html+='<div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.4rem">📅 Attendance Calendar — '+mName+' '+r.year+'</div>';
+  html+='<div class="month-grid">';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(d){ html+='<div class="day-head">'+d+'</div>'; });
+  var firstDow=new Date(r.year,r.month-1,1).getDay();
+  for(var k=0;k<firstDow;k++) html+='<div class="day empty"></div>';
+  for(var i=0;i<r.days.length;i++){
+    var d=r.days[i], cls='gray', label=d.status;
+    if(d.status==='Present'){cls='green';label='✓ '+d.time;}
+    else if(d.status==='Late'){cls='amber';label='⏰ '+d.time;}
+    else if(d.status==='Half Day'){cls='purple';label='½ '+d.time;}
+    else if(d.status==='Absent'||d.status==='Absent (Sandwich)'){cls='red';label='✗'+(d.sandwichApplied?' 🥪':'');}
+    else if(d.status==='Incomplete'){cls='orange';label='?';}
+    else if(d.status==='Weekly Off'){cls='gray';label='Off';}
+    else if(d.status==='Future'){cls='future';label='—';}
+    var hrs=(d.hoursWorked&&d.hoursWorked!=='—')?'<div class="day-hrs">⏱ '+d.hoursWorked+'</div>':'';
+    html+='<div class="day '+cls+'"><div class="day-num">'+d.day+'</div><div class="day-st">'+label+'</div>'+hrs+'</div>';
+  }
+  html+='</div>';
+  html+='<div class="legend" style="margin-top:.75rem">'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#86efac"></div>Present</div>'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#fde68a"></div>Late</div>'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#d8b4fe"></div>Half Day</div>'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#fecaca"></div>Absent</div>'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#e2e8f0"></div>Weekly Off</div>'
+    +'</div>';
+
+  html+='<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem;flex-wrap:wrap">'
+    +'<button class="btn btn-sm btn-ghost" onclick="downloadSalCSV()">📥 Download CSV</button>'
+    +'<button class="btn btn-sm btn-purple" onclick="printSalarySlip()">🖨️ Print Salary Slip</button>'
+    +'</div>';
+
+  document.getElementById('salaryResult').innerHTML=html;
+  window._lastSalary=r;
+}
+
+/* ─── MONTHLY REPORT ─── */
+function setupReportSelectors(){
+  var now=new Date();
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var ms=document.getElementById('monthSel'); ms.innerHTML='';
+  for(var i=0;i<12;i++){ var o=document.createElement('option'); o.value=(i+1); o.textContent=months[i]; if(i===now.getMonth())o.selected=true; ms.appendChild(o); }
+  var ys=document.getElementById('yearSel'); ys.innerHTML='';
+  for(var y=now.getFullYear()-2;y<=now.getFullYear()+1;y++){ var o2=document.createElement('option'); o2.value=y; o2.textContent=y; if(y===now.getFullYear())o2.selected=true; ys.appendChild(o2); }
+}
+
+var selectedReportEmp=null;
+function filterEmpSuggestions(){
+  var q=(document.getElementById('empSearch').value||'').toLowerCase().trim();
+  var box=document.getElementById('empSuggestions');
+  if(!ACT_EMPS.length){box.style.display='none';return;}
+  var matches=ACT_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1;}).slice(0,12);
+  if(!matches.length){box.style.display='none';return;}
+  var html='';
+  for(var i=0;i<matches.length;i++)
+    html+='<div style="padding:.65rem 1rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.85rem" onmouseover="this.style.background=\'#f8faff\'" onmouseout="this.style.background=\'#fff\'" onclick="pickEmp(\''+escH(matches[i].name)+'\',\''+escH(matches[i].role||'')+'\')" ><strong>'+escH(matches[i].name)+'</strong> <span style="color:#6b7280">— '+escH(matches[i].role||'')+'</span></div>';
+  box.innerHTML=html; box.style.display='block';
+}
+function pickEmp(name,role){ selectedReportEmp={name:name,role:role}; document.getElementById('empSearch').value=name; document.getElementById('empSuggestions').style.display='none'; reloadReport(); }
+function reloadReport(){
+  if(!selectedReportEmp) return;
+  var month=parseInt(document.getElementById('monthSel').value,10);
+  var year=parseInt(document.getElementById('yearSel').value,10);
+  document.getElementById('reportContent').innerHTML='<div class="empty-state"><div class="spin" style="border-top-color:#1a237e;border-color:rgba(26,35,126,.2)"></div><div style="margin-top:.5rem">Loading…</div></div>';
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} renderReport(r,month,year); })
+    .withFailureHandler(function(){ toast('Could not load report','err'); })
+    .getMonthlyReport(PWD,selectedReportEmp.name,year,month);
+}
+
+function renderReport(r,month,year){
+  var emp=selectedReportEmp, stats=r.stats;
+  var mName=['January','February','March','April','May','June','July','August','September','October','November','December'][month-1];
+  var html='';
+  html+='<div class="summary-name">👤 '+escH(emp.name)+'</div>';
+  html+='<div class="summary-role">'+escH(emp.role)+' · '+mName+' '+year+'</div>';
+  html+='<div class="stat-grid">'
+    +'<div class="stat green"><div class="stat-val">'+stats.present+'</div><div class="stat-lbl">Present</div></div>'
+    +'<div class="stat amber"><div class="stat-val">'+stats.late+'</div><div class="stat-lbl">Late</div></div>'
+    +'<div class="stat purple"><div class="stat-val">'+stats.halfDay+'</div><div class="stat-lbl">Half Days</div></div>'
+    +'<div class="stat red"><div class="stat-val">'+stats.absent+'</div><div class="stat-lbl">Absent</div></div>'
+    +'<div class="stat gray"><div class="stat-val">'+stats.weeklyOff+'</div><div class="stat-lbl">Weekly Off</div></div>'
+    +'<div class="stat orange"><div class="stat-val">'+(stats.incomplete||0)+'</div><div class="stat-lbl">Incomplete</div></div>'
+    +'<div class="stat"><div class="stat-val">'+stats.paidDays+'</div><div class="stat-lbl">Paid Days</div></div>'
+    +'</div>';
+  html+='<div class="month-grid"><div class="day-head">Sun</div><div class="day-head">Mon</div><div class="day-head">Tue</div><div class="day-head">Wed</div><div class="day-head">Thu</div><div class="day-head">Fri</div><div class="day-head">Sat</div>';
+  var firstDow=new Date(year,month-1,1).getDay();
+  for(var k=0;k<firstDow;k++) html+='<div class="day empty"></div>';
+  for(var i=0;i<r.days.length;i++){
+    var d=r.days[i], cls='gray', label=d.status;
+    if(d.status==='Present'){cls='green';label='✓ '+d.time;}
+    else if(d.status==='Late'){cls='amber';label='⏰ '+d.time;}
+    else if(d.status==='Half Day'){cls='purple';label='½ '+d.time;}
+    else if(d.status==='Absent'){cls='red';label='✗ Absent';}
+    else if(d.status==='Incomplete'){cls='orange';label='? '+d.time;}
+    else if(d.status==='Weekly Off'){cls='gray';label='🛌 Off';}
+    else if(d.status==='—'){cls='future';label='—';}
+    var hrs=(d.hoursWorked&&d.hoursWorked!=='—')?'<div class="day-hrs">⏱ '+d.hoursWorked+'</div>':'';
+    html+='<div class="day '+cls+'"><div class="day-num">'+d.day+'</div><div class="day-st">'+label+'</div>'+hrs+'</div>';
+  }
+  html+='</div>';
+  html+='<div style="margin-top:1.2rem;display:flex;gap:.6rem;justify-content:flex-end;flex-wrap:wrap">'
+    +'<button class="btn btn-sm btn-ghost" onclick="downloadCSV()">📥 CSV</button>'
+    +'<button class="btn btn-sm btn-purple" onclick="downloadPDF()">📄 PDF</button>'
+    +'</div>';
+  document.getElementById('reportContent').innerHTML=html;
+  window._lastReport={emp:emp,days:r.days,stats:stats,month:month,year:year,monthName:mName};
+}
+
+/* ─── STREAK ─── */
+function loadStreak(days){
+  if(!days||days<1||isNaN(days)){toast('Valid number of days daalo','err');return;}
+  document.querySelectorAll('.streak-day-btn').forEach(function(b){ b.classList.remove('active'); if(b.textContent.trim()===days+' Day'||b.textContent.trim()===days+' Days') b.classList.add('active'); });
+  document.getElementById('streakResult').innerHTML='<div class="empty-state"><div class="spin" style="border-top-color:#dc2626;border-color:rgba(220,38,38,.2)"></div><div style="margin-top:.5rem;color:#dc2626;font-weight:600">Last '+days+' working days check ho raha hai…</div></div>';
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} if(r.status==='error'){toast('❌ '+(r.msg||'Failed'),'err');return;} renderStreak(r); })
+    .withFailureHandler(function(){toast('Could not load streak data','err');})
+    .getAbsentStreak(PWD,days);
+}
+
+function renderStreak(r){
+  var html='', count=r.employees.length;
+  if(!count){
+    html+='<div class="streak-info all-good"><div class="streak-info-icon">🎉</div><div><div class="streak-info-title">Sabhi aa rahe hain!</div><div class="streak-info-sub">Koi bhi '+r.days+' working days se absent nahi ('+r.fromDate+' se '+r.toDate+')</div></div></div>';
+  } else {
+    html+='<div class="streak-info"><div class="streak-info-icon">🚨</div><div><div class="streak-info-title">'+count+' employee '+r.days+' din se absent</div><div class="streak-info-sub">'+r.fromDate+' se '+r.toDate+' ('+r.workingDays+' working days)</div></div></div>';
+    html+='<div class="streak-emp-grid">';
+    for(var i=0;i<r.employees.length;i++){
+      var e=r.employees[i], w=e.name.split(' '), ini=(w[0][0]+(w[1]?w[1][0]:'')).toUpperCase();
+      html+='<div class="streak-emp-card"><div class="streak-emp-avatar">'+ini+'</div><div><div class="streak-emp-name">'+escH(e.name)+'</div><div class="streak-emp-role">'+escH(e.role)+'</div></div></div>';
+    }
+    html+='</div>';
+  }
+  document.getElementById('streakResult').innerHTML=html;
+}
+
+var selectedStreakEmp='';
+function filterStreakEmpSuggestions(){
+  var q=(document.getElementById('streakEmpSearch').value||'').toLowerCase().trim();
+  var box=document.getElementById('streakEmpSuggestions');
+  if(!ACT_EMPS.length){box.style.display='none';return;}
+  var matches=ACT_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1;}).slice(0,10);
+  if(!matches.length){box.style.display='none';return;}
+  var html='';
+  for(var i=0;i<matches.length;i++)
+    html+='<div style="padding:.6rem 1rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.85rem" onmouseover="this.style.background=\'#f8faff\'" onmouseout="this.style.background=\'#fff\'" onclick="pickStreakEmp(\''+escH(matches[i].name)+'\')" ><strong>'+escH(matches[i].name)+'</strong> <span style="color:#6b7280">— '+escH(matches[i].role||'')+'</span></div>';
+  box.innerHTML=html; box.style.display='block';
+}
+function pickStreakEmp(name){ selectedStreakEmp=name; document.getElementById('streakEmpSearch').value=name; document.getElementById('streakEmpSuggestions').style.display='none'; }
+function loadEmployeeStreak(){
+  var name=selectedStreakEmp||document.getElementById('streakEmpSearch').value.trim();
+  if(!name){toast('Pehle employee select karo','err');return;}
+  selectedStreakEmp=name;
+  document.getElementById('empStreakResult').innerHTML='<div class="empty-state" style="padding:1.5rem"><div class="spin" style="border-top-color:#1a237e;border-color:rgba(26,35,126,.2)"></div></div>';
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} if(r.status==='error'){toast('❌ '+(r.msg||'Failed'),'err');return;} renderEmpStreak(r); })
+    .withFailureHandler(function(){toast('Could not load','err');})
+    .getEmployeeStreak(PWD,name);
+}
+function renderEmpStreak(r){
+  var role=''; for(var i=0;i<ACT_EMPS.length;i++){if(ACT_EMPS[i].name.toLowerCase()===r.employeeName.toLowerCase()){role=ACT_EMPS[i].role;break;}}
+  var words=r.employeeName.split(' '), initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
+  var cs=r.currentStreak;
+  var html='<div class="emp-streak-header"><div class="emp-streak-avatar">'+initials+'</div><div><div style="font-size:1rem;font-weight:800;color:#fff">'+escH(r.employeeName)+'</div><div style="font-size:.72rem;color:rgba(255,255,255,.72)">'+escH(role)+'</div></div></div>';
+  html+='<div style="display:inline-flex;align-items:center;gap:.5rem;padding:.55rem 1rem;border-radius:10px;font-size:.82rem;font-weight:800;margin-bottom:1rem;background:'+(cs>=7?'#fee2e2':cs>=3?'#fff7ed':'#dcfce7')+';color:'+(cs>=7?'#991b1b':cs>=3?'#c2410c':'#166534')+';border:1.5px solid '+(cs>=7?'#fecaca':cs>=3?'#fed7aa':'#86efac')+'">'+( cs===0?'✅ Abhi absent streak nahi hai':(cs>=7?'🚨':'⚠️')+' Current absent streak: '+cs+' working day'+(cs>1?'s':''))+'</div>';
+  html+='<div class="streak-timeline">';
+  for(var i=0;i<r.days.length;i++){
+    var d=r.days[i], cls,icon,st;
+    if(d.status==='Present'){cls='present';icon='✅';st='Present';}
+    else if(d.status==='Late'){cls='late';icon='⏰';st='Late';}
+    else if(d.status==='Half Day'){cls='halfday';icon='🟣';st='Half Day';}
+    else{cls='absent';icon='❌';st='Absent';}
+    var ti=d.time?('In: '+d.time):'';
+    if(d.checkoutTime&&d.checkoutTime!=='—') ti+=(ti?' · ':'')+'Out: '+d.checkoutTime;
+    html+='<div class="streak-day-row '+cls+'"><div class="sdr-date">'+d.date+'</div><div class="sdr-status">'+icon+' '+st+'</div><div class="sdr-time">'+ti+'</div><div class="sdr-hours">'+(d.hoursWorked&&d.hoursWorked!=='—'?d.hoursWorked:'')+'</div></div>';
+  }
+  html+='</div>';
+  document.getElementById('empStreakResult').innerHTML=html;
+}
+
+/* ─── EMPLOYEE LIST ─── */
+function loadEmployeeList(){
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} ALL_EMPS=r.employees||[]; renderEmpList(); })
+    .withFailureHandler(function(){toast('Could not load employees','err');})
+    .getAllEmployees(PWD);
+}
+function loadActiveEmployees(){
+  VT.run.withSuccessHandler(function(list){ ACT_EMPS=list||[]; }).getEmployees();
+}
+function renderEmpList(){
+  var q=(document.getElementById('empListSearch').value||'').toLowerCase().trim();
+  var filtered=ALL_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1||(e.role||'').toLowerCase().indexOf(q)!==-1;});
+  var ac=ALL_EMPS.filter(function(e){return e.active;}).length;
+  document.getElementById('empCountSub').textContent=ac+' active · '+(ALL_EMPS.length-ac)+' removed · '+ALL_EMPS.length+' total';
+  if(!filtered.length){document.getElementById('empListBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">No match</td></tr>';return;}
+  var rows='';
+  for(var i=0;i<filtered.length;i++){
+    var e=filtered[i];
+    var pill=e.active?'<span class="pill green">Active</span>':'<span class="pill gray">Removed</span>';
+    var action=e.active?'<button class="btn btn-sm btn-danger" onclick="doDeleteEmployee(\''+escH(e.name)+'\')">🗑️ Remove</button>':'<button class="btn btn-sm btn-ghost" onclick="doReactivate(\''+escH(e.name)+'\',\''+escH(e.role||'')+'\')">↩️ Restore</button>';
+    rows+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'—')+'</td><td>'+pill+'</td><td>'+escH(e.addedOn||'—')+'</td><td style="text-align:right">'+action+'</td></tr>';
+  }
+  document.getElementById('empListBody').innerHTML=rows;
+}
+function doAddEmployee(){
+  var name=document.getElementById('newEmpName').value.trim();
+  var role=document.getElementById('newEmpRole').value.trim();
+  if(!name){toast('Name is required','err');return;}
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='ok'||r.status==='reactivated'){ toast((r.status==='ok'?'✅ Added: ':'↩️ Restored: ')+r.name,'ok'); document.getElementById('newEmpName').value=''; document.getElementById('newEmpRole').value=''; loadEmployeeList(); loadActiveEmployees(); }
+      else{toast('❌ '+(r.msg||'Failed'),'err');}
+    })
+    .withFailureHandler(function(){toast('Connection error','err');})
+    .addEmployee(PWD,name,role);
+}
+function doDeleteEmployee(name){
+  if(!confirm('Remove "'+name+'"?\nPast attendance stays. You can restore anytime.')) return;
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} if(r.status==='ok'){toast('🗑️ Removed: '+name,'ok');loadEmployeeList();loadActiveEmployees();} else{toast('❌ '+(r.msg||'Failed'),'err');} })
+    .withFailureHandler(function(){toast('Connection error','err');})
+    .deleteEmployee(PWD,name);
+}
+function doReactivate(name,role){
+  VT.run
+    .withSuccessHandler(function(r){if(r.status==='unauthorized'){logout();return;} toast('↩️ Restored: '+name,'ok'); loadEmployeeList(); loadActiveEmployees();})
+    .addEmployee(PWD,name,role);
+}
+
+/* ─── AUTOCOMPLETE HELPERS ─── */
+function filterSalSetSuggestions(){
+  showSug('salSetEmp','salSetSuggestions',function(name,role){ document.getElementById('salSetEmp').value=name; document.getElementById('salSetSuggestions').style.display='none'; });
+}
+function filterAdvEmpSuggestions(){
+  showSug('advEmpName','advEmpSuggestions',function(name,role){ document.getElementById('advEmpName').value=name; document.getElementById('advEmpSuggestions').style.display='none'; });
+}
+function showSug(inputId,boxId,onPick){
+  var q=(document.getElementById(inputId).value||'').toLowerCase().trim();
+  var box=document.getElementById(boxId);
+  if(!ACT_EMPS.length){box.style.display='none';return;}
+  var matches=ACT_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1;}).slice(0,10);
+  if(!matches.length){box.style.display='none';return;}
+  var html='';
+  for(var i=0;i<matches.length;i++){
+    (function(name,role){
+      html+='<div style="padding:.6rem 1rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.85rem" onmouseover="this.style.background=\'#f8faff\'" onmouseout="this.style.background=\'#fff\'" onclick="('+onPick.toString()+'(\''+escH(name)+'\',\''+escH(role||'')+'\'))" ><strong>'+escH(name)+'</strong> <span style="color:#6b7280">— '+escH(role||'')+'</span></div>';
+    })(matches[i].name, matches[i].role||'');
+  }
+  box.innerHTML=html; box.style.display='block';
+}
+
+/* ─── PRINT / CSV ─── */
+function downloadCSV(){
+  var rep=window._lastReport; if(!rep) return;
+  var lines=['Vardhman Traders - Monthly Attendance Report','Employee,'+csvS(rep.emp.name),'Role,'+csvS(rep.emp.role),'Month,'+rep.monthName+' '+rep.year,'','Day,Date,Status,Check-in,Check-out,Hours'];
+  for(var i=0;i<rep.days.length;i++){var d=rep.days[i]; lines.push(d.day+','+d.dayName+','+csvS(d.status)+','+(d.time||'')+','+(d.checkoutTime||'—')+','+(d.hoursWorked||'—'));}
+  lines.push('','Summary','Present,'+rep.stats.present,'Late,'+rep.stats.late,'Half Day,'+rep.stats.halfDay,'Absent,'+rep.stats.absent,'Paid Days,'+rep.stats.paidDays);
+  dl(lines.join('\n'),rep.emp.name.replace(/[^a-zA-Z0-9]/g,'_')+'_'+rep.monthName+'_'+rep.year+'.csv');
+}
+function downloadPDF(){ window.print(); }
+
+function printSalarySlip(){
+  var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mName=months[r.month-1]; var s=r.stats;
+  var html='<div style="font-family:sans-serif;padding:24px;max-width:700px;margin:0 auto">';
+  html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #1a237e"><div style="width:50px;height:50px;background:#1a237e;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.2rem">VT</div><div><div style="font-size:1.3rem;font-weight:900;color:#1a237e">Vardhman Traders</div><div style="font-size:.75rem;color:#6b7280">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
+  html+='<div style="margin-bottom:14px"><div style="font-size:1rem;font-weight:800">'+escH(r.employeeName)+'</div><div style="font-size:.78rem;color:#6b7280">Monthly Gross: ₹'+fmt(r.monthlySalary)+' | Per Day (÷'+r.baseDays+'): ₹'+fmt(r.perDaySalary)+'</div></div>';
+  if(r.totalAdvance>0) html+='<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 12px;font-size:.75rem;color:#dc2626;font-weight:700;margin-bottom:12px">💸 Advance deducted: ₹'+fmt(r.totalAdvance)+'</div>';
+  html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
+  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Earnings</td></tr>';
+  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280;width:55%">Gross Salary</td><td style="text-align:right;font-weight:800;padding:7px 10px">₹'+fmt(r.monthlySalary)+'</td></tr>';
+  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Per Day (÷ '+r.baseDays+')</td><td style="text-align:right;font-weight:800;padding:7px 10px">₹'+fmt(r.perDaySalary)+'</td></tr>';
+  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Deductions</td></tr>';
+  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Absent ('+s.absent+' days)</td><td style="text-align:right;font-weight:800;color:#dc2626;padding:7px 10px">− ₹'+fmt(Math.round(s.absent*r.perDaySalary))+'</td></tr>';
+  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Half Day ('+s.halfDay+' × 0.5)</td><td style="text-align:right;font-weight:800;color:#dc2626;padding:7px 10px">− ₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</td></tr>';
+  if(r.totalAdvance>0) html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Advance ('+r.advances.length+' entry)</td><td style="text-align:right;font-weight:800;color:#c2410c;padding:7px 10px">− ₹'+fmt(r.totalAdvance)+'</td></tr>';
+  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Summary</td></tr>';
+  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Paid Days</td><td style="text-align:right;font-weight:800;color:#16a34a;padding:7px 10px">'+r.totalPaidDays+' / '+r.baseDays+'</td></tr>';
+  html+='</table>';
+  html+='<div style="background:#1a237e;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:.85rem;font-weight:700;color:rgba(255,255,255,.8)">💰 Net Payable Salary</div><div style="font-size:1.5rem;font-weight:900;color:#fff">₹'+fmt(r.netSalary)+'</div></div>';
+  html+='<div style="font-size:.6rem;color:#9ca3af;text-align:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:10px">Vardhman Traders · Salary Slip · '+mName+' '+r.year+' · Confidential</div>';
+  html+='</div>';
+  document.getElementById('salPrintArea').innerHTML=html;
+  document.getElementById('salPrintArea').style.display='block';
+  setTimeout(function(){ window.print(); },200);
+}
+
+function downloadSalCSV(){
+  var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mName=months[r.month-1];
+  var lines=['Vardhman Traders — Salary Slip','Employee,'+csvS(r.employeeName),'Month,'+mName+' '+r.year,'','Gross Salary,'+r.monthlySalary,'Per Day Rate (÷'+r.baseDays+'),'+r.perDaySalary,'Total Deduction Days,'+r.totalDeductionDays,'Deduction Amount,'+r.deductionAmount,'Advance,'+r.totalAdvance,'Net Salary,'+r.netSalary,'Paid Days,'+r.totalPaidDays,'','Attendance','Present,'+r.stats.present,'Late,'+r.stats.late,'Half Day,'+r.stats.halfDay,'Absent,'+r.stats.absent];
+  if(r.advances.length){lines.push('','Advance Details','Date,Amount,Note');for(var a=0;a<r.advances.length;a++) lines.push(csvS(r.advances[a].date)+','+r.advances[a].amount+','+csvS(r.advances[a].note||''));}
+  dl(lines.join('\n'),r.employeeName.replace(/[^a-zA-Z0-9]/g,'_')+'_Salary_'+mName+'_'+r.year+'.csv');
+}
+
+function dl(text,filename){
+  var blob=new Blob([text],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+/* ─── PIN MANAGEMENT ─── */
+function loadPINList(){
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      renderPINList(r.pins||[], ACT_EMPS);
+    })
+    .withFailureHandler(function(){ })
+    .getAllPINs(PWD);
+}
+
+function renderPINList(pins, emps){
+  var content=document.getElementById('pinListContent');
+  if(!content) return;
+  var pinMap={};
+  for(var p=0;p<pins.length;p++) pinMap[pins[p].name.toLowerCase().trim()]=pins[p].pin;
+
+  if(!emps.length){ content.innerHTML='<div class="empty-state"><span class="emoji">👥</span><div>Koi employee nahi</div></div>'; return; }
+
+  var withPin=0, html='';
+  html+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Role</th><th>PIN Status</th><th style="text-align:right">Action</th></tr></thead><tbody>';
+  for(var i=0;i<emps.length;i++){
+    var e=emps[i];
+    var pin=pinMap[e.name.toLowerCase().trim()]||'';
+    if(pin) withPin++;
+    var statusCell=pin
+      ?'<span class="pill green">Set ✓</span>'
+      :'<span class="pill red">Not Set</span>';
+    html+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'')+'</td><td>'+statusCell+'</td>'
+      +'<td style="text-align:right"><button class="btn btn-sm btn-ghost" onclick="prefillPIN(\''+escH(e.name)+'\',\''+pin+'\')">'+(pin?'✏️ Change':'➕ Set')+'</button></td></tr>';
+  }
+  html+='</tbody></table></div>';
+  html='<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+withPin+' PIN set · '+(emps.length-withPin)+' pending</div>'+html;
+  content.innerHTML=html;
+}
+
+function prefillPIN(name, pin){
+  document.getElementById('pinSetEmp').value=name;
+  document.getElementById('pinSetValue').value='';
+  document.getElementById('pinSetEmp').scrollIntoView({behavior:'smooth',block:'center'});
+  document.getElementById('pinSetValue').focus();
+}
+
+function doSetPIN(){
+  var name=document.getElementById('pinSetEmp').value.trim();
+  var pin=document.getElementById('pinSetValue').value.trim();
+  if(!name){ toast('Employee naam daalo','err'); return; }
+  if(!pin||pin.length<4){ toast('PIN kam se kam 4 digits ka hona chahiye','err'); return; }
+  if(!/^\d+$/.test(pin)){ toast('PIN sirf numbers mein hona chahiye','err'); return; }
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='ok'){
+        toast('🔐 PIN set for '+name,'ok');
+        document.getElementById('pinSetEmp').value='';
+        document.getElementById('pinSetValue').value='';
+        loadPINList();
+      } else { toast('❌ '+(r.msg||'Failed'),'err'); }
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .setEmployeePIN(PWD,name,pin);
+}
+
+function filterPinSetSuggestions(){
+  showSug('pinSetEmp','pinSetSuggestions',function(name,role){ document.getElementById('pinSetEmp').value=name; document.getElementById('pinSetSuggestions').style.display='none'; });
+}
+
+/* ─── UTILS ─── */
+function fmt(n){ return Math.round(Number(n)).toLocaleString('en-IN'); }
+function escH(s){ return (s||'').toString().replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function csvS(s){ s=(s||'').toString(); return (s.indexOf(',')!==-1||s.indexOf('"')!==-1||s.indexOf('\n')!==-1)?'"'+s.replace(/"/g,'""')+'"':s; }
+function toast(msg,kind){ var t=document.getElementById('toast'); t.textContent=msg; t.className='toast show '+(kind||''); setTimeout(function(){t.className='toast';},2800); }
+
+document.addEventListener('click',function(e){
+  var boxes=['empSuggestions','salSetSuggestions','salCalcSuggestions','advEmpSuggestions','streakEmpSuggestions','pinSetSuggestions'];
+  boxes.forEach(function(id){ var b=document.getElementById(id); if(b&&!e.target.closest('[id="'+id+'"]')&&e.target.id!==id.replace('Suggestions','')) b.style.display='none'; });
+});
+</script>
+</body>
+</html>

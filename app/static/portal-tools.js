@@ -706,7 +706,7 @@ async function renderReconcile(panel, tab) {
   const dupBox = h('div');
 
   // the flags of a master list (checkbox / choice / number), as form fields
-  const masterFields = (row) => (mdef ? mdef.fields : []).map((f) => ({ name: f.name, label: f.label, type: f.type === 'number' ? 'number' : f.type,
+  const masterFields = (row) => (mdef ? mdef.fields : []).map((f) => ({ name: f.name, label: f.label, type: f.type === 'decimal' ? 'number' : f.type, step: f.type === 'decimal' ? 'any' : undefined, maxlength: f.max && f.type === 'text' ? f.max : undefined,
     options: f.options && f.options.map(([v, l]) => [v === null ? '' : String(v), l]),
     value: row ? (f.type === 'select' ? (row[f.name] == null ? '' : String(row[f.name])) : row[f.name]) : (f.type === 'select' && f.options ? String(f.options[0][0] ?? '') : (f.type === 'bool' ? false : '')) }));
   const masterBody = (v, name) => { const b = { name }; (mdef ? mdef.fields : []).forEach((f) => { b[f.name] = f.type === 'select' ? (v[f.name] === '' ? null : (isNaN(Number(v[f.name])) ? v[f.name] : Number(v[f.name]))) : v[f.name]; }); return b; };
@@ -773,6 +773,10 @@ async function renderReconcile(panel, tab) {
       onSubmit: async (vals) => { await api('/admin/people/' + v.key, { method: 'PUT', body: { full_name: vals.full_name, phone_number: vals.phone_number || null, dispatch_scope: vals.dispatch_scope || 'both' } }); reload(); } });
       return;
     }
+    if (v.protected && screenOpts) {      // a built-in value: its name and routing are fixed, only the screens that offer it can change
+      return formDialog({ title: '“' + (v.label || v.name) + '” - offered on', fields: [screenField(screensOf.get(v.key))],
+        onSubmit: async (vals) => { await api(`/admin/lookups/${slug}/${v.key}`, { method: 'PUT', body: { name: v.name, screens: screensBody(vals, screensOf.get(v.key)) } }); reload(); } });
+    }
     if (screenOpts || extraFields) {
       return formDialog({ title: 'Edit “' + v.name + '”', fields: [{ name: 'name', label: 'Name', value: v.name, required: true, maxlength: 100,
         hint: `Changes it on all ${fmtInt(v.orders)} order(s) that use it. If this spelling already exists, use Merge instead.` },
@@ -836,7 +840,8 @@ async function renderReconcile(panel, tab) {
         screenOpts ? h('td', { text: screenLabel(v) }) : null,
         ...(extraFields ? extraFields.map((f) => h('td', { text: extraLabel(v.key, f) })) : []),
         h('td', { class: 'num', text: fmtInt(v.orders) }),
-        h('td', {}, v.protected ? h('span', { class: 'note', text: 'Used by order rules' }) : h('div', { class: 'row' },
+        h('td', {}, v.protected ? h('div', { class: 'row' }, h('span', { class: 'note', text: 'Used by order rules' }),
+          screenOpts ? h('button', { class: 'btn small', text: 'Offered on', onclick: () => openEdit(v) }) : null) : h('div', { class: 'row' },
           isNew(v) ? h('button', { class: 'btn small primary', text: 'Approve', onclick: async () => { try { await api(`/admin/masters/${master.id}/${v.key}/approve`, { method: 'POST' }); reload(); } catch (ex) { alert(ex.message); } } }) : null,
           h('button', { class: 'btn small', text: role || master ? 'Edit' : 'Rename', onclick: () => openEdit(v) }),
           h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) })))].filter(Boolean));
@@ -873,13 +878,19 @@ async function renderModuleSettings(panel) {
   list.forEach((s) => { (groups[s.group] = groups[s.group] || []).push(s); });
   const cards = Object.entries(groups).map(([group, items]) => h('div', { class: 'card', style: 'margin-bottom:16px' },
     h('h2', { style: 'font-size:15px;margin-bottom:6px', text: group }),
-    h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Changes apply to new activity straight away. Scores already given are not recalculated.' }),
+    h('p', { class: 'note', style: 'margin-bottom:10px', text: group === 'Delegation' ? 'Changes apply to new activity straight away. Scores already given are not recalculated.' : 'Changes apply straight away.' }),
     ...items.map((s) => {
-      const input = h('input', { type: 'number', value: String(s.value), min: String(s.min), max: String(s.max), id: 'set_' + s.key, 'aria-label': s.label, style: 'max-width:110px' });
+      const isNum = s.type === 'int' || s.type === 'number';
+      const input = s.type === 'textarea'
+        ? h('textarea', { rows: '4', maxlength: String(s.max || 600), id: 'set_' + s.key, 'aria-label': s.label, style: 'min-width:260px;flex:1;font-family:inherit' })
+        : h('input', { type: isNum ? 'number' : s.type === 'time' ? 'time' : 'text', value: String(s.value),
+          ...(isNum ? { min: String(s.min), max: String(s.max), ...(s.type === 'number' ? { step: 'any' } : {}) } : { maxlength: String(s.max || 300) }),
+          id: 'set_' + s.key, 'aria-label': s.label, style: isNum || s.type === 'time' ? 'max-width:140px' : 'min-width:260px;flex:1' });
+      if (s.type === 'textarea') input.value = String(s.value);
       const msg = h('span', { class: 'msg' });
       const save = h('button', { class: 'btn small', text: 'Save', onclick: async () => {
         msg.className = 'msg'; msg.textContent = '';
-        try { await api('/admin/module-settings', { method: 'PUT', body: { key: s.key, value: Number(input.value) } }); msg.textContent = 'Saved'; }
+        try { await api('/admin/module-settings', { method: 'PUT', body: { key: s.key, value: isNum ? Number(input.value) : input.value } }); msg.textContent = 'Saved'; }
         catch (ex) { msg.className = 'msg error'; msg.textContent = ex.message; }
       } });
       return h('div', { class: 'row', style: 'margin:8px 0;align-items:center;gap:10px;flex-wrap:wrap' }, h('label', { style: 'flex:1;min-width:220px', text: s.label }), input, save, msg);
