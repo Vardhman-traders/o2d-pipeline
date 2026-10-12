@@ -1051,6 +1051,17 @@
       if (!d || !d.ok || !d.series) return;                                  // this submission type is not a numbered bill
       if (document.getElementById('shop_dcNo').value.trim() !== no) return;  // typed on since
       var series = d.series;
+      if (d.badFormat) { warn.style.color = 'var(--red)'; warn.textContent = 'This type needs both numbers: ' + d.help + '.'; return; }
+      if (series === 'Both' && d.parts) {
+        var msgs = [], bad = false;
+        d.parts.forEach(function (p) {
+          if (p.duplicate) { bad = true; msgs.push(p.series + ' ' + p.number + ' is already used' + (p.series === 'Challan' ? ' for this date.' : ' this financial year.')); }
+          else if (p.skipped && p.skipped.length) msgs.push('Last ' + p.series.toLowerCase() + ' number is ' + p.last + '. Not yet punched: ' + p.skipped.join(', ') + '.');
+        });
+        warn.style.color = bad ? 'var(--red)' : 'var(--amber)';
+        warn.textContent = msgs.join(' ');
+        return;
+      }
       if (d.notDigits) { warn.style.color = 'var(--red)'; warn.textContent = series + ' number must be digits only.'; return; }
       if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = series + ' ' + no + ' is already used' + (series === 'Challan' ? ' for this date.' : ' this financial year.'); }
       else if (d.skipped && d.skipped.length) {

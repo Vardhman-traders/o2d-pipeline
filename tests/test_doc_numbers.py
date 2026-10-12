@@ -15,7 +15,8 @@ class FakeCur:
 
     def execute(self, sql, params=()):
         if "FROM v_orders_archive" in sql:
-            self.rows = [{"dc_inv_no": str(n), "order_date": d} for n, d in self.present.items()]
+            bill = params[0] if params and params[0] in ("challan", "invoice") else "challan"
+            self.rows = [{"dc_inv_no": str(n), "order_date": d, "bill_series": bill} for n, d in self.present.items()]
         elif "SELECT bill_series FROM dim_submission_type" in sql:      # the admin setting: Challan / Invoice are numbered bills
             series = {"challan": "challan", "invoice": "invoice"}.get(params[0].strip().lower())
             self.rows = [{"bill_series": series}] if params[0].strip().lower() in ("challan", "invoice", "cancelled") else []

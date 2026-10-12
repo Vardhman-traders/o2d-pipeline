@@ -6,6 +6,7 @@ Same rule as the order screens decides which orders a person's report contains (
 the reports at all is the admin-set page access "o2d_reports".
 """
 import io
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from xml.sax.saxutils import escape
@@ -207,7 +208,8 @@ def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | Non
 
 
 def _doc_no_key(r: dict):
-    digits = "".join(ch for ch in str(r.get("dc_inv_no") or "") if ch.isdigit())
+    first = re.search(r"\d+", str(r.get("dc_inv_no") or ""))   # 12/345 sorts as 12
+    digits = first.group(0) if first else ""
     return (digits != "", int(digits) if digits else 0, str(r.get("dc_inv_no") or ""), r["sl_no"])
 
 
