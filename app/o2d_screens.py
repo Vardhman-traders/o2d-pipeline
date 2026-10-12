@@ -816,6 +816,13 @@ def doc_check(type_name: str, date_: date = Query(alias="date"), number: str = Q
         series = doc_numbers.series_of(cur, type_name)
         if not series:
             return {"ok": True, "series": None, "duplicate": False, "skipped": []}
+        if series == "Both":   # "12/345": each half is checked against its own series
+            parts = doc_numbers.split_both(number)
+            if not parts:
+                return {"ok": True, "series": series, "badFormat": True, "help": doc_numbers.BOTH_HELP, "duplicate": False, "skipped": []}
+            return {"ok": True, "series": series, "duplicate": False, "skipped": [],
+                    "parts": [{"series": label, "number": n, **doc_numbers.check_entry(cur, label, date_, int(n))}
+                              for label, n in (("Challan", parts[0]), ("Invoice", parts[1]))]}
         if not number.strip().isdigit():
             return {"ok": True, "series": series, "notDigits": True, "duplicate": False, "skipped": []}
         return {"ok": True, "series": series, **doc_numbers.check_entry(cur, series, date_, int(number))}

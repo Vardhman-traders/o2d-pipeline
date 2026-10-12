@@ -60,3 +60,34 @@ def test_yesterdays_challan_gaps_are_kept_apart_from_todays(client, db_conn, see
     by_day = {d["date"]: d for d in _gaps(client, shop)["challan"]}
     assert [(r["from"], r["to"]) for r in by_day[yesterday.isoformat()]["ranges"]] == [(1, 2)]
     assert [(r["from"], r["to"]) for r in by_day[today.isoformat()]["ranges"]] == [(1, 1)]
+
+
+def test_a_both_type_holds_challan_and_invoice_in_one_order(client, db_conn, seed):
+    today = o2d_screens.today_ist() - timedelta(days=8)
+    ensure_date(db_conn, today)
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO dim_submission_type (type_name, bill_series) VALUES ('Challan+Invoice', 'both') ON CONFLICT DO NOTHING")
+    db_conn.commit()
+    shop = login(client, db_conn, "shop")
+    body = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "typeOfSubmission": "Challan+Invoice"}
+    # one record carrying both numbers; each half must be a number
+    bad = client.post("/o2d/orders", json={**body, "dcNo": "12"}, headers=shop).json()
+    assert bad.get("success") is False or "slNo" not in bad
+    assert client.post("/o2d/orders", json={**body, "dcNo": "1/7000"}, headers=shop).status_code == 200
+    assert client.post("/o2d/orders", json={**body, "dcNo": "4/7002"}, headers=shop).status_code == 200
+    # it is counted in the challan series (1 and 4 -> 2, 3 missing that day) AND the invoice series (7000 and 7002 -> 7001 missing)
+    g = client.get("/o2d/doc-gaps", headers=shop).json()
+    day = next(d for d in g["challan"] if d["date"] == today.isoformat())
+    assert [(r["from"], r["to"]) for r in day["ranges"]] == [(2, 3)]
+    assert any(r["from"] <= 7001 <= r["to"] for fy in g["invoice"] for r in fy["ranges"])
+    # neither half can repeat: a plain Challan 4 that day, or another 'both' with invoice 7002, is refused
+    dup1 = client.post("/o2d/missing-entry", headers=shop, json={"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": "4",
+                                                                 "typeOfSubmission": "Challan"}).json()
+    assert dup1["success"] is False and "already used" in dup1["message"]
+    dup2 = client.post("/o2d/missing-entry", headers=shop, json={"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": "9/7002",
+                                                                 "typeOfSubmission": "Challan+Invoice"}).json()
+    assert dup2["success"] is False and "already used" in dup2["message"]
+    # the form hint checks each half
+    chk = client.get("/o2d/doc-check", params={"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "9/7001"}, headers=shop).json()
+    assert chk["series"] == "Both" and [p["series"] for p in chk["parts"]] == ["Challan", "Invoice"]
+    assert client.get("/o2d/doc-check", params={"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "9"}, headers=shop).json()["badFormat"]

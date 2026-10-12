@@ -37,7 +37,8 @@ LOOKUP_FIELDS = {
         ("amount_effect", "Amount in reports", [("", "Normal - the amount is added"), ("subtract", "Sales return - the amount is subtracted")])],
     "submission-types": [("bill_series", "Bill number series", [
         ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
-        ("invoice", "Invoice - one running series per financial year")])],
+        ("invoice", "Invoice - one running series per financial year"),
+        ("both", "Both - one entry holds the challan and invoice numbers, written 12/345")])],
 }
 
 # Which O2D screens can offer each value of a lookup list (screen id = the O2D role). A value with no screens set is offered everywhere.
