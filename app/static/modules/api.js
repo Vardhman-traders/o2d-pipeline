@@ -52,6 +52,9 @@
     saveTransaction: function (payload) { return ask('POST', '/payments/transactions', payload); },
     updateTransaction: function (txnId, payload) { return ask('PUT', '/payments/transactions/' + encodeURIComponent(txnId), payload); },
     approveTransaction: function (txnId, decision) { return ask('POST', '/payments/transactions/' + encodeURIComponent(txnId) + '/decision', { decision: decision }); },
+    getMergeQueue: function (status) { return ask('GET', '/payments/merge' + qs({ status: status })); },
+    saveMergeRow: function (key, payload) { return ask('PUT', '/payments/merge/' + key, payload); },
+    mergeRow: function (key, payload) { return ask('POST', '/payments/merge/' + key + '/merge', payload); },
     addCompany: function (name) { return ask('POST', '/payments/companies', { name: name }); },
     addParty: function (name, company, role, txnType) { return ask('POST', '/payments/parties', { name: name, company: company, txnType: txnType }); },
 

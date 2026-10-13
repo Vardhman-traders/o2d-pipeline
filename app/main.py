@@ -12,8 +12,9 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage, o2d_reports,
-               o2d_screens, payments, purchase, decor, attendance, reconcile, roles, timeline, doc_numbers, whatsapp, daily_reports)
+from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage,
+               o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles,
+               timeline, doc_numbers, whatsapp, daily_reports)
 
 
 @asynccontextmanager
@@ -514,6 +515,8 @@ def delete_order(sl_no: int, archived: bool | None = Query(default=None), admin=
 app.include_router(o2d_screens.router)
 app.include_router(attachments.router)
 app.include_router(o2d_cartage.router)
+app.include_router(o2d_cashier.router)
+app.include_router(payment_merge.router)
 app.include_router(payments.router)
 app.include_router(delegation.router)
 app.include_router(purchase.router)

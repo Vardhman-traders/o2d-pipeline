@@ -109,6 +109,8 @@
         .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
     updateCartage: write('PUT', function (sl, form) { return { path: '/o2d/cartage/' + sl, body: form }; }),
+    getCashierData: read('/o2d/cashier'),
+    confirmCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/confirm', body: form }; }),
     downloadReport: function (token, kind, from, to, person) {
       var qs = [];
       if (person) qs.push('delivered_by=' + encodeURIComponent(person));

@@ -33,7 +33,7 @@ connection and closes it when done. Re-running is safe.
 
 ## API
 ```powershell
-uvicorn app.main:app --reload      # docs at http://127.0.0.1:8000/docs
+uvicorn app.main:app --port 8020 --reload      # docs at http://127.0.0.1:8020/docs
 ```
 
 | Method | Path | Purpose |
@@ -60,6 +60,8 @@ All routes except `/health` and `/auth/login` need `Authorization: Bearer <token
 | `receiving` | delivered non-"Shop" orders missing receiving details + ones they last updated | date of receiving, payment status, amount received |
 | `admin` | every order (active and archived) | any field |
 | `cashier`, `accounts`, `cartage` | nothing by default; admin can switch on read-only viewing (Setup -> Permissions) | - |
+
+The `cashier` role also opens the O2D **Cashier dashboard** (page `o2d_cashier`, Setup -> Access): orders whose payment status is ticked "Cashier dashboard" in Setup -> Dropdown values -> Payment status (Cash, Bank, Cash + Bank by default) wait there until the cashier confirms the money was received. Changing the payment status or amount clears the confirmation.
 
 An order you may not see returns 404 (same as missing). Fields outside your role return 403.
 `is_cancelled` follows the delivery status and cannot be set directly.
