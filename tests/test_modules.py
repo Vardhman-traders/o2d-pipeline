@@ -287,7 +287,7 @@ def test_new_pages_and_module_tiles_follow_access(client, db_conn, days, seed):
     admin = login(client, db_conn, "admin")
     staff, _ = user(client, db_conn, "staff")
     assert [m["key"] for m in client.get("/auth/me", headers=staff).json()["modules"]] == ["delegation"]
-    assert {m["key"] for m in client.get("/auth/me", headers=admin).json()["modules"]} == {"payments", "delegation", "purchase", "decor", "attendance", "attendance_owner"}
+    assert {m["key"] for m in client.get("/auth/me", headers=admin).json()["modules"]} == {"payments", "delegation", "purchase", "decor", "attendance_owner"}
     pages = {p["key"] for p in client.get("/admin/access/matrix", headers=admin).json()["pages"]}
     assert {"pay_cashier", "pay_account", "deleg_mine", "deleg_manage", "po_godown", "po_shop", "po_all"} <= pages
     assert client.get("/delegation/scoreboard", headers=staff).status_code == 200

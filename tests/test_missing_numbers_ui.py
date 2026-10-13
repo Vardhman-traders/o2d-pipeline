@@ -69,6 +69,8 @@ def test_reports_are_one_multi_select_and_download_one_pdf_each(base_url, migrat
         page.click("text=O2D Portal")
         page.wait_for_selector("#overview_reportsCard", state="visible", timeout=10000)
         assert page.locator("#overview_reportsCard .ov-btn", has_text="pending orders").count() == 0   # no more button wall
+        expect(page.locator("#rep_pickBtn")).to_be_hidden()          # the card starts closed
+        page.click("#overview_reportsCard > h2")                     # click its heading to open it
         page.click("#rep_pickBtn")
         for kind in ("godown-pending", "receiving-pending", "shop-received-cash"):
             page.check(f'#rep_picker input[data-report="{kind}"]')

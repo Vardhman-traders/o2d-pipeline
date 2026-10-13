@@ -79,3 +79,98 @@ def test_purchases_validate_duplicates_import_and_undo(client, db_conn, seed):
     again = upload(client, admin, "purchases", (head + f"Godown,Vendor {u},{d(-1)},{d(-1)},B-{u},5000,\n").encode())
     assert "already exists" in again["errors"][0]["error"]
     assert client.post(f"/admin/bulk/batches/{res['batch_id']}/undo", headers=admin).json()["removed"] == 2
+
+
+# ---------------------------------------------------------------- VT Decor and Attendance
+def test_decor_and_attendance_templates_are_admin_only(client, db_conn, seed):
+    admin, shop = login(client, db_conn), login(client, db_conn, "shop")
+    for entity in ("decor_clients", "decor_payments", "decor_expenses", "att_employees", "att_attendance", "att_advances"):
+        assert client.get(f"/admin/bulk/{entity}/template.csv", headers=admin).status_code == 200
+        assert client.get(f"/admin/bulk/{entity}/template.xlsx", headers=admin).status_code == 200
+        assert client.get(f"/admin/bulk/{entity}/template.csv", headers=shop).status_code == 403
+
+
+def test_decor_clients_payments_expenses_import_and_undo(client, db_conn, seed):
+    admin = login(client, db_conn)
+    u = uuid.uuid4().hex[:5]
+    head = "Client Name,Mobile,Product Type,Contract Amount,Start Date,Address,Product,Notes,Assigned To,Status\n"
+    rep = upload(client, admin, "decor_clients", (head + f"Client {u},98{u[:4]}0001,Wallpaper,120000,{d(-3)},Pitampura,,,,Active\n"
+                                                         f"Bad {u},98000,Marble,5,,,,,,\n"
+                                                         f"Ghost {u},98000,Texture,5,,,,,nobody.here,\n"
+                                                         f"Client {u},98{u[:4]}0001,Texture,1,,,,,,\n").encode())
+    assert rep["total"] == 4 and rep["valid"] == 1
+    errs = " | ".join(e["error"] for e in rep["errors"])
+    for needle in ("Product Type 'Marble' not found", "is not a username", "Duplicate of row"):
+        assert needle in errs
+    clients = confirm(client, admin, "decor_clients", rep["rows"])
+    assert _count(db_conn, "dim_decor_client", clients["batch_id"]) == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT client_code, contract_amount, assigned_to FROM dim_decor_client WHERE import_batch_id = %s", (clients["batch_id"],))
+        code, amount, assigned = cur.fetchone()
+    assert float(amount) == 120000.0 and assigned == "owner"
+
+    # payments and expenses attach to that client code; amounts are stored as typed (rupees, not divided by 100)
+    pay = upload(client, admin, "decor_payments", ("Client Code,Stage,Amount,Mode,Date,Reference No,Remarks\n"
+                                                  f"{code},Stage 1 - Visit,48000,UPI,{d(-2)},UTR1,adv\n"
+                                                  f"{code},Old stage name,100,,,,\n"
+                                                  "C99999,,100,Cash,,,\n"
+                                                  f"{code},,0,Cash,,,\n").encode())
+    assert pay["total"] == 4 and pay["valid"] == 2
+    assert "Client Code 'C99999' not found" in " | ".join(e["error"] for e in pay["errors"])
+    pays = confirm(client, admin, "decor_payments", pay["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT amount, stage_key IS NOT NULL, stage_text FROM fact_decor_payment WHERE import_batch_id = %s ORDER BY amount DESC", (pays["batch_id"],))
+        assert [(float(a), k, t) for a, k, t in cur.fetchall()] == [(48000.0, True, None), (100.0, False, "Old stage name")]
+    exp = upload(client, admin, "decor_expenses", (f"Client Code,Expense Type,Amount,Date,Notes\n{code},Materials,15000,{d(-1)},glue\n").encode())
+    exps = confirm(client, admin, "decor_expenses", exp["rows"])
+    assert _count(db_conn, "fact_decor_expense", exps["batch_id"]) == 1
+
+    # the clients cannot be undone while payments / expenses hang on them; undo those first
+    assert client.post(f"/admin/bulk/batches/{clients['batch_id']}/undo", headers=admin).status_code == 409
+    assert client.post(f"/admin/bulk/batches/{exps['batch_id']}/undo", headers=admin).json()["removed"] == 1
+    assert client.post(f"/admin/bulk/batches/{pays['batch_id']}/undo", headers=admin).json()["removed"] == 2
+    assert client.post(f"/admin/bulk/batches/{clients['batch_id']}/undo", headers=admin).json()["removed"] == 1
+
+
+def test_attendance_employees_records_and_advances_import_and_undo(client, db_conn, seed):
+    admin = login(client, db_conn)
+    u = uuid.uuid4().hex[:6]
+    name = f"Worker {u}"
+    emp = upload(client, admin, "att_employees", (f"Employee Name,Designation,Monthly Salary,No WhatsApp\n{name},Packer,18000,No\n"
+                                                  f"{name.upper()},Packer,,\n{name}2,Driver,-5,maybe\n").encode())
+    assert emp["total"] == 3 and emp["valid"] == 1
+    errs = " | ".join(e["error"] for e in emp["errors"])
+    assert "Duplicate of row" in errs and "must be a number above 0" in errs and "must be Yes or No" in errs
+    emps = confirm(client, admin, "att_employees", emp["rows"])
+    assert _count(db_conn, "dim_att_employee", emps["batch_id"]) == 1
+
+    head = "Employee Name,Date,Check In,Check Out,Location,Status\n"
+    rec = upload(client, admin, "att_attendance", (head + f"{name},{d(-5)},09:05,18:30,Godown,\n"
+                                                         f"{name},{d(-4)},10:45,,,\n"
+                                                         f"{name},{d(-5)},09:00,,,\n"
+                                                         f"{name},{d(-3)},18:00,09:00,,\n"
+                                                         f"Nobody Here,{d(-3)},09:00,,,\n"
+                                                         f"{name},{d(-2)},9:00 AM,5:00 PM,Moon,\n").encode())
+    assert rec["total"] == 6 and rec["valid"] == 2
+    errs = " | ".join(e["error"] for e in rec["errors"])
+    for needle in ("Duplicate of row", "Check Out must be after Check In", "Employee Name 'Nobody Here' not found", "Location 'Moon' not found"):
+        assert needle in errs
+    recs = confirm(client, admin, "att_attendance", rec["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT final_status, hours_worked_min, wa_status FROM fact_attendance WHERE import_batch_id = %s ORDER BY work_date", (recs["batch_id"],))
+        rows = cur.fetchall()
+    assert rows[0] == ("Present", 565, "Done") and rows[1][2] == "Done" and rows[1][1] is None   # no WhatsApp for imported days
+    # a day that already has attendance is rejected on the next upload
+    again = upload(client, admin, "att_attendance", (head + f"{name},{d(-5)},09:00,,,\n").encode())
+    assert "already has attendance" in again["errors"][0]["error"]
+
+    adv = upload(client, admin, "att_advances", (f"Employee Name,Date,Amount,Note\n{name},{d(-1)},5000,festival\n{name},{d(-1)},0,\n").encode())
+    assert adv["total"] == 2 and adv["valid"] == 1
+    advs = confirm(client, admin, "att_advances", adv["rows"])
+    assert _count(db_conn, "fact_att_advance", advs["batch_id"]) == 1
+
+    # the employee cannot be removed while attendance and advances hang on them
+    assert client.post(f"/admin/bulk/batches/{emps['batch_id']}/undo", headers=admin).status_code == 409
+    assert client.post(f"/admin/bulk/batches/{advs['batch_id']}/undo", headers=admin).json()["removed"] == 1
+    assert client.post(f"/admin/bulk/batches/{recs['batch_id']}/undo", headers=admin).json()["removed"] == 2
+    assert client.post(f"/admin/bulk/batches/{emps['batch_id']}/undo", headers=admin).json()["removed"] == 1

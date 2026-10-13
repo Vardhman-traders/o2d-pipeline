@@ -12,7 +12,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 # order row (main.ORDER_SELECT names) -> label shown to people
 FIELD_LABELS = {
-    "order_received_date": "Order date", "dc_inv_no": "DC / Inv no", "order_via": "Order via",
+    "order_received_date": "Order date", "dc_inv_no": "DC / Inv no", "bill_series": "Bill series", "order_via": "Order via",
     "submission_type": "Submission type", "shipping_location": "Address", "detailed_remarks": "Remarks",
     "ready_by": "Ready by", "colour_making_by": "Colour making by", "delivery_status": "Delivery status",
     "material_delivery_datetime": "Material delivered at", "delivered_by": "Delivered by", "cartage": "Cartage (Rs)",

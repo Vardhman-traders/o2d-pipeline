@@ -78,8 +78,8 @@
     voidDocGap: function (token, body) {
       return ask('POST', '/o2d/doc-gaps/void', token, body).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
-    checkDocNumber: function (token, docType, date, number) {
-      return ask('GET', '/o2d/doc-check?type_name=' + encodeURIComponent(docType) + '&date=' + encodeURIComponent(date) + '&number=' + encodeURIComponent(number), token)
+    checkDocNumber: function (token, docType, date, number, bill) {
+      return ask('GET', '/o2d/doc-check?type_name=' + encodeURIComponent(docType) + '&date=' + encodeURIComponent(date) + '&number=' + encodeURIComponent(number) + (bill ? '&bill=' + encodeURIComponent(bill) : ''), token)
         .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
     getMissingNumbersForWindow: read('/o2d/missing-numbers'),

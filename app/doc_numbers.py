@@ -4,6 +4,8 @@ Challan  - a daily bill; the number restarts at 1 every day.
 Invoice  - the BUSY bill; one running series per financial year (1 April to 31 March).
 The submission type of an order says which series it belongs to - an admin setting on each type (Setup > Dropdown values >
 Submission type > "Bill number series", column dim_submission_type.bill_series). Orders of any other type are free-form.
+An order is always tagged to ONE series. A type set to "Both" means "either": the order form asks Challan or Invoice and the
+choice is stored on the order (fact_orders.bill_series). Orders saved before that, as "12/345", still count in both series.
 """
 import re
 from datetime import date, timedelta
@@ -14,7 +16,7 @@ from . import roles
 
 SERIES = {"challan": "Challan", "invoice": "Invoice", "both": "Both"}
 BOTH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s*$")
-BOTH_HELP = "write the challan number, a slash, then the invoice number (like 12/345)"
+CHOOSE_HELP = "choose whether this order is a Challan or an Invoice"
 
 
 def split_both(dc: str | None) -> tuple[str, str] | None:
@@ -23,13 +25,19 @@ def split_both(dc: str | None) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
-def number_in(doc_type: str, bill_series: str, dc: str | None) -> int | None:
-    """The Challan / Invoice number an order carries: its whole DC / Inv No, or one half of a 'both' entry."""
+def number_in(doc_type: str, bill_series: str, dc: str | None, chosen: str | None = None) -> int | None:
+    """The Challan / Invoice number an order carries. A single-series type: its whole DC / Inv No. A "both" type: the whole number
+    if the order was tagged to this series, nothing if it was tagged to the other; an order saved before the choice existed
+    (no tag) may still hold "challan/invoice" in one field."""
     dc = (dc or "").strip()
     if bill_series == "both":
+        if chosen:
+            return int(dc) if chosen == doc_type.lower() and dc.isdigit() else None
         p = split_both(dc)
         return int(p[0 if doc_type == "Challan" else 1]) if p else None
     return int(dc) if dc.isdigit() else None
+
+
 MAX_LISTED = 200          # a typo like 99999 must not produce a list of thousands of "missing" numbers
 
 
@@ -74,34 +82,36 @@ def _window(doc_type: str, d: date) -> tuple[date, date]:
 
 
 # ------------------------------------------------------------------ rules when an order is saved
-def validate(cur, user, *, dc_no: str | None, type_name: str | None, order_date: date | None, own_order_key=None):
+def validate(cur, user, *, dc_no: str | None, type_name: str | None, order_date: date | None, own_order_key=None,
+             chosen: str | None = None):
     """Challan / Invoice numbers must be digits and must not repeat inside their series. Test accounts are exempt:
-    they tag their orders TEST-... so they stay apart from real data."""
+    they tag their orders TEST-... so they stay apart from real data. `chosen` is the order's Challan / Invoice tag,
+    required when the submission type allows either."""
     doc_type = series_of(cur, type_name)
     dc = (dc_no or "").strip()
     if not doc_type or not dc or order_date is None or roles.is_test_user(user):
         return
     if doc_type == "Both":
-        parts = split_both(dc)
-        if not parts:
-            raise HTTPException(400, f"This type needs a challan AND an invoice number: {BOTH_HELP} (got \"{dc}\").")
-        _check_unused(cur, "Challan", parts[0], order_date, own_order_key)
-        _check_unused(cur, "Invoice", parts[1], order_date, own_order_key)
-        return
+        if chosen not in ("challan", "invoice"):
+            raise HTTPException(400, f"This submission type can be a Challan or an Invoice: {CHOOSE_HELP}.")
+        doc_type = SERIES[chosen]
     if not dc.isdigit():
         raise HTTPException(400, f"A {doc_type} number must be digits only (got \"{dc}\").")
     _check_unused(cur, doc_type, dc, order_date, own_order_key)
 
 
 def _check_unused(cur, doc_type: str, dc: str, order_date: date, own_order_key=None):
-    """No other order already carries this number in this series (a 'both' order counts in each of its two)."""
+    """No other order already carries this number in this series (an order saved as "12/345" counts in each of its two)."""
     lo, hi = _window(doc_type, order_date)
+    series = doc_type.lower()
     cur.execute("SELECT o.sl_no, d.full_date FROM fact_orders o JOIN dim_date d ON d.date_key = o.order_received_date_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE st.bill_series IN (%s, 'both') "
-                "AND ltrim(CASE WHEN st.bill_series = 'both' THEN btrim(split_part(o.dc_inv_no, '/', %s)) ELSE btrim(o.dc_inv_no) END, '0') = ltrim(%s, '0') "
+                "WHERE (st.bill_series = %s OR (st.bill_series = 'both' AND (o.bill_series = %s "
+                "OR (o.bill_series IS NULL AND o.dc_inv_no LIKE '%%/%%')))) "
+                "AND ltrim(CASE WHEN st.bill_series = 'both' AND o.bill_series IS NULL THEN btrim(split_part(o.dc_inv_no, '/', %s)) "
+                "ELSE btrim(o.dc_inv_no) END, '0') = ltrim(%s, '0') "
                 "AND d.full_date BETWEEN %s AND %s AND (%s::int IS NULL OR o.order_key <> %s::int) LIMIT 1",
-                (doc_type.lower(), 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
+                (series, series, 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
     dup = cur.fetchone()
     if dup:
         where = f"on {dup['full_date']:%d-%m-%Y}" if doc_type == "Challan" else f"in FY {fy_label(order_date)}"
@@ -110,12 +120,13 @@ def _check_unused(cur, doc_type: str, dc: str, order_date: date, own_order_key=N
 
 # ------------------------------------------------------------------ finding gaps
 def _present(cur, doc_type: str, lo: date, hi: date) -> dict[int, date]:
-    cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series FROM v_orders_archive v "
-                "JOIN dim_submission_type st ON lower(btrim(st.type_name)) = lower(btrim(v.submission_type)) "
+    cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
+                "JOIN fact_orders o ON o.order_key = v.order_key "
+                "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
                 "WHERE st.bill_series IN (%s, 'both') AND v.order_date BETWEEN %s AND %s", (doc_type.lower(), lo, hi))
     out: dict[int, date] = {}
     for r in cur.fetchall():
-        n = number_in(doc_type, r["bill_series"], r["dc_inv_no"])
+        n = number_in(doc_type, r["bill_series"], r["dc_inv_no"], r.get("chosen"))
         if n is not None:
             out.setdefault(n, r["order_date"])
     return out
@@ -184,12 +195,13 @@ def open_gaps(cur, today: date, days: int | None = None) -> dict:
 
 
 def _present_by_day(cur, lo: date | None, hi: date) -> dict[date, dict[int, date]]:
-    cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series FROM v_orders_archive v "
-                "JOIN dim_submission_type st ON lower(btrim(st.type_name)) = lower(btrim(v.submission_type)) "
+    cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
+                "JOIN fact_orders o ON o.order_key = v.order_key "
+                "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
                 "WHERE st.bill_series IN ('challan', 'both') AND v.order_date >= COALESCE(%s::date, DATE '1900-01-01') AND v.order_date <= %s", (lo, hi))
     out: dict[date, dict[int, date]] = {}
     for r in cur.fetchall():
-        n = number_in("Challan", r["bill_series"], r["dc_inv_no"])
+        n = number_in("Challan", r["bill_series"], r["dc_inv_no"], r.get("chosen"))
         if n is not None:
             out.setdefault(r["order_date"], {}).setdefault(n, r["order_date"])
     return out

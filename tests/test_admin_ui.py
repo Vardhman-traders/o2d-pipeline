@@ -297,11 +297,20 @@ def test_admin_home_screen_and_navigation(base_url):
         page.locator(".module-tabs .subtab", has_text="Dropdown values").click()
         expect(page.locator("#rc_table")).to_be_visible(timeout=8000)
         page.locator(".module-tabs .subtab", has_text="Access & permissions").click()
-        expect(page.locator("#accessMatrix")).to_be_visible(timeout=8000)          # page access
         expect(page.locator("#hubExplainer")).to_contain_text("Can this person open this page at all?")
         expect(page.locator("#hubExplainer")).to_contain_text("what may this role see or change")
+        expect(page.locator("#accessMatrix")).to_have_count(0)                     # every table starts closed
+        page.locator("#secPages > .collapse-head").click()
+        expect(page.locator("#accessMatrix")).to_be_visible(timeout=8000)          # page access
+        page.locator("#secPages > .collapse-head").click()
+        expect(page.locator("#accessMatrix")).to_be_hidden()                       # closes again
+        if page.locator("#secRequests > .collapse-head").get_attribute("aria-expanded") == "false":
+            page.locator("#secRequests > .collapse-head").click()                  # (it opens by itself when requests are waiting)
         expect(page.locator("#hubRequests")).to_be_visible()                       # requests, same page
-        expect(page.locator("#hubPermissions table").first).to_be_visible()        # role permissions, same page
+        page.locator("#secPermissions > .collapse-head").click()
+        expect(page.locator("#hubPermissions table").first).to_be_visible(timeout=8000)   # role permissions, same page
+        page.locator("#secView > .collapse-head").click()
+        expect(page.locator("#hubViewAccess")).to_contain_text("EA", timeout=8000)         # view access
         page.locator(".module-tabs .subtab", has_text="Import").click()
         expect(page.locator("#templateXlsxBtn")).to_be_visible(timeout=8000)
         expect(page.locator("#templateBtn")).to_be_visible()

@@ -62,7 +62,8 @@ def test_yesterdays_challan_gaps_are_kept_apart_from_todays(client, db_conn, see
     assert [(r["from"], r["to"]) for r in by_day[today.isoformat()]["ranges"]] == [(1, 1)]
 
 
-def test_a_both_type_holds_challan_and_invoice_in_one_order(client, db_conn, seed):
+def test_an_either_type_is_tagged_to_one_series_chosen_on_the_form(client, db_conn, seed):
+    """A "Both" submission type means "either": the order form asks Challan or Invoice and the order counts in that series only."""
     today = o2d_screens.today_ist() - timedelta(days=8)
     ensure_date(db_conn, today)
     with db_conn.cursor() as cur:
@@ -70,24 +71,39 @@ def test_a_both_type_holds_challan_and_invoice_in_one_order(client, db_conn, see
     db_conn.commit()
     shop = login(client, db_conn, "shop")
     body = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "typeOfSubmission": "Challan+Invoice"}
-    # one record carrying both numbers; each half must be a number
-    bad = client.post("/o2d/orders", json={**body, "dcNo": "12"}, headers=shop).json()
-    assert bad.get("success") is False or "slNo" not in bad
-    assert client.post("/o2d/orders", json={**body, "dcNo": "1/7000"}, headers=shop).status_code == 200
-    assert client.post("/o2d/orders", json={**body, "dcNo": "4/7002"}, headers=shop).status_code == 200
-    # it is counted in the challan series (1 and 4 -> 2, 3 missing that day) AND the invoice series (7000 and 7002 -> 7001 missing)
+    # the form must say which series; the old "12/345" way is gone
+    no_pick = client.post("/o2d/orders", json={**body, "dcNo": "12"}, headers=shop).json()
+    assert no_pick["success"] is False and "Challan or an Invoice" in no_pick["message"]
+    assert client.post("/o2d/orders", json={**body, "dcNo": "12/345", "billSeries": "challan"}, headers=shop).json()["success"] is False
+    assert client.post("/o2d/orders", json={**body, "dcNo": "1", "billSeries": "challan"}, headers=shop).json()["success"] is True
+    assert client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "challan"}, headers=shop).json()["success"] is True
+    assert client.post("/o2d/orders", json={**body, "dcNo": "7000", "billSeries": "invoice"}, headers=shop).json()["success"] is True
+    assert client.post("/o2d/orders", json={**body, "dcNo": "7002", "billSeries": "invoice"}, headers=shop).json()["success"] is True
+    # the challan ones count only as challans (1 and 4 -> 2, 3 missing), the invoice ones only as invoices (7001 missing)
     g = client.get("/o2d/doc-gaps", headers=shop).json()
     day = next(d for d in g["challan"] if d["date"] == today.isoformat())
-    assert [(r["from"], r["to"]) for r in day["ranges"]] == [(2, 3)]
+    assert [(r["from"], r["to"]) for r in day["ranges"]] == [(2, 3)] and day["highest"] == 4
     assert any(r["from"] <= 7001 <= r["to"] for fy in g["invoice"] for r in fy["ranges"])
-    # neither half can repeat: a plain Challan 4 that day, or another 'both' with invoice 7002, is refused
+    # a number cannot repeat inside its own series: a plain Challan 4 that day, or another "either" order tagged Challan 4
     dup1 = client.post("/o2d/missing-entry", headers=shop, json={"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": "4",
                                                                  "typeOfSubmission": "Challan"}).json()
     assert dup1["success"] is False and "already used" in dup1["message"]
-    dup2 = client.post("/o2d/missing-entry", headers=shop, json={"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": "9/7002",
-                                                                 "typeOfSubmission": "Challan+Invoice"}).json()
+    dup2 = client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "challan"}, headers=shop).json()
     assert dup2["success"] is False and "already used" in dup2["message"]
-    # the form hint checks each half
-    chk = client.get("/o2d/doc-check", params={"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "9/7001"}, headers=shop).json()
-    assert chk["series"] == "Both" and [p["series"] for p in chk["parts"]] == ["Challan", "Invoice"]
-    assert client.get("/o2d/doc-check", params={"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "9"}, headers=shop).json()["badFormat"]
+    # ... but the same digits in the OTHER series are a different number
+    assert client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "invoice"}, headers=shop).json()["success"] is True
+    # the form hint follows the pick
+    q = {"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "5"}
+    assert client.get("/o2d/doc-check", params=q, headers=shop).json()["needsChoice"] is True
+    chk = client.get("/o2d/doc-check", params={**q, "bill": "challan"}, headers=shop).json()
+    assert chk["series"] == "Challan" and chk["duplicate"] is False
+    assert client.get("/o2d/doc-check", params={**q, "number": "4", "bill": "challan"}, headers=shop).json()["duplicate"] is True
+    # the form is told which types ask
+    assert "Challan+Invoice" in client.get("/o2d/shop", headers=shop).json()["dropdowns"]["eitherTypes"]
+
+
+def test_the_built_in_cancelled_type_can_be_either_series(client, db_conn, seed):
+    with db_conn.cursor() as cur:   # a Cancelled type created later gets the same setting (migration 030 set the existing one)
+        cur.execute("INSERT INTO dim_submission_type (type_name) VALUES ('Cancelled') ON CONFLICT DO NOTHING")
+        cur.execute("SELECT bill_series FROM dim_submission_type WHERE lower(btrim(type_name)) = 'cancelled'")
+        assert [r[0] for r in cur.fetchall()] == ["both"]

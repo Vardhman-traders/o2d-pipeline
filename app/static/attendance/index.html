@@ -356,7 +356,7 @@ select:disabled{opacity:.6;cursor:wait}
           <div class="pin-lock-box" id="pinLockBox">
             <div class="pin-lock-icon">🔒</div>
             <div class="pin-lock-title">Salary dekhne ke liye PIN daalo</div>
-            <div class="pin-lock-sub">PIN nahi pata? 📞 Rahul se poochho</div>
+            <div class="pin-lock-sub">PIN nahi pata? 📞 Kisi bhi issue ke liye admin se sampark karein</div>
             <div class="pin-input-row">
               <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p1" oninput="pinMove(this,'p2')">
               <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" id="p2" oninput="pinMove(this,'p3')" onkeydown="pinBack(event,this,'p1')">
@@ -665,7 +665,7 @@ function submitPIN(){
         document.getElementById('p1').focus();
 
       } else if(r.status==='no_pin'){
-        document.getElementById('pinErr').textContent='⚠️ Aapka PIN set nahi hai. Rahul se sampark karo.';
+        document.getElementById('pinErr').textContent='⚠️ Aapka PIN set nahi hai. Kisi bhi issue ke liye admin se sampark karein.';
         document.getElementById('pinErr').className='pin-err show';
       } else {
         document.getElementById('pinErr').textContent='❌ Kuch problem aayi. Dobara try karo.';
@@ -845,7 +845,7 @@ function renderSalaryCard(r, append){
   html+='<div class="bk-row"><div><div class="bk-lbl" style="font-weight:800">Net payable salary</div></div><div class="bk-val green bold">₹'+fmt(r.netSalary)+'</div></div>'
     +'</div>';
 
-  html+='<div class="sal-note">ℹ️ Yeh abhi tak ki earned salary hai. Final amount Rahul se confirm karein.</div>';
+  html+='<div class="sal-note">ℹ️ Yeh abhi tak ki earned salary hai. Final amount admin se confirm karein.</div>';
 
   if(append) content.innerHTML += html;
   else content.innerHTML = html;

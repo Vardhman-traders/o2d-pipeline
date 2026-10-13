@@ -254,7 +254,10 @@ function showLogin(message) {
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; pass.value = ''; }
   });
   mount(h('div', { class: 'login-screen' }, h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
-    h('h1', { text: 'Vardhman Traders' }), h('p', { class: 'sub', text: 'Sign in to your sales & operations portal' }), form)));
+    h('h1', { text: 'Vardhman Traders' }), h('p', { class: 'sub', text: 'Sign in to your sales & operations portal' }), form,
+    // Staff mark attendance without signing in: the employee check-in page is open (the owner dashboard is not part of this).
+    h('div', { class: 'login-alt' }, h('span', { text: 'Not signing in? Staff can mark attendance directly.' }),
+      h('a', { class: 'btn', id: 'markAttendanceBtn', href: '/attendance/', text: '🕘 Mark attendance' })))));
 }
 
 function showChangePassword(forced) {
@@ -909,7 +912,8 @@ function dashboardNodes(d) {
 }
 
 // ------------------------------------------------------------------ members
-const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch & receiving', godown_dispatch: 'Godown dispatch', receiving: 'Godown receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)' };
+const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch & receiving', godown_dispatch: 'Godown dispatch', receiving: 'Godown receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)',
+  manager: 'EA', staff: 'Staff', purchase_godown: 'Purchase - godown', purchase_shop: 'Purchase - shop' };
 const roleLabel = (r) => ROLE_HELP[r] || r;
 
 async function renderMembers(panel) {
@@ -1004,10 +1008,11 @@ async function renderWeeklyOff(panel) {
     h('button', { class: 'btn primary', text: 'Save', onclick: save }), msg));
 }
 
-async function renderPermissions(panel) {
+// Which order fields each operating role may set (the role x field table).
+async function renderFieldPermissions(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
-  let data, viewData;
-  try { [data, viewData] = await Promise.all([api('/admin/permissions'), api('/admin/view-access')]); }
+  let data;
+  try { data = await api('/admin/permissions'); }
   catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   const byKey = {};
   data.editable.forEach((e) => { byKey[e.role + '|' + e.field_name] = e.editable; });
@@ -1027,9 +1032,18 @@ async function renderPermissions(panel) {
       cb.addEventListener('change', () => toggle(r, f, cb.checked, cb));
       return h('td', { class: 'num' }, cb);
     })));
+  panel.replaceChildren(
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each operating role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
+    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
+}
 
-  // View access: roles with no built-in order workflow (cashier, accounts, cartage) -
-  // whether they can see orders at all is a plain on/off switch, off by default.
+// View access: roles with no built-in order workflow (cashier, accounts, cartage ...) -
+// whether they can see orders at all is a plain on/off switch, off by default.
+async function renderViewAccess(panel) {
+  panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+  let viewData;
+  try { viewData = await api('/admin/view-access'); }
+  catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   const viewByRole = {};
   viewData.access.forEach((v) => { viewByRole[v.role] = v.can_view; });
   const toggleView = async (role, checked, cb) => {
@@ -1039,19 +1053,14 @@ async function renderPermissions(panel) {
     cb.disabled = false;
   };
   const viewRows = viewData.roles.map((r) => {
-    const cb = h('input', { type: 'checkbox' });
+    const cb = h('input', { type: 'checkbox', 'aria-label': `${roleLabel(r)} can view all orders` });
     cb.checked = !!viewByRole[r];
     cb.addEventListener('change', () => toggleView(r, cb.checked, cb));
     return h('tr', {}, h('td', { text: roleLabel(r) }), h('td', { class: 'num' }, cb));
   });
-
   panel.replaceChildren(
-    h('div', { class: 'card', style: 'margin-bottom:16px' },
-      h('h2', { style: 'font-size:15px;margin-bottom:8px', text: 'View access' }),
-      h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Roles with no order-entry role of their own (cashier, accounts, cartage) have no visibility into orders until you turn it on here. Read-only either way - this never grants editing.' }),
-      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Role' }), h('th', { class: 'num', text: 'Can view all orders' }))), h('tbody', {}, viewRows)))),
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which order fields each operating role may set. Unchecking a field a role currently relies on will start rejecting their saves immediately - change with care.' }),
-    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, head), h('tbody', {}, body))));
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Roles with no order-entry role of their own (cashier, accounts, cartage, EA ...) have no visibility into orders until you turn it on here. Read-only either way - this never grants editing.' }),
+    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Role' }), h('th', { class: 'num', text: 'Can view all orders' }))), h('tbody', {}, viewRows))));
 }
 
 // ------------------------------------------------------------------ activity

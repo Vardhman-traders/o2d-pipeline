@@ -63,7 +63,7 @@ def map_order(o: dict) -> dict:
         "slNo": o["sl_no"], "orderKey": o["order_key"],
         "orderRcvdDate": _iso_date(o["order_received_date"]),
         "orderVia": o["order_via"] or "", "shippingLocation": o["shipping_location"] or "",
-        "dcNo": o["dc_inv_no"] or "", "typeOfSubmission": o["submission_type"] or "",
+        "dcNo": o["dc_inv_no"] or "", "typeOfSubmission": o["submission_type"] or "", "billSeries": o.get("bill_series") or "",
         "detailedRemarks": o["detailed_remarks"] or "", "readyByWhom": o["ready_by"] or "",
         "colourMakingBy": o["colour_making_by"] or "", "deliveryStatus": config.display_label("delivery-statuses", o["delivery_status"]) or "",
         "deliveryStatusRaw": o["delivery_status"] or "",   # the stored name the routing rules use (deliveryStatus may be a label)
@@ -126,12 +126,20 @@ def _key_by_name(rows, name) -> int | None:
     return None
 
 
+def _either_types() -> list[str]:
+    """Submission types whose order can be tagged to Challan or Invoice: the form asks which one."""
+    with db.cursor() as cur:
+        cur.execute("SELECT type_name FROM dim_submission_type WHERE bill_series = 'both' ORDER BY sort_order, lower(type_name)")
+        return [r["type_name"] for r in cur.fetchall()]
+
+
 def _dropdowns(role: str) -> dict:
     """The lists each role's form needs (by screen)."""
     out: dict[str, list] = {k: [] for k in (
         "orderVia", "typeOfSubmission", "readyByWhom", "colourMakingBy",
         "deliveryStatus", "paymentStatus", "deliveredByWhom")}
     out["deliveredByCustomTerms"] = config.delivered_by_custom_terms()
+    out["eitherTypes"] = _either_types()
     if role == "shop":
         out["orderVia"] = _names(_lookup_rows("channels"))
         out["typeOfSubmission"] = _names(_lookup_rows("submission-types"))
@@ -462,7 +470,7 @@ def ack_reminder(reminder_key: int, user=Depends(ANY_VIEWER)):
 def admin_form_options(user=Depends(ADMIN_ONLY)):
     return {"ok": True, "dropdowns": {
         "orderVia": _names(_lookup_rows("channels")),
-        "typeOfSubmission": _names(_lookup_rows("submission-types")),
+        "typeOfSubmission": _names(_lookup_rows("submission-types")), "eitherTypes": _either_types(),
         "deliveryStatus": _names(_lookup_rows("delivery-statuses")),
         "paymentStatus": _names(_lookup_rows("payment-statuses")),
         "readyByWhom": _names(_people_rows("ready_by")),
@@ -548,7 +556,8 @@ def _can_punch(user) -> bool:
 def missing_entry_options(user=Depends(ANY_VIEWER)):
     if not _can_punch(user):
         raise HTTPException(403, access.NO_ACCESS_MESSAGE)
-    return {"ok": True, "orderVia": _names(_lookup_rows("channels")), "typeOfSubmission": _names(_lookup_rows("submission-types"))}
+    return {"ok": True, "orderVia": _names(_lookup_rows("channels")), "typeOfSubmission": _names(_lookup_rows("submission-types")),
+            "eitherTypes": _either_types()}
 
 
 # ------------------------------------------------------------------ write screens
@@ -559,6 +568,7 @@ class Form(BaseModel):
     orderVia: str | None = None
     dcNo: str | None = None
     typeOfSubmission: str | None = None
+    billSeries: str | None = None     # "challan" / "invoice": which bill series an "either" submission type is tagged to
     shippingLocation: str | None = None
     detailedRemarks: str | None = None
     readyByWhom: str | None = None
@@ -574,9 +584,19 @@ class Form(BaseModel):
     amountReceived: Any = None
 
 
+def _chosen_series(form: Form) -> str | None:
+    """The Challan / Invoice tag, kept only when the submission type really is an "either" type (anything else is not tagged)."""
+    choice = (form.billSeries or "").strip().lower()
+    if choice not in ("challan", "invoice") or not form.typeOfSubmission:
+        return None
+    with db.cursor() as cur:
+        return choice if doc_numbers.series_of(cur, form.typeOfSubmission) == "Both" else None
+
+
 def _shop_payload(form: Form, channels, types) -> dict:
     return {"order_received_date": form.orderRcvdDate, "order_via_key": _key_by_name(channels, form.orderVia),
             "submission_type_key": _key_by_name(types, form.typeOfSubmission), "dc_inv_no": form.dcNo,
+            "bill_series": _chosen_series(form),
             "shipping_location": form.shippingLocation or None, "detailed_remarks": form.detailedRemarks or None}
 
 
@@ -809,20 +829,19 @@ def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
 
 @router.get("/doc-check")
 def doc_check(type_name: str, date_: date = Query(alias="date"), number: str = Query(max_length=50),
+              bill: str | None = Query(default=None, max_length=10),
               user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
     """Used by the order form while a number is typed: which bill series is this submission type (if any), is the number digits,
-    already taken, or skipping ahead of the series?"""
+    already taken, or skipping ahead of the series? For a type that allows either series, `bill` is the shop's Challan / Invoice pick."""
     with db.cursor() as cur:
         series = doc_numbers.series_of(cur, type_name)
         if not series:
             return {"ok": True, "series": None, "duplicate": False, "skipped": []}
-        if series == "Both":   # "12/345": each half is checked against its own series
-            parts = doc_numbers.split_both(number)
-            if not parts:
-                return {"ok": True, "series": series, "badFormat": True, "help": doc_numbers.BOTH_HELP, "duplicate": False, "skipped": []}
-            return {"ok": True, "series": series, "duplicate": False, "skipped": [],
-                    "parts": [{"series": label, "number": n, **doc_numbers.check_entry(cur, label, date_, int(n))}
-                              for label, n in (("Challan", parts[0]), ("Invoice", parts[1]))]}
+        if series == "Both":   # the order is tagged to one series: the one the shop picked
+            pick = (bill or "").strip().lower()
+            if pick not in ("challan", "invoice"):
+                return {"ok": True, "series": series, "needsChoice": True, "help": doc_numbers.CHOOSE_HELP, "duplicate": False, "skipped": []}
+            series = doc_numbers.SERIES[pick]
         if not number.strip().isdigit():
             return {"ok": True, "series": series, "notDigits": True, "duplicate": False, "skipped": []}
         return {"ok": True, "series": series, **doc_numbers.check_entry(cur, series, date_, int(number))}
