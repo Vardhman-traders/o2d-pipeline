@@ -35,6 +35,12 @@ LOOKUP_FIELDS = {
             ("godown", "Godown Dispatch - ready for dispatch"), ("shop", "Shop Dispatch & Receiving - ready for dispatch"),
             ("none", "Stays with the godown (under processing, no dispatch screen)")]),
         ("amount_effect", "Amount in reports", [("", "Normal - the amount is added"), ("subtract", "Sales return - the amount is subtracted")])],
+    "payment-statuses": [("cashier_review", "Cashier dashboard", [
+        ("", "No - not shown on the Cashier dashboard"),
+        ("yes", "Yes - orders with this payment status go to the Cashier dashboard to be confirmed")]),
+        ("payments_split", "Cash / bank split (Payments)", [
+            ("", "Not set - the cashier enters the Cash and Bank amounts"), ("cash", "Cash - the whole amount is cash"),
+            ("bank", "Bank - the whole amount is bank"), ("both", "Cash + Bank - the cashier splits the amount")])],
     "submission-types": [("bill_series", "Bill number series", [
         ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
         ("invoice", "Invoice - one running series per financial year"),

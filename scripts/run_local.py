@@ -115,7 +115,7 @@ def main():
     ap.add_argument("--reset", action="store_true", help="wipe the local database before starting")
     ap.add_argument("--no-demo", action="store_true", help="skip adding demo data (schema and admin only)")
     ap.add_argument("--test", action="store_true", help="run tests and lint instead of starting the app")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, default=8020)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
     if a.pg_password is not None:

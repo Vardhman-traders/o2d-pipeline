@@ -301,3 +301,20 @@ entries:
     what: Attendance - monthly report, streaks, employee list, view-only owners, Setup places and the open-link switch
     speed: slow
     tests: [tests/test_attendance.py::test_reports_streaks_and_employee_list, tests/test_attendance.py::test_link_switch_and_setup_lists]
+  - id: O2D-CASHIER-1
+    what: Cashier dashboard - payment statuses ticked in Setup land orders there, the cashier confirms (and can undo), a changed payment clears the confirmation, view-only cannot confirm, listed last and in Setup
+    speed: slow
+    tests:
+      - tests/test_o2d_cashier.py::test_cashier_flow_and_a_changed_payment_needs_confirming_again
+      - tests/test_o2d_cashier.py::test_cancelled_orders_are_listed_as_negative_sales
+      - tests/test_o2d_cashier.py::test_cashier_page_access_follows_setup_and_view_only_cannot_confirm
+      - tests/test_o2d_cashier.py::test_cashier_is_the_last_screen_and_its_setup_controls_are_listed
+  - id: O2D-CASHIER-2
+    what: Cashier -> Payments merge - confirmed orders wait in the Sales / Sales Return tabs, required fields from Setup, Cash + Bank becomes two Pending entries, an edited order updates the same entry and only flags an approved one, Sales not typed by hand
+    speed: slow
+    tests:
+      - tests/test_payment_merge.py::test_confirm_stages_the_row_and_merge_creates_a_pending_payment
+      - tests/test_payment_merge.py::test_cash_plus_bank_is_two_payments_that_add_up
+      - tests/test_payment_merge.py::test_cancelled_order_merges_as_a_sale_return
+      - tests/test_payment_merge.py::test_order_edited_after_merge_updates_the_same_entry_and_only_flags_an_approved_one
+      - tests/test_payment_merge.py::test_withdrawing_a_confirmation_removes_its_waiting_row_and_sales_are_not_typed_by_hand

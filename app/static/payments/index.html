@@ -498,6 +498,16 @@
     }
     .row-actions .btn{padding:5px 10px;font-size:12px;white-space:nowrap;min-width:0;}
     .small-note{color:var(--muted);font-size:12px;}
+    .flag-warn{color:#b45309;font-weight:800;cursor:help;margin-left:4px;}
+    .merge-wrap{overflow-x:auto;}
+    #mergeTable{width:100%;border-collapse:collapse;font-size:13px;}
+    #mergeTable th,#mergeTable td{padding:8px 6px;border-bottom:1px solid var(--border,#e5e7eb);text-align:left;vertical-align:top;}
+    #mergeTable input,#mergeTable select{width:100%;min-width:90px;padding:6px 8px;border:1px solid var(--border,#d1d5db);border-radius:6px;font:inherit;}
+    #mergeTable input.merge-amt{min-width:96px;text-align:right;}
+    .merge-tag{display:inline-block;background:#e0f2fe;color:#075985;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;}
+    .merge-tag-warn{background:#fef3c7;color:#92400e;}
+    .merge-err{color:#b91c1c;font-size:12px;font-weight:700;}
+    .merge-ok{color:#15803d;font-size:12px;font-weight:700;}
     .empty-state{text-align:center;color:var(--muted);padding:40px 10px;font-size:13.5px;}
     .empty-state .empty-icon{font-size:32px;margin-bottom:8px;}
 
@@ -826,9 +836,9 @@
           <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>
         </div>
         <span class="action-link danger" id="clearFilterLink" onclick="clearCardFilter()" style="display:none;">✕ Clear filter</span>
-        <button class="btn-seq" id="seqBtn" onclick="toggleInvoiceSeq()" title="Invoice numbers ko 1,2,3... sequence mein dikhao"># Seq</button>
-        <span class="action-link" onclick="exportFilteredPDF()">⬇ PDF</span>
-        <span class="action-link" onclick="exportFilteredExcel()">⬇ Excel</span>
+        <button class="btn-seq main-only" id="seqBtn" onclick="toggleInvoiceSeq()" title="Invoice numbers ko 1,2,3... sequence mein dikhao"># Seq</button>
+        <span class="action-link main-only" onclick="exportFilteredPDF()">⬇ PDF</span>
+        <span class="action-link main-only" onclick="exportFilteredExcel()">⬇ Excel</span>
       </div>
       <div class="table-wrap">
         <table id="mainTable">
@@ -857,6 +867,17 @@
             <tr><td colspan="11"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>
           </tbody>
         </table>
+      </div>
+      <div id="mergePanel" style="display:none;">
+        <h4 id="mergeTitle" style="margin:12px 0 4px;"></h4>
+        <p class="small-note" style="margin-bottom:8px;">Orders the cashier confirmed on O2D. Add what O2D does not know and merge: each row becomes a Pending entry (Cash and / or Bank) for the accountant to approve. <span id="mergeReq"></span></p>
+        <label class="small-note" style="display:block;margin-bottom:8px;"><input type="checkbox" onchange="toggleShowMerged(this.checked)"> Show merged (last 30 days)</label>
+        <div class="merge-wrap">
+          <table id="mergeTable">
+            <thead><tr><th>Date</th><th>DC / Inv</th><th>Address</th><th>O2D payment</th><th>Company</th><th>Party</th><th>Cash</th><th>Bank</th><th>Total</th><th>Remarks</th><th>Status</th><th></th></tr></thead>
+            <tbody id="mergeBody"></tbody>
+          </table>
+        </div>
       </div>
       <p id="txnDebugLine" class="small-note" style="margin-top:10px;"></p>
     </div>
@@ -895,7 +916,7 @@
       <div class="field">
         <label for="e_type">Type</label>
         <!-- CHANGE 1: "Sales Cash" option removed from Edit Modal dropdown too -->
-        <select id="e_type">
+        <select id="e_type" onchange="syncEditInvoice()">
           <option>Payment Received</option>
           <option>Payment Paid</option>
           <option>Sales</option>
@@ -909,7 +930,7 @@
         <label for="e_company">Company</label>
         <select id="e_company" onchange="loadPartiesForEditCompany(this.value)"></select>
       </div>
-      <div class="field">
+      <div class="field" id="e_invoice_field">
         <label for="e_invoice">Invoice / Challan No.</label>
         <input type="text" id="e_invoice" placeholder="Invoice or Challan No.">
       </div>
@@ -1348,6 +1369,7 @@ function refreshAll(silent){
   _pendingRefresh = false;
   loadDashboard_();
   loadTransactions_(silent);
+  loadMerge_();
 }
 function _onCallsDone(){
   _callInFlight = false;
@@ -1607,6 +1629,162 @@ function loadTransactions_(silent){
 }
 
 // ============================================================
+// SALES / SALES RETURN TABS (rows pushed from the O2D Cashier dashboard, waiting to be merged into Payments)
+// ============================================================
+const MERGE = { rows: [], counts: { sales: 0, return: 0 }, required: [], canWrite: true, showMerged: false, drafts: {}, parties: {} };
+const MERGE_TITLES = { sales: 'Sales', return: 'Sales Return' };
+
+function mergeKind(){ return String(activeStatusTab).startsWith('merge:') ? String(activeStatusTab).slice(6) : null; }
+
+function updateMergeTabLabels(){
+  const s = document.getElementById('tabMergeSales'), r = document.getElementById('tabMergeReturn');
+  if (s) s.textContent = `Sales (${MERGE.counts.sales})`;
+  if (r) r.textContent = `Sales Return (${MERGE.counts.return})`;
+}
+
+function applyMergeVisibility(){
+  const kind = mergeKind();
+  document.querySelector('#txnListPanel .table-wrap').style.display = kind ? 'none' : '';
+  document.getElementById('mergePanel').style.display = kind ? 'block' : 'none';
+  document.querySelectorAll('#txnListPanel .main-only').forEach(el => { el.style.display = kind ? 'none' : ''; });
+  document.getElementById('txnDebugLine').style.display = kind ? 'none' : '';
+  if (kind) renderMerge();
+}
+
+function loadMerge_(){
+  VT.run.withSuccessHandler(res => {
+    if (!res || res.ok === false) return;
+    MERGE.rows = res.rows || [];
+    MERGE.counts = res.counts || MERGE.counts;
+    MERGE.required = res.required || [];
+    MERGE.canWrite = res.canWrite !== false;
+    updateMergeTabLabels();
+    if (mergeKind()) renderMerge();
+  }).withFailureHandler(err => console.error(err)).getMergeQueue(MERGE.showMerged ? 'merged' : 'awaiting');
+}
+
+function toggleShowMerged(on){ MERGE.showMerged = !!on; loadMerge_(); }
+
+function mergeDraft(row){
+  return MERGE.drafts[row.key] || (MERGE.drafts[row.key] = {
+    date: row.date, company: row.company, party: row.party, cash: row.cash, bank: row.bank, remarks: row.remarks });
+}
+
+function mergePayload(row){
+  const d = mergeDraft(row);
+  return { date: d.date, company: d.company, party: d.party, cashAmount: d.cash || 0, bankAmount: d.bank || 0, remarks: d.remarks };
+}
+
+function mergeMsg(row, text, bad){
+  const el = document.getElementById('mmsg_' + row.key);
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = bad ? 'merge-err' : 'merge-ok';
+}
+
+function loadMergeParties(row, listEl){
+  const d = mergeDraft(row);
+  if (!d.company) return;
+  const type = MERGE_TITLES[row.kind] === 'Sales' ? 'Sales' : 'Sale Return';
+  const k = d.company + '|' + type;
+  const fill = names => { listEl.innerHTML = names.map(n => `<option value="${esc(n)}">`).join(''); };
+  if (MERGE.parties[k]) { fill(MERGE.parties[k]); return; }
+  VT.run.withSuccessHandler(names => { MERGE.parties[k] = names || []; fill(MERGE.parties[k]); })
+    .withFailureHandler(() => {}).getParties(d.company, type);
+}
+
+function renderMerge(){
+  const kind = mergeKind();
+  if (!kind) return;
+  const body = document.getElementById('mergeBody');
+  const rows = MERGE.rows.filter(r => r.kind === kind);
+  document.getElementById('mergeTitle').textContent =
+    `${MERGE_TITLES[kind]} - ${MERGE.showMerged ? 'merged in the last 30 days' : 'waiting to be merged into Payments'}`;
+  document.getElementById('mergeReq').textContent = MERGE.required.length
+    ? 'Required before merging: ' + MERGE.required.join(', ') + '.' : '';
+  body.innerHTML = '';
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">✅</div>${
+      MERGE.showMerged ? 'Nothing merged in the last 30 days.' : 'Nothing waiting. Orders appear here when the cashier confirms them.'}</div></td></tr>`;
+    return;
+  }
+  const money = n => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  rows.forEach(row => {
+    const d = mergeDraft(row);
+    const locked = MERGE.showMerged || !MERGE.canWrite;
+    const tr = document.createElement('tr');
+    const td = (...kids) => { const c = document.createElement('td'); kids.forEach(k => c.append(k)); tr.appendChild(c); return c; };
+    const input = (type, value, on, extra) => {
+      const i = document.createElement('input'); i.type = type; i.value = value == null ? '' : value; i.disabled = locked;
+      Object.assign(i, extra || {}); i.addEventListener('input', () => on(i.value)); return i;
+    };
+    td(fmtDate(row.date));
+    td(row.dcNo || '—');
+    const addr = td(row.address || '—'); addr.title = row.address;
+    td(`${row.paymentStatus || '—'} · ${money(row.orderAmount)}`);
+
+    const company = document.createElement('select'); company.disabled = locked;
+    company.innerHTML = '<option value="">— company —</option>' +
+      companiesCache.map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
+    td(company);
+    const party = input('text', d.party, v => { d.party = v; }, { placeholder: 'Party', autocomplete: 'off' });
+    const dl = document.createElement('datalist'); dl.id = 'dl_' + row.key; party.setAttribute('list', dl.id);
+    company.addEventListener('change', () => { d.company = company.value; loadMergeParties(row, dl); });
+    party.addEventListener('focus', () => loadMergeParties(row, dl));
+    td(party, dl);
+
+    const total = document.createElement('strong');
+    const cash = input('number', d.cash, v => { d.cash = Number(v) || 0; sync(); }, { min: 0, step: '0.01' });
+    const bank = input('number', d.bank, v => { d.bank = Number(v) || 0; sync(); }, { min: 0, step: '0.01' });
+    cash.className = bank.className = 'merge-amt';
+    const sync = () => {
+      const sum = (Number(d.cash) || 0) + (Number(d.bank) || 0);
+      total.textContent = money(sum);
+      const off = row.orderAmount != null && Math.abs(sum - row.orderAmount) > 0.005;
+      total.className = off ? 'merge-err' : '';
+      total.title = off ? `Must add up to the order amount ${money(row.orderAmount)}` : '';
+    };
+    if (!locked && row.split === 'cash') { bank.disabled = true; d.bank = 0; bank.value = 0; }
+    if (!locked && row.split === 'bank') { cash.disabled = true; d.cash = 0; cash.value = 0; }
+    td(cash); td(bank); td(total); sync();
+
+    td(input('text', d.remarks, v => { d.remarks = v; }, { placeholder: 'Remarks' }));
+
+    const tag = td();
+    if (row.alreadyMerged) {
+      const t = document.createElement('div');
+      t.className = row.editedAfterMerge ? 'merge-tag merge-tag-warn' : 'merge-tag';
+      t.textContent = row.editedAfterMerge ? 'Already merged - edited in O2D' : 'Merged';
+      tag.appendChild(t);
+      const was = document.createElement('div'); was.className = 'small-note';
+      was.textContent = `was Cash ${money(row.wasCash)} / Bank ${money(row.wasBank)}` + (row.txnNos.length ? ' · ' + row.txnNos.join(', ') : '');
+      tag.appendChild(was);
+    }
+    const act = td();
+    if (!locked) {
+      const save = document.createElement('button'); save.className = 'btn btn-secondary btn-sm'; save.textContent = 'Save';
+      save.addEventListener('click', () => {
+        VT.run.withSuccessHandler(r => mergeMsg(row, r && r.success ? 'Saved' : 'Could not save', !(r && r.success)))
+          .withFailureHandler(e => mergeMsg(row, e.message, true)).saveMergeRow(row.key, mergePayload(row));
+      });
+      const go = document.createElement('button'); go.className = 'btn btn-approve btn-sm';
+      go.textContent = row.alreadyMerged ? 'Merge again' : 'Merge';
+      go.addEventListener('click', () => {
+        go.disabled = true; mergeMsg(row, 'Merging…', false);
+        VT.run.withSuccessHandler(r => {
+          go.disabled = false;
+          if (r && r.success) { delete MERGE.drafts[row.key]; loadMerge_(); refreshAll(true); }
+          else mergeMsg(row, (r && r.message) || 'Could not merge', true);
+        }).withFailureHandler(e => { go.disabled = false; mergeMsg(row, e.message, true); }).mergeRow(row.key, mergePayload(row));
+      });
+      act.append(go, ' ', save);
+    }
+    const msg = document.createElement('div'); msg.id = 'mmsg_' + row.key; act.appendChild(msg);
+    body.appendChild(tr);
+  });
+}
+
+// ============================================================
 // STATUS TAB
 // ============================================================
 function buildStatusTabs(){
@@ -1624,13 +1802,18 @@ function buildStatusTabs(){
       <button data-status="Pending"  onclick="setStatusTab('Pending')">Pending</button>
       <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>`;
   }
+  bar.insertAdjacentHTML('beforeend',
+    `<button id="tabMergeSales"  data-status="merge:sales"  onclick="setStatusTab('merge:sales')">Sales</button>
+     <button id="tabMergeReturn" data-status="merge:return" onclick="setStatusTab('merge:return')">Sales Return</button>`);
+  updateMergeTabLabels();
   activeStatusTab = 'all';
 }
 function setStatusTab(status, silent){
   activeStatusTab = status;
   document.querySelectorAll('#statusTabbar button').forEach(b =>
     b.classList.toggle('active', b.dataset.status === status));
-  if (!silent) { resetSeqMode(); renderCurrentView(); }
+  applyMergeVisibility();
+  if (!silent) { resetSeqMode(); if (!mergeKind()) renderCurrentView(); }
 }
 function applyStatusTab(rows){
   if (activeStatusTab === 'all') return rows;
@@ -1838,7 +2021,7 @@ function renderRows(rows){
       <td><strong>${rupee(r.Amount)}</strong></td>
       <td title="${esc(r.Mode)}">${modeDisplay}</td>
       <td title="${esc(r.CreatedBy)}">${highlight(r.CreatedBy)}</td>
-      <td>${statusPill}</td>
+      <td>${statusPill}${r.Warning ? `<span class="flag-warn" title="${esc(r.Warning)}">⚠</span>` : ''}</td>
       ${showRemarks ? `<td class="td-remarks">${highlight(r.Remarks||'—')}</td>` : ''}
       <td><div class="txnid-label">${esc(r.TxnID)}</div>${action}</td>
     </tr>`;
@@ -1970,7 +2153,14 @@ function openEditModal(txnId){
   document.getElementById('e_remarks').value = row.Remarks  || '';
   document.getElementById('e_mode').value    = row.Mode;
   loadPartiesForEditCompany(row.Company, row.Party || '');
+  syncEditInvoice();
   document.getElementById('editModal').classList.add('open');
+}
+
+// Sales and Sale Return get their DC / Inv number from O2D, so the field is not asked for (types that move cash sales).
+function syncEditInvoice(){
+  const t = TYPE_META[document.getElementById('e_type').value];
+  document.getElementById('e_invoice_field').style.display = (t && t.salesEffect) ? 'none' : '';
 }
 
 function closeEditModal(){

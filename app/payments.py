@@ -21,7 +21,7 @@ ANY = auth.require_roles(*roles.ALL_ROLES)
 
 SELECT = """
 SELECT t.txn_key, t.txn_no, d.full_date AS txn_date, tt.type_name, tt.direction, c.company_name, p.party_name,
-       m.mode_name, t.amount, t.account_name, t.invoice_no, t.remarks, t.status, t.is_backdated,
+       m.mode_name, t.amount, t.account_name, t.invoice_no, t.remarks, t.status, t.is_backdated, t.order_warning,
        cu.username AS created_by, t.created_at, au.username AS approved_by, t.approved_at
 FROM fact_payment_txn t
 JOIN dim_date d ON d.date_key = t.txn_date_key
@@ -63,7 +63,8 @@ def _row(r: dict, today: date) -> dict:
             "Invoice": r["invoice_no"] or "", "Remarks": r["remarks"] or "", "CreatedBy": r["created_by"] or "",
             "CreatedAt": r["created_at"].isoformat() if r["created_at"] else "", "Status": r["status"],
             "IsBackdated": "Yes" if r["is_backdated"] else "No", "ApprovedBy": r["approved_by"] or "",
-            "ApprovedAt": r["approved_at"].isoformat() if r["approved_at"] else "", "IsToday": r["txn_date"] == today}
+            "ApprovedAt": r["approved_at"].isoformat() if r["approved_at"] else "", "IsToday": r["txn_date"] == today,
+            "Warning": r.get("order_warning") or ""}
 
 
 # ------------------------------------------------------------------ lists the screen fills its dropdowns from

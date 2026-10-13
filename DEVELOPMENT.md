@@ -70,7 +70,7 @@ One command builds a throwaway local database with the same schema, fills it wit
 python scripts/run_local.py --pg-password YOUR_POSTGRES_PASSWORD     # PostgreSQL installed on your PC
 python scripts/run_local.py                                          # or, with Docker Desktop
 ```
-Open http://localhost:8000. Sign in as `admin` / `Local-Admin-123`, or as a demo user for any role
+Open http://localhost:8020. Sign in as `admin` / `Local-Admin-123`, or as a demo user for any role
 (`demo_shop`, `demo_godown`, `demo_godown_dispatch`, `demo_shop_dispatch`, `demo_receiving`, `demo_cashier`,
 password `Demo-Pass-123`). The demo data is about 160 orders in every stage, plus a few deliberate spelling mix-ups
 (for example Suresh/Sures) so the Reconciliation screen has something to fix. Nothing in it is real.

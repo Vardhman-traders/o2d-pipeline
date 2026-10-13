@@ -163,6 +163,8 @@
   body.view-only .view-only-note { display: block; }
   .card.accent-cartage { border-left: 4px solid #c2410c; }
   body.view-only #cartage_editCard { display: none !important; }
+  .card.accent-cashier { border-left: 4px solid #0f766e; }
+  body.view-only #cashier_editCard, body.view-only .cashier-act { display: none !important; }
   /* sortable tables (click a heading; sorts the rows on screen only) */
   th.sortable { cursor: pointer; user-select: none; }
   th.sortable:hover { color: var(--blue-2); }
@@ -820,6 +822,56 @@
       </div>
     </div>
 
+    <!-- ================= CASHIER SECTION ================= -->
+    <div id="cashierSection" style="display:none;">
+      <div id="cashier_errorBanner" class="error-banner" style="display:none;"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">💰 Orders paid by Cash / Bank (as set in Setup &gt; Dropdown values &gt; Payment status) appear here once the payment status is selected on Shop Dispatch &amp; Receiving or Godown Receiving. Confirm each one when the money is received.</div>
+
+      <div class="card accent-cashier">
+        <h2>💰 Cashier Summary</h2>
+        <div id="cashier_summary" class="ov-summary"></div>
+        <div id="cashier_modes" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
+      </div>
+
+      <div class="card accent-cashier" id="cashier_editCard" style="display:none;">
+        <h2>✅ Confirm Money Received <span id="cashier_editingInfo"></span></h2>
+        <form id="cashierEditForm">
+          <div class="grid">
+            <div class="field"><label>Payment</label><input type="text" id="cashier_payment" readonly></div>
+            <div class="field"><label>Amount Received (Rs)</label><input type="text" id="cashier_amount" readonly></div>
+            <div class="field"><label>Note (optional)</label><input type="text" id="cashier_noteInput" maxlength="300" placeholder="e.g. counted, deposited in bank"></div>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="cashier_saveBtn">Confirm received</button>
+            <button type="button" class="ghost" onclick="cashierCloseEdit()">Cancel</button>
+            <span id="cashier_statusMsg" class="status-msg"></span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card accent-cashier">
+        <h2>⏳ Awaiting Cashier <span class="count" id="cashier_pendingCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Address</th><th>Delivered By</th><th>Date Received</th><th>Payment</th><th>Amount</th><th>Entered On</th><th>Updated By</th><th></th></tr></thead>
+            <tbody id="cashier_pendingBody"></tbody>
+          </table>
+          <div class="empty" id="cashier_pendingEmpty" style="display:none;">Nothing waiting for the cashier right now.</div>
+        </div>
+      </div>
+
+      <div class="card accent-cashier">
+        <h2>✅ Confirmed <span class="count" id="cashier_confirmedCount">0</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>DC No</th><th>Address</th><th>Payment</th><th>Amount</th><th>Confirmed At</th><th>Confirmed By</th><th>Note</th><th>Payments</th><th></th></tr></thead>
+            <tbody id="cashier_confirmedBody"></tbody>
+          </table>
+          <div class="empty" id="cashier_confirmedEmpty" style="display:none;">Nothing confirmed since the last 11 PM clean-up.</div>
+        </div>
+      </div>
+    </div>
+
     <div class="mm-backdrop" id="mm_backdrop" onclick="if(event.target===this)closeMissingEntry_()">
       <div class="mm-box" role="dialog" aria-modal="true" aria-labelledby="mm_title">
         <h2 id="mm_title">Enter missing number</h2>
@@ -1170,6 +1222,7 @@
     else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') initDispatch();
     else if (CURRENT_ROLE === 'cartage')                                 initCartage();
     else if (CURRENT_ROLE === 'receiving')                               initReceiving();
+    else if (CURRENT_ROLE === 'cashier')                                 initCashier();
   }
 
   // logout() itself is defined in autologin.js (it needs to send the user back to the portal,
@@ -2176,6 +2229,123 @@
         })
         .withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
         .updateCartage(CURRENT_TOKEN, Number(this.dataset.slNo), form);
+    });
+  });
+
+  /* ================= CASHIER ================= */
+  var CASHIER_ORDERS = {};
+  var CASHIER_CAN_EDIT = false;
+
+  function initCashier() {
+    var banner = document.getElementById('cashier_errorBanner');
+    banner.style.display = 'none';
+    VT.run
+      .withSuccessHandler(function (d) {
+        if (!d || !d.ok) { banner.textContent = 'Server error: ' + ((d && d.error) || 'no response'); banner.style.display = 'block'; return; }
+        CASHIER_CAN_EDIT = !!d.canEdit;
+        cashierRender_(d);
+        if (d.truncated) { banner.textContent = 'Showing the first ' + d.awaiting.length + ' orders only.'; banner.style.display = 'block'; }
+      })
+      .withFailureHandler(function (err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
+      .getCashierData(CURRENT_TOKEN);
+  }
+
+  function cashierCell_(tr, text) { var td = document.createElement('td'); td.textContent = text == null ? '' : text; tr.appendChild(td); return td; }
+  function cashierBtn_(label, handler) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'small cashier-act'; b.textContent = label;
+    b.addEventListener('click', handler); return b;
+  }
+
+  function cashierRender_(d) {
+    var cards = [['Awaiting cashier', d.summary.awaiting.orders], ['Awaiting amount', '₹ ' + cartageMoney_(d.summary.awaiting.amount)],
+                 ['Confirmed', d.summary.confirmed.orders], ['Confirmed amount', '₹ ' + cartageMoney_(d.summary.confirmed.amount)]];
+    var sum = document.getElementById('cashier_summary'); sum.innerHTML = '';
+    cards.forEach(function (c) {
+      var el = document.createElement('div'); el.className = 'ov-card'; el.style.cursor = 'default'; el.style.setProperty('--c', '#0f766e');
+      var big = document.createElement('div'); big.className = 'n'; big.textContent = c[1];
+      var lab = document.createElement('div'); lab.className = 'l'; lab.textContent = c[0];
+      el.appendChild(big); el.appendChild(lab); sum.appendChild(el);
+    });
+    document.getElementById('cashier_modes').textContent = d.summary.awaiting.byMode.length
+      ? 'Awaiting by payment: ' + d.summary.awaiting.byMode.map(function (m) { return m.mode + ' - ' + m.orders + ' order' + (m.orders === 1 ? '' : 's') + ', ₹ ' + cartageMoney_(m.amount); }).join('  ·  ') : '';
+
+    CASHIER_ORDERS = {};
+    document.getElementById('cashier_pendingCount').textContent = d.awaiting.length;
+    document.getElementById('cashier_pendingEmpty').style.display = d.awaiting.length ? 'none' : 'block';
+    var pb = document.getElementById('cashier_pendingBody'); pb.innerHTML = '';
+    d.awaiting.forEach(function (o) {
+      CASHIER_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      cashierCell_(tr, formatDateDisplay(o.orderDate)); cashierCell_(tr, o.dcNo); cashierCell_(tr, o.shippingLocation);
+      cashierCell_(tr, o.deliveredBy); cashierCell_(tr, formatDateDisplay(o.dateOfReceiving)); cashierCell_(tr, o.paymentStatus + (o.cancelled ? ' (Cancelled - negative sale)' : ''));
+      cashierCell_(tr, formatAmount_(o.amountReceived)); cashierCell_(tr, o.receivedOn); cashierCell_(tr, o.receivedBy);
+      cashierCell_(tr, '').appendChild(cashierBtn_('Confirm', function () { cashierOpenEdit(o.slNo); }));
+      pb.appendChild(tr);
+    });
+
+    document.getElementById('cashier_confirmedCount').textContent = d.confirmed.length;
+    document.getElementById('cashier_confirmedEmpty').style.display = d.confirmed.length ? 'none' : 'block';
+    var cb = document.getElementById('cashier_confirmedBody'); cb.innerHTML = '';
+    d.confirmed.forEach(function (o) {
+      CASHIER_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      cashierCell_(tr, o.dcNo); cashierCell_(tr, o.shippingLocation); cashierCell_(tr, o.paymentStatus + (o.cancelled ? ' (Cancelled)' : '')); cashierCell_(tr, formatAmount_(o.amountReceived));
+      cashierCell_(tr, formatDateTimeDisplay(o.confirmedAt)); cashierCell_(tr, o.confirmedBy); cashierCell_(tr, o.note);
+      cashierCell_(tr, { awaiting: 'In Payments - awaiting merge', merged: 'Merged into Payments', edited: 'Merged - order edited, re-merge' }[o.payments] || '');
+      cashierCell_(tr, '').appendChild(cashierBtn_('Undo', function () { cashierUndo_(o.slNo); }));
+      cb.appendChild(tr);
+    });
+  }
+
+  function cashierOpenEdit(slNo) {
+    if (!CASHIER_CAN_EDIT) return;
+    var o = CASHIER_ORDERS[slNo];
+    if (!o) return;
+    document.getElementById('cashier_editCard').style.display = 'block';
+    document.getElementById('cashier_editingInfo').textContent = '- ' + (o.shippingLocation || '') + ' (DC ' + o.dcNo + ')';
+    document.getElementById('cashierEditForm').dataset.slNo = slNo;
+    document.getElementById('cashier_payment').value = o.paymentStatus || '';
+    document.getElementById('cashier_amount').value = o.amountReceived == null ? '' : cartageMoney_(o.amountReceived);
+    document.getElementById('cashier_noteInput').value = '';
+    document.getElementById('cashier_statusMsg').textContent = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function cashierCloseEdit() {
+    document.getElementById('cashier_editCard').style.display = 'none';
+    document.getElementById('cashier_statusMsg').textContent = '';
+  }
+
+  function cashierSend_(slNo, form, msg, done) {
+    VT.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; done(false); return; }
+        done(true);
+      })
+      .withFailureHandler(function (err) { msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; done(false); })
+      .confirmCashier(CURRENT_TOKEN, slNo, form);
+  }
+
+  function cashierUndo_(slNo) {
+    if (!CASHIER_CAN_EDIT) return;
+    var o = CASHIER_ORDERS[slNo];
+    if (!window.confirm('Take back the confirmation for DC ' + (o ? o.dcNo : slNo) + '? It will go back to Awaiting Cashier.')) return;
+    var banner = document.getElementById('cashier_errorBanner');
+    cashierSend_(slNo, { confirmed: false }, banner, function (ok) {
+      if (!ok) { banner.style.display = 'block'; return; }
+      initCashier();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('cashierEditForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('cashier_saveBtn'), msg = document.getElementById('cashier_statusMsg');
+      if (btn.disabled) return;
+      btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
+      cashierSend_(Number(this.dataset.slNo), { confirmed: true, note: document.getElementById('cashier_noteInput').value }, msg, function (ok) {
+        btn.disabled = false;
+        if (ok) { cashierCloseEdit(); initCashier(); }
+      });
     });
   });
 

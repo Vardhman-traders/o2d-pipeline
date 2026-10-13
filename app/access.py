@@ -31,6 +31,8 @@ O2D_SCREENS: list[dict] = [
      "title": "Cartage Dashboard", "page_label": "O2D - Cartage screen (cartage and delivery-person payments)", "search": False},
     {"view": "receiving", "page": "o2d_receiving", "section": "receivingSection", "label": "Godown Receiving",
      "title": "Godown Receiving Dashboard", "page_label": "O2D - Godown receiving screen", "search": True},
+    {"view": "cashier", "page": "o2d_cashier", "section": "cashierSection", "label": "Cashier",
+     "title": "Cashier Dashboard", "page_label": "O2D - Cashier screen (confirm cash / bank receipts; View only = look, not confirm)", "search": False},
 ]
 
 # key -> (group, label). The group is the module it lives under on the home screen.
