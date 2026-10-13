@@ -33,7 +33,7 @@ from . import access, attachments, auth, daily_reports, db, module_admin, modcom
 
 log = logging.getLogger("attendance")
 router = APIRouter(prefix="/attendance", tags=["attendance"])
-OWNER_PAGE, MARK_PAGE = "att_owner", "att_mark"
+OWNER_PAGE = "att_owner"
 JS_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTHS_SHORT = [m[:3] for m in MONTHS]

@@ -105,6 +105,48 @@ function trackSticky(el, varName) {
   set();
 }
 
+// ------------------------------------------------------------------ shared Setup widgets
+// Two-level picker: one chip per module, and under the chosen module its own short row of items. Used where a flat row of tabs
+// grew too long (Import, Dropdown values). groups: [{ id, label, icon, badge?, items: [{ id, label }] }]
+const PICKER_MEMO = {};   // picker name -> { group id: last item opened in it }
+function groupPicker(name, groups, activeId, onPick, itemsClass) {
+  const memo = PICKER_MEMO[name] = PICKER_MEMO[name] || {};
+  const group = groups.find((g) => g.items.some((i) => i.id === activeId)) || groups[0];
+  memo[group.id] = activeId;
+  return h('div', { class: 'picker' },
+    h('div', { class: 'picker-groups', role: 'tablist', 'aria-label': 'Module' }, groups.map((g) => h('button', {
+      type: 'button', class: 'picker-group', role: 'tab', 'aria-selected': String(g === group), 'data-group': g.id,
+      onclick: () => onPick(memo[g.id] && g.items.some((i) => i.id === memo[g.id]) ? memo[g.id] : g.items[0].id) },
+      h('span', { 'aria-hidden': 'true', text: g.icon }), h('span', { text: g.label }),
+      g.badge ? h('span', { class: 'picker-badge', text: String(g.badge) }) : null))),
+    group.items.length > 1 ? h('div', { class: 'subtabs picker-items ' + (itemsClass || ''), role: 'tablist', 'aria-label': group.label }, group.items.map((i) => h('button', {
+      type: 'button', class: 'subtab', role: 'tab', 'aria-selected': String(i.id === activeId), text: i.label, onclick: () => onPick(i.id) }))) : null);
+}
+
+// A section that opens and closes when its heading is clicked. `open` is the starting state; `onOpen` runs the first time it opens
+// (so a heavy table is only fetched when someone wants it).
+function collapsible(id, title, summary, body, { open = false, badge = null, onOpen = null } = {}) {
+  let opened = false;
+  const box = h('section', { class: 'collapse' + (open ? ' open' : ''), id });
+  const content = h('div', { class: 'collapse-body', id: id + 'Body', hidden: open ? null : true }, body);
+  const toggle = (force) => {
+    const next = force === undefined ? content.hidden : force;
+    content.hidden = !next;
+    box.classList.toggle('open', next);
+    head.setAttribute('aria-expanded', String(next));
+    if (next && !opened) { opened = true; if (onOpen) onOpen(); }
+  };
+  const head = h('button', { type: 'button', class: 'collapse-head', 'aria-expanded': String(open), 'aria-controls': id + 'Body',
+    onclick: () => toggle() },
+    h('span', { class: 'collapse-caret', 'aria-hidden': 'true', text: '▸' }),
+    h('span', { class: 'collapse-title' }, h('strong', { text: title }), summary ? h('span', { class: 'note', text: summary }) : null),
+    badge ? h('span', { class: 'picker-badge', text: String(badge) }) : null);
+  box.append(head, content);
+  if (open) { opened = true; if (onOpen) onOpen(); }
+  box.toggleOpen = toggle;
+  return box;
+}
+
 // ------------------------------------------------------------------ Orders
 async function renderOrders(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
@@ -313,34 +355,31 @@ async function openOrderDetail(slNo) {
 // Two layers, kept apart on purpose: ACCESS decides which pages a person can open (the door); PERMISSIONS decide what a role may
 // do once inside the O2D screens (which fields it may edit, whether it may view all orders). Requests to open a page are decided here too.
 async function renderAccessHub(panel) {
-  const section = (id, title, intro) => {
-    const body = h('div', { id });
-    return [h('div', { class: 'hub-section' }, h('h2', { class: 'hub-title', text: title }), h('p', { class: 'note', text: intro })), body];
-  };
-  const [reqHead, reqBody] = section('hubRequests', 'Requests waiting for a decision',
-    'People who opened a page they cannot see can ask for access. Approving gives that one person the page; colleagues in the same role are not affected.');
-  const [pageHead, pageBody] = section('hubPages', 'Who can open which page',
-    'The door: tick the pages each role opens by default, then add exceptions for one person. Opening a page does not change what someone may do inside it.');
-  const [permHead, permBody] = section('hubPermissions', 'What each role can do inside the O2D screens',
-    'The rules inside the door: which order fields a role may set, and which view-only roles may see all orders. Changes apply immediately.');
-  const jump = h('nav', { class: 'hub-jump', 'aria-label': 'Jump to a section' },
-    ...[['Requests', reqHead], ['Page access', pageHead], ['Role permissions', permHead]].map(([t, el]) => h('button', { type: 'button', class: 'linklike', text: t,
-      onclick: () => el.scrollIntoView({ behavior: 'smooth', block: 'start' }) })));
   const useCase = (icon, title, question, example) => h('div', { class: 'usecase' },
     h('div', { class: 'usecase-title' }, h('span', { 'aria-hidden': 'true', text: icon }), h('strong', { text: title })),
     h('p', { class: 'usecase-q', text: question }), h('p', { class: 'note', text: example }));
   const explainer = h('div', { class: 'card hub-explainer', id: 'hubExplainer' },
     h('h2', { class: 'hub-title', text: 'How access and permissions work' }),
-    h('p', { class: 'note', text: 'Two separate controls. A person first needs access to a page (the door), and then their role’s permissions decide what they can do inside it.' }),
+    h('p', { class: 'note', text: 'Two separate controls. A person first needs access to a page (the door), and then their role’s permissions decide what they can do inside it. Click a heading below to open or close its table.' }),
     h('div', { class: 'usecase-grid' },
       useCase('🚪', 'Page access', 'Can this person open this page at all?',
         'Example: the cashier role does not get the All orders page, so it never appears for them. Tick pages for a whole role, or add an exception for one person. A person who opens a page they cannot see can send a request, which you approve below.'),
       useCase('✏️', 'Role permissions', 'Once inside, what may this role see or change?',
         'Example: the shop role may set “Order via” and “Remarks” on an order but not “Payment status”. View-only roles such as accounts can see all orders only if you turn that on. Opening a page never grants editing.')));
-  panel.replaceChildren(explainer, jump, reqHead, reqBody, pageHead, pageBody, permHead, permBody);
-  renderAccessRequests(reqBody);
-  renderAccess(pageBody);
-  renderPermissions(permBody);
+  // each body keeps its old id; its table is only fetched the first time its heading is opened (requests open by themselves when some are waiting)
+  const reqBody = h('div', { id: 'hubRequests' }), pageBody = h('div', { id: 'hubPages' });
+  const permBody = h('div', { id: 'hubPermissions' }), viewBody = h('div', { id: 'hubViewAccess' });
+  const waiting = S.pendingRequests || 0;
+  panel.replaceChildren(explainer,
+    h('div', { class: 'collapse-group' },
+      collapsible('secRequests', 'Requests waiting for a decision', 'People who opened a page they cannot see can ask for access. Approving gives that one person the page; colleagues in the same role are not affected.',
+        reqBody, { open: waiting > 0, badge: waiting || null, onOpen: () => renderAccessRequests(reqBody) }),
+      collapsible('secPages', 'Who sees which page', 'The door: tick the pages each role opens by default, then add exceptions for one person.',
+        pageBody, { onOpen: () => renderAccess(pageBody) }),
+      collapsible('secPermissions', 'What each role can do inside the O2D screens', 'Which order fields each operating role may set. Changes apply immediately.',
+        permBody, { onOpen: () => renderFieldPermissions(permBody) }),
+      collapsible('secView', 'View access', 'Which roles without their own order screen may see all orders (read-only).',
+        viewBody, { onOpen: () => renderViewAccess(viewBody) })));
 }
 
 // ------------------------------------------------------------------ Setup > Access (who sees which page)
@@ -398,7 +437,6 @@ async function renderAccess(panel) {
 
   panel.replaceChildren(
     h('div', { class: 'card', style: 'margin-bottom:16px' },
-      h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Who sees which page' }),
       h('p', { class: 'note', text: 'Tick the pages each role opens by default. Admins always open everything, and Setup is for admins only. As new modules are added, their pages appear here.' }),
       h('p', { class: 'note', style: 'margin:6px 0 12px', text: 'Opening a page does not change what someone may do inside it: what a person can see and edit in the O2D screens still follows their role (the section below).' }),
       matrix),
@@ -445,21 +483,37 @@ async function renderAccessRequests(panel) {
 }
 
 // ------------------------------------------------------------------ Import
-const IMPORT_KINDS = [['orders', 'Orders'], ['users', 'Members'], ['payments', 'Payments'], ['tasks', 'Delegation tasks'], ['purchases', 'Purchase entries']];
-const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', tasks: 'tasks', purchases: 'purchase entries' };
+// what the picker shows: one chip per module, its uploads underneath
+const IMPORT_GROUPS = [
+  { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
+  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries']] },
+  { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks']] },
+  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries']] },
+  { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses']] },
+  { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
+].map((g) => ({ ...g, items: g.items.map(([id, label]) => ({ id, label })) }));
+const IMPORT_KINDS = IMPORT_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label]));
+const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', tasks: 'tasks', purchases: 'purchase entries',
+  decor_clients: 'VT Decor clients', decor_payments: 'VT Decor payments', decor_expenses: 'VT Decor expenses',
+  att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances' };
 const IMPORT_TEMPLATE_NOTE = {
   orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
   payments: 'The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
-  purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.' };
+  purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  decor_clients: 'The Excel template has dropdowns for Product Type and Status. Amounts are real rupees (not divided by 100). Upload clients first: payments and expenses refer to the client code (C001 ...). Rows marked EXAMPLE are ignored.',
+  decor_payments: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',
+  decor_expenses: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',
+  att_employees: 'Upload employees before their attendance records and advances. Rows marked EXAMPLE are ignored.',
+  att_attendance: 'For days before the portal started (or missed days): employee, date, check-in and check-out time (24-hour). The status is worked out from your Module settings unless you write it. No WhatsApp message is sent. Rows marked EXAMPLE are ignored.',
+  att_advances: 'The employee must already exist. Advances are deducted in that month’s salary report. Rows marked EXAMPLE are ignored.' };
 
 async function renderImport(panel, kind) {
   kind = kind || S.importKind || 'orders';
   S.importKind = kind;
   const holder = h('div');
-  const bar = h('div', { class: 'subtabs', role: 'tablist' }, IMPORT_KINDS.map(([id, label]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(kind === id), text: label, onclick: () => renderImport(panel, id) })));
+  const bar = groupPicker('import', IMPORT_GROUPS, kind, (id) => renderImport(panel, id));
   panel.replaceChildren(bar, holder);
   importFlow(holder, kind, () => renderImport(panel, kind));
 }
@@ -604,7 +658,7 @@ async function loadHistory(box, restart) {
   box.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { id: 'batchTable' },
     h('thead', {}, h('tr', {}, ['#', 'What', 'File', 'Rows', 'By', 'When', ''].map((t) => h('th', { text: t })))),
     h('tbody', {}, list.map((b) => h('tr', {},
-      h('td', { text: b.batch_id }), h('td', { text: (IMPORT_KINDS.find((k) => k[0] === b.entity) || [0, b.entity])[1] }), h('td', { text: b.filename || '' }),
+      h('td', { text: b.batch_id }), h('td', { text: ((l) => l.charAt(0).toUpperCase() + l.slice(1))(IMPORT_LABEL[b.entity] || b.entity) }), h('td', { text: b.filename || '' }),
       h('td', { class: 'num', text: b.row_count }), h('td', { text: b.created_by || '' }), h('td', { text: fmtDateTime(b.created_at) }),
       h('td', {}, b.undone_at ? h('span', { class: 'pill off', text: 'Undone' }) : h('button', { class: 'btn small danger', text: 'Undo', onclick: () => undo(b) }))))))));
 }
@@ -625,6 +679,17 @@ function masterCell(f, row) {
   if (f.type === 'select') { const o = (f.options || []).find(([ov]) => ov === v || (ov === null && v == null)); return o ? o[1] : (v == null ? '–' : String(v)); }
   return v == null ? '' : String(v);
 }
+
+// Which module each list belongs to (the picker shows one chip per module, and its lists underneath), with the short name used on the chip.
+const LIST_GROUPS = [
+  { id: 'orders', label: 'Orders', icon: '📋', items: ['channel', 'submission_type', 'delivery_status', 'payment_status', 'ready_by', 'colour_making', 'delivery'] },
+  { id: 'payments', label: 'Payments', icon: '💳', items: ['company', 'payment_mode', 'txn_type', 'party'] },
+  { id: 'purchase', label: 'Purchase', icon: '🧾', items: ['vendor'] },
+  { id: 'decor', label: 'VT Decor', icon: '🎨', items: ['decor_type', 'decor_stage', 'decor_expense_type'] },
+  { id: 'att', label: 'Attendance', icon: '🕘', items: ['att_location', 'att_employee'] }];
+const LIST_SHORT = { company: 'Companies', payment_mode: 'Payment modes', txn_type: 'Transaction types', party: 'Parties', vendor: 'Vendors',
+  decor_type: 'Product types', decor_stage: 'Stages of each product type', decor_expense_type: 'Expense types (suggestions)',
+  att_location: 'Work places (GPS spot)', att_employee: 'Employees' };
 
 const SCOPE_LABEL = { both: 'Both dispatch screens', shop: 'Shop dispatch & receiving only', godown: 'Godown dispatch only' };
 const SCOPE_FIELD = { name: 'dispatch_scope', label: 'Offered on', type: 'select', value: 'both',
@@ -695,8 +760,15 @@ async function renderReconcile(panel, tab) {
     draw(); persistOrder();
   };
 
-  const kinds = h('div', { class: 'subtabs list-tabs', role: 'tablist' }, allTabs.map(([id, , , label, , m]) => h('button', {
-    class: 'subtab', role: 'tab', 'aria-selected': String(id === tab), text: label + (m && m.pending ? ` (${m.pending})` : ''), onclick: () => renderReconcile(panel, id) })));
+  // a list the server adds that is not named in LIST_GROUPS still shows, under "Other"
+  const known = new Set(LIST_GROUPS.flatMap((g) => g.items));
+  const tabInfo = new Map(allTabs.map(([id, , , label, , m]) => [id, { label: LIST_SHORT[id] || label, pending: m && m.pending ? m.pending : 0 }]));
+  const pickerGroups = LIST_GROUPS.concat([{ id: 'other', label: 'Other', icon: '🗂', items: allTabs.map((t) => t[0]).filter((id) => !known.has(id)) }])
+    .map((g) => {
+      const items = g.items.filter((id) => tabInfo.has(id)).map((id) => ({ id, label: tabInfo.get(id).label + (tabInfo.get(id).pending ? ` (${tabInfo.get(id).pending})` : '') }));
+      return { ...g, items, badge: g.items.reduce((n, id) => n + ((tabInfo.get(id) || {}).pending || 0), 0) };
+    }).filter((g) => g.items.length);
+  const kinds = groupPicker('lists', pickerGroups, tab, (id) => renderReconcile(panel, id), 'list-tabs');
 
   const search = h('input', { type: 'search', id: 'rc_search', placeholder: 'Search ' + tabLabel.toLowerCase(), 'aria-label': 'Search values', style: 'max-width:260px' });
   const mergeBtn = h('button', { class: 'btn', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
@@ -925,9 +997,8 @@ async function renderWhatsApp(panel) {
       try { const r = await api('/admin/whatsapp/' + a.key + '/test', { method: 'POST' }); say(r.message, !r.success); }
       catch (ex) { say(ex.message, true); }
     };
-    return h('div', { class: 'card', style: 'margin-bottom:16px', id: 'wa_card_' + a.key },
-      h('h2', { style: 'font-size:15px;margin-bottom:4px', text: a.label }),
-      h('p', { class: 'note', style: 'margin-bottom:10px', text: a.when }),
+    // one heading per alert: click it to open its group, switch and wording (a switched-off alert says so on its heading)
+    return collapsible('wa_card_' + a.key, a.label, a.when, h('div', { class: 'collapse-inner' },
       h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' }), group,
         a.group_from_environment ? h('div', { class: 'hint', text: 'Empty here: the group from the server settings (WHATSAPP_GROUP_ID) is being used. Fill this in to take over.' }) : null),
       h('div', { class: 'field' }, h('label', {}, on, ' Send this alert')),
@@ -937,10 +1008,11 @@ async function renderWhatsApp(panel) {
       h('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' },
         h('button', { class: 'btn primary', text: 'Save', onclick: save }),
         h('button', { class: 'btn', text: 'Send a test message', onclick: test }),
-        h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; } }), msg));
+        h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; } }), msg)),
+      { badge: a.enabled ? null : 'Off' });
   });
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing.' }),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing. Click an alert to open it.' }),
     data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp API key (WHATSAPP_API_KEY) is not set on the server, so nothing can be sent yet.' }),
     ...cards);
 }

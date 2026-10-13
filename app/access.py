@@ -55,8 +55,7 @@ PAGES: dict[str, tuple[str, str]] = {
     # ---- VT Decor
     "decor_owner": ("VT Decor", "VT Decor - Owner (every client, GP & profit, ledger, staff view, settings, edit and delete)"),
     "decor_staff": ("VT Decor", "VT Decor - Staff (own clients, payments, expenses, photos, quotations)"),
-    # ---- Attendance
-    "att_mark": ("Attendance", "Attendance - Check-in page (tile on the home screen; the page itself is open to staff phones)"),
+    # ---- Attendance (the check-in page needs no sign-in: it is a button on the login page, so it is not a page here)
     "att_owner": ("Attendance", "Attendance - Owner dashboard (today, reports, salary, advances, PINs, employees)"),
 }
 
@@ -68,7 +67,6 @@ MODULES: list[dict] = [
      "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage"]},
     {"key": "purchase", "title": "Purchase Report", "icon": "🧾", "url": "/purchase/", "pages": ["po_godown", "po_shop", "po_all"]},
     {"key": "decor", "title": "VT Decor", "icon": "🎨", "url": "/decor/", "pages": ["decor_owner", "decor_staff"]},
-    {"key": "attendance", "title": "Attendance", "icon": "🕘", "url": "/attendance/", "pages": ["att_mark"]},
     {"key": "attendance_owner", "title": "Attendance - Owner", "icon": "📊", "url": "/attendance/dashboard.html", "pages": ["att_owner"]},
 ]
 DASHBOARD_PAGES = ("dashboard_overview", "dashboard_orders")

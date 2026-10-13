@@ -38,7 +38,7 @@ LOOKUP_FIELDS = {
     "submission-types": [("bill_series", "Bill number series", [
         ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
         ("invoice", "Invoice - one running series per financial year"),
-        ("both", "Both - one entry holds the challan and invoice numbers, written 12/345")])],
+        ("both", "Either - the order form asks Challan or Invoice, and the order is tagged to the one picked")])],
 }
 
 # Which O2D screens can offer each value of a lookup list (screen id = the O2D role). A value with no screens set is offered everywhere.

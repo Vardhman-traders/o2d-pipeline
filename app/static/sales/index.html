@@ -104,6 +104,15 @@
   .card.accent-dispatch { border-left: 4px solid var(--dispatch-color); }
   .card.accent-receiving{ border-left: 4px solid var(--receiving-color); }
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+  /* a card whose heading opens and closes it (Overview: Reports PDF, Daily delivery reports) */
+  .cc > h2 { cursor: pointer; user-select: none; margin-bottom: 0; }
+  .cc > h2::after { content: '\25BE'; margin-left: auto; color: var(--muted); transition: transform .15s; }
+  .cc > h2 .cc-hint { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .cc:not(.collapsed) > h2 .cc-hint { display: none; }
+  .cc.collapsed > h2::after { transform: rotate(-90deg); }
+  .cc > .cc-body { margin-top: 16px; }
+  .cc.collapsed > .cc-body { display: none; }
+  .cc > h2:focus-visible { outline: 2px solid var(--blue-2); outline-offset: 4px; border-radius: 6px; }
   .card h2 .count { background: var(--blue-2); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 999px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
   label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
@@ -374,8 +383,9 @@
         <div class="ov-row"><span class="ov-label">Filter by</span><span id="overview_filters" class="ov-row" style="margin:0;"></span></div>
       </div>
       <div id="overview_summary" class="ov-summary"></div>
-      <div class="card accent-godown" id="overview_reportsCard" style="margin-bottom:16px;display:none;">
-        <h2>📄 Reports (PDF)</h2>
+      <div class="card accent-godown cc collapsed" id="overview_reportsCard" style="margin-bottom:16px;display:none;">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_reportsBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">📄 Reports (PDF) <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="overview_reportsBody">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
           <span style="font-size:12px;color:var(--muted);">Dates (optional)</span>
           <input type="date" id="rep_from" aria-label="Report from date" style="width:auto;">
@@ -385,9 +395,11 @@
         </div>
         <div id="rep_picker" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">Tick one or more reports, then Download: each opens as its own PDF (A4 landscape, ready to print). Cancelled orders are left out. Leave the dates empty for everything still open.</div>
+        </div>
       </div>
-      <div class="card accent-godown" id="overview_dailyCard" style="margin-bottom:16px;display:none;">
-        <h2>🕢 Daily delivery reports <span style="font-size:12px;font-weight:400;color:var(--muted);">built automatically every day at 7:30 PM, one PDF per delivery person</span></h2>
+      <div class="card accent-godown cc collapsed" id="overview_dailyCard" style="margin-bottom:16px;display:none;">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_dailyBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🕢 Daily delivery reports <span style="font-size:12px;font-weight:400;color:var(--muted);">built automatically every day at 7:30 PM, one PDF per delivery person</span></h2>
+        <div class="cc-body" id="overview_dailyBody">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
           <span style="font-size:12px;color:var(--muted);">Day</span>
           <input type="date" id="dr_date" aria-label="Day of the daily delivery reports" style="width:auto;">
@@ -395,6 +407,7 @@
           <span id="dr_msg" class="status-msg"></span>
         </div>
         <div id="dr_list" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+        </div>
       </div>
       <div class="card accent-shop" style="margin-bottom:16px;">
         <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
@@ -457,6 +470,11 @@
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">3</span>Type of Submission<span class="required-star">*</span></label>
               <select id="shopedit_typeOfSubmission" required><option value="">-- select --</option></select>
             </div>
+            <div class="field" id="shopedit_billField" style="display:none;">
+              <label class="with-badge">Challan or Invoice<span class="required-star">*</span></label>
+              <select id="shopedit_billSeries"><option value="">-- select --</option><option value="challan">Challan</option><option value="invoice">Invoice</option></select>
+              <div class="hint" style="font-size:12px;color:var(--muted);margin-top:4px;">This submission type can be either. The number is counted in the one you pick.</div>
+            </div>
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">4</span>DC / Invoice No.<span class="required-star">*</span></label>
               <input type="text" id="shopedit_dcNo" placeholder="Challan / Invoice number" required>
@@ -494,6 +512,11 @@
             <div class="field" style="grid-column:span 2;">
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">3</span>Type of Submission<span class="required-star">*</span></label>
               <select id="shop_typeOfSubmission" required><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="shop_billField" style="display:none;">
+              <label class="with-badge">Challan or Invoice<span class="required-star">*</span></label>
+              <select id="shop_billSeries"><option value="">-- select --</option><option value="challan">Challan</option><option value="invoice">Invoice</option></select>
+              <div class="hint" style="font-size:12px;color:var(--muted);margin-top:4px;">This submission type can be either. The number is counted in the one you pick.</div>
             </div>
             <div class="field">
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">4</span>DC / Invoice No.<span class="required-star">*</span></label>
@@ -805,6 +828,7 @@
             <div class="field"><label>Order Received Date<span class="required-star">*</span></label><input type="date" id="mm_date" required></div>
             <div class="field"><label>Order Received Thru<span class="required-star">*</span></label><select id="mm_via" required><option value="">-- select --</option></select></div>
             <div class="field"><label>Type of Submission<span class="required-star">*</span></label><select id="mm_type" required><option value="">-- select --</option></select></div>
+            <div class="field" id="mm_billField" style="display:none;"><label>Challan or Invoice<span class="required-star">*</span></label><select id="mm_billSeries"><option value="">-- select --</option><option value="challan">Challan</option><option value="invoice">Invoice</option></select></div>
             <div class="field"><label>DC / Inv No.<span class="required-star">*</span></label><input type="text" id="mm_dcNo" required readonly></div>
           </div>
           <div class="field" style="margin-top:10px;"><label>Shipping Location / Customer</label><input type="text" id="mm_loc" placeholder="e.g. Rohini, Pitampura"></div>
@@ -913,6 +937,36 @@
     el.textContent = '📅 Showing orders received on: ' + dateWindow.join(' and ') + ' (Monday is skipped as a holiday). Use Search for older records.';
   }
 
+  // Submission types that can be either a Challan or an Invoice: the form then asks which, so the order is tagged to one series.
+  var EITHER_TYPES = [];
+  function syncBillField_(prefix) {
+    var type = document.getElementById(prefix + '_' + (prefix === 'mm' ? 'type' : 'typeOfSubmission')).value;
+    var show = EITHER_TYPES.indexOf(type) !== -1;
+    var box = document.getElementById(prefix + '_billField'), sel = document.getElementById(prefix + '_billSeries');
+    if (!box || !sel) return;
+    box.style.display = show ? '' : 'none';
+    sel.required = show;
+    if (!show) sel.value = '';
+  }
+  function billValue_(prefix) {
+    var sel = document.getElementById(prefix + '_billSeries'), box = document.getElementById(prefix + '_billField');
+    return sel && box && box.style.display !== 'none' ? sel.value : '';
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    [['shop', 'shop_typeOfSubmission'], ['shopedit', 'shopedit_typeOfSubmission'], ['mm', 'mm_type']].forEach(function (x) {
+      var e = document.getElementById(x[1]);
+      if (e) e.addEventListener('change', function () { syncBillField_(x[0]); });
+    });
+    var b = document.getElementById('shop_billSeries');
+    if (b) b.addEventListener('change', shopCheckDocNumber);
+  });
+
+  function toggleCc_(h2) {
+    var card = h2.parentNode, collapsed = card.classList.toggle('collapsed');
+    h2.setAttribute('aria-expanded', String(!collapsed));
+  }
+  function ccKey_(e, h2) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCc_(h2); } }
+
   function fillSelect_(selectId, names, keepFirst) {
     var sel = document.getElementById(selectId);
     if (!sel) return;
@@ -997,7 +1051,10 @@
     function show() {
       fillSelect_('mm_via', MM_OPTS.orderVia);
       fillSelect_('mm_type', MM_OPTS.typeOfSubmission);
+      EITHER_TYPES = MM_OPTS.eitherTypes || EITHER_TYPES;
       document.getElementById('mm_type').value = (GAP_TYPES[docType] || [])[0] || docType;   // a type set up for this series
+      syncBillField_('mm');
+      if (document.getElementById('mm_billField').style.display !== 'none') document.getElementById('mm_billSeries').value = docType.toLowerCase();
       document.getElementById('mm_backdrop').style.display = 'flex';
       document.getElementById('mm_via').focus();
     }
@@ -1015,7 +1072,7 @@
       if (btn.disabled) return;
       btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
       var form = { orderRcvdDate: document.getElementById('mm_date').value, orderVia: document.getElementById('mm_via').value,
-        typeOfSubmission: document.getElementById('mm_type').value, dcNo: document.getElementById('mm_dcNo').value,
+        typeOfSubmission: document.getElementById('mm_type').value, billSeries: billValue_('mm'), dcNo: document.getElementById('mm_dcNo').value,
         shippingLocation: document.getElementById('mm_loc').value, detailedRemarks: document.getElementById('mm_remarks').value };
       VT.run
         .withSuccessHandler(function (res) {
@@ -1051,24 +1108,14 @@
       if (!d || !d.ok || !d.series) return;                                  // this submission type is not a numbered bill
       if (document.getElementById('shop_dcNo').value.trim() !== no) return;  // typed on since
       var series = d.series;
-      if (d.badFormat) { warn.style.color = 'var(--red)'; warn.textContent = 'This type needs both numbers: ' + d.help + '.'; return; }
-      if (series === 'Both' && d.parts) {
-        var msgs = [], bad = false;
-        d.parts.forEach(function (p) {
-          if (p.duplicate) { bad = true; msgs.push(p.series + ' ' + p.number + ' is already used' + (p.series === 'Challan' ? ' for this date.' : ' this financial year.')); }
-          else if (p.skipped && p.skipped.length) msgs.push('Last ' + p.series.toLowerCase() + ' number is ' + p.last + '. Not yet punched: ' + p.skipped.join(', ') + '.');
-        });
-        warn.style.color = bad ? 'var(--red)' : 'var(--amber)';
-        warn.textContent = msgs.join(' ');
-        return;
-      }
+      if (d.needsChoice) { warn.style.color = 'var(--amber)'; warn.textContent = 'Choose Challan or Invoice above so the number is checked in the right series.'; return; }
       if (d.notDigits) { warn.style.color = 'var(--red)'; warn.textContent = series + ' number must be digits only.'; return; }
       if (d.duplicate) { warn.style.color = 'var(--red)'; warn.textContent = series + ' ' + no + ' is already used' + (series === 'Challan' ? ' for this date.' : ' this financial year.'); }
       else if (d.skipped && d.skipped.length) {
         warn.style.color = 'var(--amber)';
         warn.textContent = 'Last ' + series.toLowerCase() + ' number is ' + d.last + '. Not yet punched: ' + d.skipped.join(', ') + '. Check before saving.';
       }
-    }).checkDocNumber(CURRENT_TOKEN, type, date, no);
+    }).checkDocNumber(CURRENT_TOKEN, type, date, no, billValue_('shop'));
   }
   document.addEventListener('DOMContentLoaded', function () {
     ['shop_dcNo', 'shop_typeOfSubmission'].forEach(function (id) {
@@ -1554,6 +1601,7 @@
       .withSuccessHandler(function(data) {
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
+        EITHER_TYPES = data.dropdowns.eitherTypes || [];
         fillSelect_('shop_orderVia', data.dropdowns.orderVia);
         fillSelect_('shop_typeOfSubmission', data.dropdowns.typeOfSubmission);
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
@@ -1591,6 +1639,8 @@
     setDatePickerValue('shopedit_orderRcvdDate', o.orderRcvdDate || isoToday_());
     document.getElementById('shopedit_orderVia').value = o.orderVia || '';
     document.getElementById('shopedit_typeOfSubmission').value = o.typeOfSubmission || '';
+    syncBillField_('shopedit');
+    if (document.getElementById('shopedit_billField').style.display !== 'none') document.getElementById('shopedit_billSeries').value = o.billSeries || '';
     document.getElementById('shopedit_dcNo').value = o.dcNo || '';
     document.getElementById('shopedit_shippingLocation').value = o.shippingLocation || '';
     document.getElementById('shopedit_detailedRemarks').value = o.detailedRemarks || '';
@@ -1614,6 +1664,7 @@
       orderRcvdDate: document.getElementById('shopedit_orderRcvdDate_iso').value,
       orderVia: document.getElementById('shopedit_orderVia').value,
       typeOfSubmission: document.getElementById('shopedit_typeOfSubmission').value,
+      billSeries: billValue_('shopedit'),
       dcNo: document.getElementById('shopedit_dcNo').value,
       shippingLocation: document.getElementById('shopedit_shippingLocation').value,
       detailedRemarks: document.getElementById('shopedit_detailedRemarks').value
@@ -1631,6 +1682,7 @@
 
   function shopResetForm() {
     document.getElementById('shopOrderForm').reset();
+    syncBillField_('shop');
     document.getElementById('shop_statusMsg').textContent = '';
     setDatePickerValue('shop_orderRcvdDate', isoToday_());
   }
@@ -1648,6 +1700,7 @@
       shippingLocation: document.getElementById('shop_shippingLocation').value,
       dcNo: document.getElementById('shop_dcNo').value,
       typeOfSubmission: document.getElementById('shop_typeOfSubmission').value,
+      billSeries: billValue_('shop'),
       detailedRemarks: document.getElementById('shop_detailedRemarks').value
     };
     VT.run
@@ -1656,7 +1709,7 @@
         if (!res || !res.ok) { msg.className='status-msg error'; msg.textContent=res?res.error:'No response'; return; }
         if (!res.success) { msg.className='status-msg error'; msg.textContent=res.message; return; }
         msg.textContent = 'Order saved! (DC No: ' + document.getElementById('shop_dcNo').value + ')';
-        document.getElementById('shopOrderForm').reset(); initShop();
+        document.getElementById('shopOrderForm').reset(); syncBillField_('shop'); initShop();
       })
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save Order'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
       .addOrder(CURRENT_TOKEN, form, CURRENT_USER_NAME);

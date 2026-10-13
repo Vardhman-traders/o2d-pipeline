@@ -269,7 +269,7 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        cu.display_name AS created_by, lu.display_name AS last_updated_by,
        o.shipping_location, o.detailed_remarks, o.timestamp_created,
        o.material_delivery_datetime, rd.full_date AS date_of_receiving,
-       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail
+       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail, o.bill_series
 """ + ORDER_FROM
 
 Money = Optional[Decimal]
@@ -280,6 +280,7 @@ class OrderFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dc_inv_no: Optional[str] = Field(default=None, max_length=50)
+    bill_series: Optional[Literal["challan", "invoice"]] = None   # which series a "Both" submission type is tagged to
     order_received_date: Optional[date] = None
     order_via_key: Optional[int] = None
     submission_type_key: Optional[int] = None
@@ -306,7 +307,7 @@ class OrderPatch(OrderFields):
 
 
 PLAIN_COLUMNS = {
-    "dc_inv_no", "order_via_key", "submission_type_key", "delivery_status_key",
+    "dc_inv_no", "bill_series", "order_via_key", "submission_type_key", "delivery_status_key",
     "ready_by_person_key", "colour_making_person_key", "delivered_by_person_key",
     "payment_status_key", "shipping_location", "detailed_remarks",
     "material_delivery_datetime", "amount_received", "cartage", "delivered_by_detail",
@@ -326,7 +327,10 @@ def _db_columns(fields: dict) -> dict:
 
 
 def _check_editable(fields: dict, user):
-    denied = sorted(set(fields) - config.editable_fields_for_role(user["role"]))
+    allowed = set(config.editable_fields_for_role(user["role"]))
+    if "submission_type_key" in allowed:
+        allowed.add("bill_series")   # the Challan / Invoice tag goes with the submission type
+    denied = sorted(set(fields) - allowed)
     if denied:
         raise HTTPException(403, f"Your role ({user['role']}) may not set: {', '.join(denied)}")
 
@@ -341,7 +345,7 @@ def _check_test_dc(fields: dict, user):
 def _check_doc_number(cur, user, fields: dict, before: dict | None = None):
     """Challan / Invoice numbers: digits only, no repeats inside their series (see doc_numbers.py). Only checked when
     the number, type or date is being set, so unrelated edits to an older order are never blocked."""
-    if not ({"dc_inv_no", "submission_type_key", "order_received_date"} & set(fields)):
+    if not ({"dc_inv_no", "submission_type_key", "order_received_date", "bill_series"} & set(fields)):
         return
     b = before or {}
     key = fields.get("submission_type_key", b.get("submission_type_key"))
@@ -352,7 +356,7 @@ def _check_doc_number(cur, user, fields: dict, before: dict | None = None):
         type_name = row["type_name"] if row else None
     doc_numbers.validate(cur, user, dc_no=fields.get("dc_inv_no", b.get("dc_inv_no")), type_name=type_name,
                          order_date=fields.get("order_received_date", b.get("order_received_date")),
-                         own_order_key=b.get("order_key"))
+                         own_order_key=b.get("order_key"), chosen=fields.get("bill_series", b.get("bill_series")))
 
 
 def _fk_error(exc):
