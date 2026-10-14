@@ -159,8 +159,19 @@ def _haversine(lat1, lng1, lat2, lng2) -> float:
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def check_location(cur, lat, lng) -> dict:
-    """Nearest work place whose own radius contains the phone; otherwise 'out_of_range' with every distance."""
+def allowed_place_keys(cur, emp_key: int | None) -> list[int]:
+    """The work places this employee is tagged to (Attendance owner dashboard > Employees). Empty = any work place."""
+    if not emp_key:
+        return []
+    cur.execute("SELECT location_key FROM att_employee_location WHERE employee_key = %s", (emp_key,))
+    return [r["location_key"] for r in cur.fetchall()]
+
+
+def check_location(cur, lat, lng, emp_key: int | None = None) -> dict:
+    """Nearest work place whose own radius contains the phone; otherwise 'out_of_range' with every distance.
+
+    An employee tagged to particular work places can only mark from those: standing at another work place (or anywhere else)
+    gives 'wrong_location' with a sentence naming where they may mark from."""
     try:
         lat, lng = float(lat), float(lng)
     except (TypeError, ValueError):
@@ -173,6 +184,18 @@ def check_location(cur, lat, lng) -> dict:
     out: dict = {"radius": max(p["radius_m"] for p, _ in places)}
     for p, d in places:   # the page shows the two spots as "Godown" / "Shop"
         out["dist" + p["location_name"].strip().title().replace(" ", "")] = _round(d)
+    allowed = allowed_place_keys(cur, emp_key)
+    if allowed:
+        mine = [(p, d) for p, d in places if p["location_key"] in allowed]
+        if mine and not any(p["location_key"] in allowed for p, _ in inside):
+            names = [p["location_name"] for p, _ in mine]
+            at = min(inside, key=lambda x: x[1])[0]["location_name"] if inside else None
+            where = f"You are at {at}, which is not one of your work places." if at else "You are not at any of your work places."
+            near, near_d = min(mine, key=lambda x: x[1])
+            return {**out, "status": "wrong_location", "site": near["location_name"], "dist": _round(near_d), "allowed": names,
+                    "msg": f"Attendance can only be marked from {' or '.join(names)}. {where}"}
+        if mine:
+            inside = [(p, d) for p, d in inside if p["location_key"] in allowed]
     if inside:
         p, d = min(inside, key=lambda x: x[1])
         return {**out, "status": "ok", "site": p["location_name"], "dist": _round(d), "location_key": p["location_key"], "icon": p["icon"]}
@@ -340,9 +363,10 @@ def get_today_status(name):
             "hoursWorked": _hours_text(r["hours_worked_min"]) if out else "", "finalStatus": r["final_status"], "rowIndex": r["attendance_key"]}
 
 
-def check_location_rpc(lat, lng):
+def check_location_rpc(lat, lng, name=None):
     with db.cursor() as cur:
-        out = check_location(cur, lat, lng)
+        emp = _find_employee(cur, name) if name else None
+        out = check_location(cur, lat, lng, emp["employee_key"] if emp else None)
     out.pop("location_key", None)
     return out
 
@@ -354,11 +378,11 @@ def save_attendance(data: dict):
         emp = _find_employee(cur, data.get("name"))
         if not emp:
             return {"status": "error", "msg": "Employee list mein naam nahi mila. Page reload karo."}
-        loc = check_location(cur, data.get("lat"), data.get("lng"))
+        loc = check_location(cur, data.get("lat"), data.get("lng"), emp["employee_key"])
         if loc["status"] == "error":
             return loc
         if loc["status"] != "ok":
-            return {"status": "out_of_range", **{k: v for k, v in loc.items() if k.startswith("dist") or k == "radius"}}
+            return {k: v for k, v in loc.items() if k.startswith("dist") or k in ("radius", "status", "msg", "allowed")}
         now = _now()
         existing = _today_row(cur, emp["employee_key"], now.date())
         if existing:
@@ -387,11 +411,11 @@ def save_checkout(data: dict):
         emp = _find_employee(cur, data.get("name"))
         if not emp:
             return {"status": "error", "msg": "Employee list mein naam nahi mila. Page reload karo."}
-        loc = check_location(cur, data.get("lat"), data.get("lng"))
+        loc = check_location(cur, data.get("lat"), data.get("lng"), emp["employee_key"])
         if loc["status"] == "error":
             return loc
         if loc["status"] != "ok":
-            return {"status": "out_of_range", **{k: v for k, v in loc.items() if k.startswith("dist") or k == "radius"}}
+            return {k: v for k, v in loc.items() if k.startswith("dist") or k in ("radius", "status", "msg", "allowed")}
         now = _now()
         r = _today_row(cur, emp["employee_key"], now.date())
         if not r:
@@ -557,7 +581,7 @@ def get_employee_salary_view(name, token=None):
 PUBLIC = {
     "getEmployees": lambda a: get_employees(),
     "getTodayStatus": lambda a: get_today_status(a[0]),
-    "checkLocation": lambda a: check_location_rpc(a[0], a[1]),
+    "checkLocation": lambda a: check_location_rpc(a[0], a[1], a[2] if len(a) > 2 else None),
     "saveAttendance": lambda a: save_attendance(a[0]),
     "saveCheckout": lambda a: save_checkout(a[0]),
     "notifyAttendance": lambda a: notify_attendance(a[0], a[1]),
@@ -833,8 +857,39 @@ def delete_advance(user, advance_id):
 def get_all_employees(user):
     with db.cursor() as cur:
         cur.execute("SELECT * FROM dim_att_employee ORDER BY lower(employee_name)")
+        emps = cur.fetchall()
+        cur.execute("SELECT el.employee_key, l.location_name FROM att_employee_location el "
+                    "JOIN dim_att_location l ON l.location_key = el.location_key ORDER BY l.sort_order, l.location_key")
+        places: dict[int, list[str]] = {}
+        for r in cur.fetchall():
+            places.setdefault(r["employee_key"], []).append(r["location_name"])
         return {"status": "ok", "employees": [{"name": r["employee_name"], "role": r["role_title"] or "", "active": r["is_active"],
-                                               "addedOn": _dmy(r["added_on"])} for r in cur.fetchall()]}
+                                               "addedOn": _dmy(r["added_on"]), "places": places.get(r["employee_key"], [])} for r in emps]}
+
+
+def get_work_places(user):
+    with db.cursor() as cur:
+        cur.execute("SELECT location_name, icon FROM dim_att_location ORDER BY sort_order, location_key")
+        return {"status": "ok", "places": [{"name": r["location_name"], "icon": r["icon"]} for r in cur.fetchall()]}
+
+
+def set_employee_places(user, name, places):
+    """Tag the work places an employee may mark attendance from. An empty list = any work place."""
+    wanted = [str(p).strip().lower() for p in (places or []) if str(p).strip()]
+    with db.cursor() as cur:
+        emp = _need_emp(cur, name)
+        cur.execute("SELECT location_key, location_name FROM dim_att_location")
+        known = {r["location_name"].strip().lower(): r for r in cur.fetchall()}
+        missing = [p for p in wanted if p not in known]
+        if missing:
+            return {"status": "error", "msg": "Unknown work place: " + ", ".join(missing)}
+        keys = sorted({known[p]["location_key"] for p in wanted})
+        cur.execute("DELETE FROM att_employee_location WHERE employee_key = %s", (emp["employee_key"],))
+        for k in keys:
+            cur.execute("INSERT INTO att_employee_location (employee_key, location_key) VALUES (%s, %s)", (emp["employee_key"], k))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'attendance.set_places', %s, %s)",
+                    (user["user_key"], user["username"], emp["employee_name"], Json({"places": [known[p]["location_name"] for p in sorted(set(wanted))]})))
+    return {"status": "ok", "name": emp["employee_name"], "count": len(keys)}
 
 
 def add_employee(user, name, role):
@@ -1011,6 +1066,8 @@ OWNER = {
     "getAbsentStreak": lambda u, a: get_absent_streak(u, a[1]),
     "getEmployeeStreak": lambda u, a: get_employee_streak(u, a[1]),
     "getAllEmployees": lambda u, a: get_all_employees(u),
+    "getWorkPlaces": lambda u, a: get_work_places(u),
+    "setEmployeePlaces": lambda u, a: set_employee_places(u, a[1], a[2] if len(a) > 2 else []),
     "addEmployee": lambda u, a: add_employee(u, a[1], a[2] if len(a) > 2 else ""),
     "deleteEmployee": lambda u, a: delete_employee(u, a[1]),
     "getAllPINs": lambda u, a: get_all_pins(u),
@@ -1020,7 +1077,7 @@ OWNER = {
 
 @router.post("/owner/rpc")
 def owner_rpc(body: RpcIn, user=Depends(OWNER_DEP)):
-    if body.action in ("manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN"):
+    if body.action in ("manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces"):
         access.require_edit(user, OWNER_PAGE)
     fn = OWNER.get(body.action)
     if not fn:

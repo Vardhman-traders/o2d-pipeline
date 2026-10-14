@@ -12,7 +12,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import (access, admin, admin_tools, attachments, auth, config, db, delegation, module_admin, o2d_cartage,
+from . import (access, admin, admin_tools, attachments, auth, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
                o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles,
                timeline, doc_numbers, whatsapp, daily_reports)
 
@@ -65,7 +65,7 @@ async def security_headers(request, call_next):
     response.headers["Content-Security-Policy"] = (CSP_MODULE if path.startswith(MODULE_PATHS) else
                                                    CSP_INLINE if path.startswith("/sales") else CSP)
     if request.url.path.startswith(("/auth", "/admin", "/access", "/orders", "/lookups", "/people", "/links",
-                                    "/o2d", "/sales", "/payments", "/delegation", "/purchase", "/decor", "/attendance")):
+                                    "/o2d", "/sales", "/payments", "/delegation", "/checklist", "/purchase", "/decor", "/attendance")):
         response.headers["Cache-Control"] = "no-store"
     elif request.url.path.endswith((".js", ".css")):
         # No build-time hashing on these files, so without this a browser can keep running JS/CSS from
@@ -519,6 +519,8 @@ app.include_router(o2d_cashier.router)
 app.include_router(payment_merge.router)
 app.include_router(payments.router)
 app.include_router(delegation.router)
+app.include_router(checklist.router)
+app.include_router(expenses.router)
 app.include_router(purchase.router)
 app.include_router(decor.router)
 app.include_router(attendance.router)

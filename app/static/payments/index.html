@@ -672,6 +672,11 @@
   </header>
 
   <main>
+    <div class="tabbar" id="payTabs" style="display:none;margin-bottom:16px;">
+      <button id="payTabTxn" class="active" onclick="payTab('txn')">Transactions</button>
+      <button id="payTabExp" onclick="payTab('exp')">Regular Expenses</button>
+    </div>
+    <div id="payArea">
     <!-- SEARCH BAR -->
     <div class="search-bar">
       <label>🔍 Search</label>
@@ -881,6 +886,51 @@
       </div>
       <p id="txnDebugLine" class="small-note" style="margin-top:10px;"></p>
     </div>
+    </div>
+
+    <!-- ===================== REGULAR EXPENSES ===================== -->
+    <div id="expArea" style="display:none;">
+      <div class="toolbar" style="flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" id="expAccountField" style="display:none;">
+          <label for="expAccount">Account</label>
+          <select id="expAccount" onchange="expReload()"></select>
+        </div>
+        <div class="field"><label for="expFrom">From</label><input type="date" id="expFrom" onchange="expReload()"></div>
+        <div class="field"><label for="expTo">To</label><input type="date" id="expTo" onchange="expReload()"></div>
+        <div class="field"><label for="expCatFilter">Category</label><select id="expCatFilter" onchange="expReload()"></select></div>
+        <div class="field">
+          <label for="expKindFilter">Show</label>
+          <select id="expKindFilter" onchange="expReload()">
+            <option value="">Everything</option><option value="Expense">Expenses only</option><option value="Topup">Money added only</option>
+          </select>
+        </div>
+        <button class="btn btn-sm" id="expAddBtn" style="background:var(--teal);color:#fff;" onclick="expOpenAdd('Expense')">+ Add Expense</button>
+        <button class="btn btn-sm" id="expTopupBtn" style="display:none;background:var(--navy);color:#fff;" onclick="expOpenAdd('Topup')">+ Add Money to Account</button>
+      </div>
+
+      <div class="cards" id="expCards"></div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:20px;">
+        <div class="list-panel" style="margin:0;"><div class="list-header"><h3>Where the money went</h3></div><div id="expByCategory"></div></div>
+        <div class="list-panel" style="margin:0;"><div class="list-header"><h3>Who spent it</h3></div><div id="expByPerson"></div></div>
+      </div>
+
+      <div class="list-panel">
+        <div class="list-header">
+          <h3 id="expListTitle">Account statement</h3>
+          <span class="action-link" onclick="expExportExcel()">⬇ Excel</span>
+          <span class="action-link" onclick="expExportCsv()">⬇ CSV</span>
+        </div>
+        <div class="table-wrap">
+          <table id="expTable">
+            <thead><tr><th>Date</th><th>Entry</th><th>Type</th><th>Category</th><th>Spent by</th><th>Paid to / details</th>
+              <th style="text-align:right">Amount</th><th style="text-align:right">Balance</th><th>Entered by</th><th></th></tr></thead>
+            <tbody id="expBody"></tbody>
+          </table>
+        </div>
+        <p id="expNote" style="font-size:12px;color:var(--muted);margin:10px 4px 0;"></p>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -902,6 +952,41 @@
 </div>
 
 <!-- ========== EDIT MODAL ========== -->
+
+<!-- REGULAR EXPENSES: add an expense / add money -->
+<div class="modal-backdrop" id="expModal">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-top">
+      <h3 id="expModalTitle">Add expense</h3>
+      <button class="modal-close" onclick="expCloseAdd()">✕</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label for="xDate">Date</label><input type="date" id="xDate"></div>
+      <div class="field"><label for="xAmount">Amount (₹)</label><input type="number" id="xAmount" min="0.01" step="0.01" inputmode="decimal"></div>
+      <div class="field" id="xCatWrap"><label for="xCategory">What for</label><select id="xCategory"></select></div>
+      <div class="field"><label for="xWho" id="xWhoLabel">Spent by</label><select id="xWho"></select></div>
+      <div class="field" id="xPaidWrap" style="grid-column:1 / -1;"><label for="xPaidTo">Paid to (shop, person, driver…)</label><input type="text" id="xPaidTo" maxlength="150"></div>
+      <div class="field" style="grid-column:1 / -1;"><label for="xDesc">Details (optional)</label><input type="text" id="xDesc" maxlength="500"></div>
+    </div>
+    <p id="xMsg" style="color:var(--red);font-size:13px;min-height:18px;margin:6px 0;"></p>
+    <button class="btn btn-primary" id="xSave" onclick="expSave()">Save</button>
+  </div>
+</div>
+
+<!-- REGULAR EXPENSES: cancel an entry -->
+<div class="modal-backdrop" id="expVoidModal">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-top">
+      <h3>Cancel entry <span id="vNo" style="color:var(--accent);"></span></h3>
+      <button class="modal-close" onclick="document.getElementById('expVoidModal').classList.remove('open')">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 10px;">The entry stays in the statement, marked cancelled, and no longer counts in the balance.</p>
+    <div class="field"><label for="vReason">Why is it being cancelled?</label><input type="text" id="vReason" maxlength="300"></div>
+    <p id="vMsg" style="color:var(--red);font-size:13px;min-height:18px;margin:6px 0;"></p>
+    <button class="btn btn-primary" onclick="expVoidSave()">Cancel this entry</button>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="editModal">
   <div class="modal-box">
     <div class="modal-top">
@@ -994,7 +1079,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('loginScreen').style.display = 'none';
   window.VT.boot('payments', function () {
     VT.run.withSuccessHandler(function (res) {
-      currentUser = { username: res.username, role: res.role, fullName: res.fullName };
+      currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null };
       window.PAY_CAN_WRITE = res.canWrite !== false;
       enterApp();
     }).login();
@@ -1040,7 +1125,7 @@ function handleLogin(){
   VT.run
     .withSuccessHandler(res => {
       if (res.success) {
-        currentUser = { username: res.username, role: res.role, fullName: res.fullName };
+        currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null };
         sessionStorage.setItem('vt_user', JSON.stringify(currentUser));
         enterApp();
       } else { errBox.textContent = res.message || 'Login failed.'; errBox.style.display = 'block'; }
@@ -1070,6 +1155,7 @@ function enterApp(){
   badge.textContent = currentUser.role;
   badge.className = 'role-pill role-' + currentUser.role.toLowerCase();
   document.getElementById('fullNameLabel').textContent = currentUser.fullName;
+  if (currentUser.role === 'Expenses') { expSetupTabs(currentUser.expenseLevel, true); return; }   // only the Regular expenses pages
 
   document.getElementById('entryPanelWrap').style.display = 'block';
   document.getElementById('addPartyPanelWrap').style.display = 'block';
@@ -1097,6 +1183,7 @@ function enterApp(){
 
   loadBootstrapData();
   refreshAll();
+  expSetupTabs(currentUser.expenseLevel, false);
 
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
   autoRefreshTimer = setInterval(() => refreshAll(true), 30000);
@@ -2242,6 +2329,163 @@ function clearForm(){
 // ============================================================
 // UTILS
 // ============================================================
+
+// ============================================================
+// REGULAR EXPENSES (a float of money: opening + money added - expenses)
+// ============================================================
+let EXP = null, expLast = null, expVoidKey = null, expKind = 'Expense';
+
+function payTab(which){
+  const exp = which === 'exp';
+  document.getElementById('payArea').style.display = exp ? 'none' : '';
+  document.getElementById('expArea').style.display = exp ? 'block' : 'none';
+  document.getElementById('payTabTxn').classList.toggle('active', !exp);
+  document.getElementById('payTabExp').classList.toggle('active', exp);
+  if (exp) expStart();
+}
+function expSetupTabs(level, only){
+  if (!level) return;
+  document.getElementById('payTabs').style.display = 'flex';
+  if (only) {
+    document.getElementById('payTabTxn').style.display = 'none';
+    payTab('exp');
+  }
+}
+function expStart(){
+  if (EXP) return expReload();
+  VT.run.withSuccessHandler(function(b){
+    EXP = b;
+    const acc = document.getElementById('expAccount');
+    acc.innerHTML = b.accounts.map(a => `<option>${esc(a.name)}</option>`).join('');
+    document.getElementById('expAccountField').style.display = b.accounts.length > 1 ? 'block' : 'none';
+    document.getElementById('expCatFilter').innerHTML = '<option value="">All categories</option>' + b.categories.map(c => `<option>${esc(c)}</option>`).join('');
+    const today = b.today;
+    document.getElementById('expFrom').value = today.slice(0, 8) + '01';
+    document.getElementById('expTo').value = today;
+    document.getElementById('expTopupBtn').style.display = b.level === 'manage' && b.canWrite ? '' : 'none';
+    document.getElementById('expAddBtn').style.display = b.canWrite ? '' : 'none';
+    expReload();
+  }).withFailureHandler(function(e){ alert(e.message); }).expBootstrap();
+}
+function expReload(){
+  if (!EXP) return;
+  const acct = document.getElementById('expAccount').value, from = document.getElementById('expFrom').value, to = document.getElementById('expTo').value;
+  const cat = document.getElementById('expCatFilter').value, kind = document.getElementById('expKindFilter').value;
+  VT.run.withSuccessHandler(function(s){
+    VT.run.withSuccessHandler(function(l){ expLast = { summary: s, ledger: l, account: acct, from: from, to: to }; expDraw(s, l); })
+      .withFailureHandler(function(e){ alert(e.message); }).expEntries(acct, from, to, cat, kind);
+  }).withFailureHandler(function(e){ alert(e.message); }).expSummary(acct, from, to);
+}
+function expDraw(s, l){
+  const p = s.period;
+  document.getElementById('expCards').innerHTML =
+    `<div class="card ${s.overdrawn ? 'card-red' : 'card-green'}" style="cursor:default;"><div class="label">Balance now</div><div class="value">${rupee(s.balance)}</div><div class="card-sub">${s.overdrawn ? 'Overdrawn - add money to the account' : esc(s.account)}</div></div>` +
+    `<div class="card card-blue" style="cursor:default;"><div class="label">Opening</div><div class="value">${rupee(p.opening)}</div><div class="card-sub">on ${esc(p.from)}</div></div>` +
+    `<div class="card card-cyan" style="cursor:default;"><div class="label">Money added</div><div class="value">${rupee(p.topups)}</div><div class="card-sub">in this period</div></div>` +
+    `<div class="card card-purple" style="cursor:default;"><div class="label">Spent</div><div class="value">${rupee(p.spent)}</div><div class="card-sub">${p.spendCount} expense${p.spendCount === 1 ? '' : 's'}</div></div>` +
+    `<div class="card card-blue" style="cursor:default;"><div class="label">Closing</div><div class="value">${rupee(p.closing)}</div><div class="card-sub">on ${esc(p.to)}</div></div>`;
+  const rows = (arr, key) => arr.length ? '<table style="width:100%"><tbody>' + arr.map(r =>
+    `<tr><td>${esc(r[key])}</td><td style="text-align:right;font-weight:600">${rupee(r.amount)}</td></tr>`).join('') + '</tbody></table>'
+    : '<p style="color:var(--muted);font-size:13px;margin:6px 4px;">No expenses in this period.</p>';
+  document.getElementById('expByCategory').innerHTML = rows(s.byCategory, 'category');
+  document.getElementById('expByPerson').innerHTML = rows(s.byPerson, 'name');
+  document.getElementById('expListTitle').textContent = 'Account statement - ' + s.account;
+  const body = document.getElementById('expBody');
+  if (!l.entries.length) { body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No entries for these filters.</td></tr>'; }
+  else body.innerHTML = l.entries.map(e => {
+    const topup = e.kind === 'Topup', sign = topup ? '+' : '−';
+    const style = e.voided ? 'text-decoration:line-through;opacity:.55;' : '';
+    return `<tr style="${style}"><td>${esc(e.date)}</td><td>${esc(e.no)}</td><td>${topup ? '<b style="color:var(--green)">Money added</b>' : 'Expense'}</td>` +
+      `<td>${esc(e.category || '—')}</td><td>${esc(e.spentBy || '—')}</td><td>${esc([e.paidTo, e.description].filter(Boolean).join(' — ') || '—')}` +
+      (e.voided ? `<div style="font-size:11px;color:var(--red)">Cancelled by ${esc(e.voidedBy)}: ${esc(e.voidReason)}</div>` : '') + '</td>' +
+      `<td style="text-align:right;font-weight:600;color:${topup ? 'var(--green)' : 'var(--ink)'}">${sign} ${rupee(e.amount)}</td>` +
+      `<td style="text-align:right">${e.balanceAfter === null ? '—' : rupee(e.balanceAfter)}</td><td>${esc(e.enteredBy)}</td>` +
+      `<td>${e.canVoid && EXP.canWrite ? `<span class="action-link danger" onclick="expOpenVoid(${e.key}, '${esc(e.no)}')">Cancel</span>` : ''}</td></tr>`;
+  }).join('');
+  document.getElementById('expNote').textContent = l.truncated ? 'Showing the latest 5,000 entries; narrow the dates to see the rest.' :
+    'Balance = opening balance + money added − expenses. Cancelled entries are kept for the record but are not counted.';
+}
+
+function expOpenAdd(kind){
+  expKind = kind;
+  const topup = kind === 'Topup';
+  document.getElementById('expModalTitle').textContent = topup ? 'Add money to the account' : 'Add expense';
+  document.getElementById('xDate').value = EXP.today;
+  document.getElementById('xDate').max = EXP.today;
+  document.getElementById('xAmount').value = '';
+  document.getElementById('xPaidTo').value = '';
+  document.getElementById('xDesc').value = '';
+  document.getElementById('xMsg').textContent = '';
+  document.getElementById('xCatWrap').style.display = topup ? 'none' : '';
+  document.getElementById('xPaidWrap').style.display = topup ? 'none' : '';
+  document.getElementById('xWhoLabel').textContent = topup ? 'Money handed in by' : 'Spent by';
+  document.getElementById('xCategory').innerHTML = '<option value="">-- Select --</option>' + EXP.categories.map(c => `<option>${esc(c)}</option>`).join('');
+  document.getElementById('xWho').innerHTML = EXP.people.map(pn => `<option value="${esc(pn.id)}"${pn.id === EXP.me ? ' selected' : ''}>${esc(pn.name)}</option>`).join('');
+  document.getElementById('expModal').classList.add('open');
+  document.getElementById('xAmount').focus();
+}
+function expCloseAdd(){ document.getElementById('expModal').classList.remove('open'); }
+function expSave(){
+  const msg = document.getElementById('xMsg'), amount = parseFloat(document.getElementById('xAmount').value);
+  if (!(amount > 0)) { msg.textContent = 'Enter the amount.'; return; }
+  const topup = expKind === 'Topup';
+  const body = { account: document.getElementById('expAccount').value, date: document.getElementById('xDate').value, kind: expKind, amount: amount,
+    category: topup ? '' : document.getElementById('xCategory').value, spentBy: document.getElementById('xWho').value,
+    paidTo: topup ? '' : document.getElementById('xPaidTo').value, description: document.getElementById('xDesc').value };
+  if (!topup && !body.category) { msg.textContent = 'Choose what the money was spent on.'; return; }
+  if (!topup && !body.paidTo.trim() && !body.description.trim()) { msg.textContent = 'Say who it was paid to, or what it was for.'; return; }
+  document.getElementById('xSave').disabled = true;
+  VT.run.withSuccessHandler(function(r){
+    document.getElementById('xSave').disabled = false;
+    expCloseAdd();
+    expReload();
+    if (r.overdrawn) alert('Saved. Note: the account balance is now ' + rupee(r.balance) + ' - money needs to be added to the account.');
+  }).withFailureHandler(function(e){ document.getElementById('xSave').disabled = false; msg.textContent = e.message; }).expAdd(body);
+}
+function expOpenVoid(key, no){
+  expVoidKey = key;
+  document.getElementById('vNo').textContent = no;
+  document.getElementById('vReason').value = '';
+  document.getElementById('vMsg').textContent = '';
+  document.getElementById('expVoidModal').classList.add('open');
+}
+function expVoidSave(){
+  const reason = document.getElementById('vReason').value.trim();
+  if (reason.length < 3) { document.getElementById('vMsg').textContent = 'Please give a reason.'; return; }
+  VT.run.withSuccessHandler(function(){ document.getElementById('expVoidModal').classList.remove('open'); expReload(); })
+    .withFailureHandler(function(e){ document.getElementById('vMsg').textContent = e.message; }).expVoid(expVoidKey, reason);
+}
+
+// ---- export: the same numbers the screen shows
+function expLedgerRows(){
+  return expLast.ledger.entries.map(e => ({ Date: e.date, Entry: e.no, Type: e.kind === 'Topup' ? 'Money added' : 'Expense', Category: e.category,
+    'Spent by': e.spentBy, 'Paid to': e.paidTo, Details: e.description, 'Money in': e.kind === 'Topup' && !e.voided ? e.amount : '',
+    'Money out': e.kind === 'Expense' && !e.voided ? e.amount : '', Balance: e.balanceAfter === null ? '' : e.balanceAfter,
+    'Entered by': e.enteredBy, Status: e.voided ? 'Cancelled: ' + e.voidReason + ' (' + e.voidedBy + ')' : '' }));
+}
+function expExportExcel(){
+  if (!expLast) return;
+  const s = expLast.summary, p = s.period;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Regular expenses - ' + s.account], ['Period', p.from + ' to ' + p.to], [], ['Opening balance', p.opening], ['Money added', p.topups],
+    ['Spent', p.spent], ['Closing balance', p.closing], [], ['Balance right now', s.balance], [], ['Spent by category'],
+    ...s.byCategory.map(c => [c.category, c.amount]), [], ['Spent by person'], ...s.byPerson.map(x => [x.name, x.amount])]), 'Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expLedgerRows()), 'Statement');
+  XLSX.writeFile(wb, 'VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.xlsx');
+}
+function expExportCsv(){
+  if (!expLast) return;
+  const rows = expLedgerRows();
+  const cols = rows.length ? Object.keys(rows[0]) : ['Date', 'Entry', 'Type', 'Category', 'Spent by', 'Paid to', 'Details', 'Money in', 'Money out', 'Balance', 'Entered by', 'Status'];
+  const cell = v => { const t = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => cell(r[c])).join(','))).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'VT-Regular-Expenses-' + expLast.from + '-to-' + expLast.to + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 function rupee(n){
   n = Number(n) || 0;
   return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 });

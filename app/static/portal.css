@@ -515,6 +515,12 @@ th.sorted .sort-arrow, th.sorted .sort-btn { opacity: 1; color: var(--accent); }
 .collapse-body[hidden] { display: none; }
 .collapse-body > :first-child { margin-top: 14px; }
 
-/* login page: mark attendance without signing in */
-.login-alt { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); display: grid; gap: 10px; text-align: center; font-size: 13px; color: var(--ink-2); }
-.login-alt .btn { display: block; text-decoration: none; text-align: center; }
+/* login page: mark attendance without signing in - the big button above the sign-in form */
+.mark-attendance-cta { display: grid; justify-items: center; gap: 2px; margin: 18px 0 6px; padding: 20px 16px; border-radius: var(--radius);
+  background: var(--accent); color: #fff; text-decoration: none; font-size: 26px; font-weight: 800; letter-spacing: .04em; text-align: center; }
+.mark-attendance-cta:hover { filter: brightness(1.08); }
+.mark-attendance-cta:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.mark-attendance-cta small { font-size: 13px; font-weight: 500; letter-spacing: 0; opacity: .85; }
+.mark-attendance-icon { font-size: 34px; line-height: 1; }
+.login-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; color: var(--ink-2); font-size: 13px; }
+.login-or::before, .login-or::after { content: ''; flex: 1; border-top: 1px solid var(--border); }

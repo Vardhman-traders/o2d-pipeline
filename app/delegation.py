@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, db, modcommon as mc, roles
+from . import access, attachments, auth, checklist, db, modcommon as mc, roles
 
 router = APIRouter(prefix="/delegation", tags=["delegation"])
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -41,7 +41,7 @@ def _who(user) -> str:
     held = access.effective_access(user)
     if "deleg_manage" in held:
         return "Manager"
-    if set(PAGES) & set(held):
+    if (set(PAGES) | set(checklist.PAGES)) & set(held):
         return "Staff"
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 
@@ -93,7 +93,7 @@ def me(user=Depends(ANY)):
     who = _who(user)
     held = access.effective_access(user)
     return {"success": True, "id": user["username"], "name": user["display_name"], "role": who,
-            "pages": sorted(p for p in PAGES if user["role"] == "admin" or p in held),
+            "pages": sorted(p for p in PAGES + checklist.PAGES if user["role"] == "admin" or p in held),
             "canWrite": user["role"] == "admin" or not access.is_view_only(user, "deleg_manage"),
             "photosEnabled": attachments.configured(),
             "scoring": {k: v for k, v in _settings().items() if k in ("on_time", "late", "revise", "extend")}}

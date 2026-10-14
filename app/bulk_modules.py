@@ -709,3 +709,127 @@ ENTITIES.update({
                      "examples": ATT_ADVANCE_EXAMPLES, "help": ATT_ADVANCE_HELP, "validate": validate_att_advances,
                      "insert": insert_att_advances, "lists": lambda: {}, "table": "fact_att_advance", "edited": "FALSE"},
 })
+
+
+# ================================================================== Checklist
+CHECKLIST_COLUMNS = ["Title", "Description", "Category", "Frequency", "Day", "Month", "Start Date", "End Date", "Assigned To"]
+CHECKLIST_REQUIRED = ["Title", "Frequency", "Assigned To"]
+CHECKLIST_EXAMPLES = [
+    ["EXAMPLE File GSTR-3B return", "Upload before 20th", "GST", "Monthly", "20", "", "", "", "example.ravi"],
+    ["EXAMPLE Open shop and switch on lights", "", "Shop / Godown routine", "Daily", "", "", "", "", "example.ravi;example.priya"],
+    ["EXAMPLE Renew trade licence", "", "Licences & Renewals", "Yearly", "31", "March", "", "", "example.ravi"]]
+CHECKLIST_HELP = ("One checklist per row; it comes back on its own schedule and the assigned person marks each time Done or Not Done. "
+                  "Title, Frequency and Assigned To are required. Frequency: Daily (not on the weekly off day), Weekly, Monthly, "
+                  "Quarterly, Yearly or Once. Day: for Weekly the day name (Mon ... Sun); for Monthly, Quarterly and Yearly the date "
+                  "of the month (1 to 31, or Last for the last day). Month: for Yearly the month; for Quarterly the first month the "
+                  "quarters count from (Jan, Feb ... or 1 to 12). Start Date (dd-mm-yyyy, today if empty, not in the past) and End Date "
+                  "are optional; a Once checklist happens on its Start Date. Assigned To: staff usernames (as shown under Setup > "
+                  "Members) - separate several with ; and each gets their own copy. The person needs the 'Checklist - My checklist' page "
+                  "in Setup > Access. Category must exist under Setup > Dropdown values > Checklist - categories (optional). "
+                  "Rows marked EXAMPLE are ignored.")
+_WEEKDAYS = {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}
+_MONTHS = {m: i for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+def checklist_lists() -> dict:
+    return {"Frequency": ["Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Once"],
+            "Category": _list_names("dim_checklist_category", "category_key", "category_name"),
+            "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Last"],
+            "Month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}
+
+
+def validate_checklists(rows: list[dict]) -> dict:
+    from fastapi import HTTPException
+    from . import checklist
+    cats = _names("dim_checklist_category", "category_key", "category_name")
+    with db.cursor() as cur:
+        people = {u["id"].lower(): u for u in checklist.assignable_users(cur)}
+        cur.execute("SELECT lower(btrim(c.title)) AS t, c.assignee_user_key, c.frequency FROM dim_checklist c WHERE c.is_active")
+        existing = {(r["t"], r["assignee_user_key"], r["frequency"]) for r in cur.fetchall()}
+    cal = _calendar(parse_date((r.get(c) or "").strip()) for r in rows for c in ("Start Date", "End Date"))
+    today = mc.today_ist()
+    seen_rows: dict = {}
+    results = []
+    for r in rows:
+        g = _row_getter(r)
+        errs: list[str] = []
+        errs += [f"{c} is required" for c in CHECKLIST_REQUIRED if not g(c)]
+        n: dict = {"title": " ".join(g("Title").split()), "description": g("Description")[:1000] or None, "category_key": None}
+        if len(n["title"]) > 200:
+            errs.append("Title is longer than 200 characters")
+        if g("Category"):
+            k, e = _pick(cats, g("Category"), "Category")
+            if e:
+                errs.append(e)
+            n["category_key"] = k
+        freq = g("Frequency").strip().title()
+        dow = day = month = None
+        raw_day, raw_month = g("Day").strip().upper(), g("Month").strip().upper()
+        if raw_day:
+            if raw_day[:3] in _WEEKDAYS and not raw_day.isdigit():
+                dow = _WEEKDAYS[raw_day[:3]]
+            elif raw_day in ("LAST", "L"):
+                day = 31
+            elif raw_day.isdigit():
+                day = int(raw_day)
+            else:
+                errs.append(f"Day '{g('Day')}' is not a weekday (Mon ... Sun), a date (1 to 31) or Last")
+        if raw_month:
+            if raw_month[:3] in _MONTHS and not raw_month.isdigit():
+                month = _MONTHS[raw_month[:3]]
+            elif raw_month.isdigit() and 1 <= int(raw_month) <= 12:
+                month = int(raw_month)
+            else:
+                errs.append(f"Month '{g('Month')}' is not a month (Jan ... Dec or 1 to 12)")
+        if freq and freq not in checklist.FREQUENCIES:
+            errs.append("Frequency must be one of " + ", ".join(checklist.FREQUENCIES))
+        elif freq:
+            try:
+                dow, day, month = checklist.check_schedule(freq, dow, day, month)
+            except HTTPException as exc:
+                errs.append(str(exc.detail))
+        seen: list = []
+        n["start"] = _date_field(g, "Start Date", seen, errs) or today
+        n["end"] = _date_field(g, "End Date", seen, errs)
+        if g("Start Date") and n["start"] < today:
+            errs.append("Start Date cannot be in the past")
+        if n["end"] and n["end"] < n["start"]:
+            errs.append("End Date is before the Start Date")
+        if freq == "Once":
+            n["end"] = None
+        _calendar_errors(seen, cal, errs)
+        assignees = []
+        for name in [p.strip() for p in g("Assigned To").replace("|", ";").split(";") if p.strip()]:
+            u = people.get(name.lower())
+            if not u:
+                errs.append(f"Assigned To '{name}' not found, or has no 'Checklist - My checklist' page")
+            elif u["user_key"] not in assignees:
+                assignees.append(u["user_key"])
+                if (n["title"].lower(), u["user_key"], freq) in existing:
+                    errs.append(f"{name} already has an active {freq} checklist called '{n['title']}'")
+                dup = (n["title"].lower(), u["user_key"], freq)
+                if dup in seen_rows:
+                    errs.append(f"Duplicate of row {seen_rows[dup]} in this file ({name})")
+                else:
+                    seen_rows[dup] = r.get("_row")
+        n.update(frequency=freq, dow=dow, day=day, month=month, assignees=assignees)
+        results.append((r, "; ".join(errs) or None, None if errs else n))
+    return _report(rows, results)
+
+
+def insert_checklists(cur, normalised: list[dict], batch_id: int, admin: dict) -> None:
+    for n in normalised:
+        for user_key in n["assignees"]:
+            cur.execute("INSERT INTO dim_checklist (title, description, category_key, assignee_user_key, frequency, due_dow, due_day, due_month, "
+                        "start_date_key, end_date_key, created_by_user_key, import_batch_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (n["title"], n["description"], n["category_key"], user_key, n["frequency"], n["dow"], n["day"], n["month"],
+                         mc.date_key(n["start"]), mc.date_key(n["end"]), admin["user_key"], batch_id))
+
+
+ENTITIES["checklists"] = {
+    "label": "checklists", "columns": CHECKLIST_COLUMNS, "required": CHECKLIST_REQUIRED, "examples": CHECKLIST_EXAMPLES,
+    "help": CHECKLIST_HELP, "validate": validate_checklists, "insert": insert_checklists, "lists": checklist_lists,
+    "table": "dim_checklist",
+    # a checklist someone has already marked an item on is history: undoing the upload is refused rather than erasing it
+    "edited": "EXISTS (SELECT 1 FROM fact_checklist_occurrence x WHERE x.checklist_key = dim_checklist.checklist_key AND x.status <> 'Pending')"
+              " OR updated_at IS NOT NULL"}

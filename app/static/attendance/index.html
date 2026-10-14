@@ -538,13 +538,16 @@ function detectLocation(){
             document.getElementById('badgeSub').textContent='You are '+r.dist+' metres from the '+r.site;
             document.getElementById('siteBadge').className='site-badge show';
             locationOk=true; checkNext();
+          } else if(r.status==='wrong_location'){
+            setLoc('far','⚠️','Not at your work place','Tap here to retry');
+            showAlert('⚠️ '+r.msg);
           } else {
             setLoc('far','⚠️','Not at Godown or Shop','Tap here to retry');
             showAlert('⚠️ You must be within '+(r.radius||40)+'m of Godown or Shop.\nGodown: '+r.distGodown+'m | Shop: '+r.distShop+'m');
           }
         })
         .withFailureHandler(function(){ setLoc('denied','❌','Server error','Reload and try again'); })
-        .checkLocation(uLat,uLng);
+        .checkLocation(uLat,uLng,selectedName||'');
     },
     function(){
       setLoc('denied','🔒','Location denied — tap to retry','Allow location when browser asks');
@@ -590,6 +593,7 @@ function onNameSelect(){
       .getTodayStatus(name);
 
     loadSalarySection(name);
+    detectLocation();   // the places this person may mark from can differ from everyone else's
 
   } else {
     selectedName='';
@@ -1045,6 +1049,7 @@ function doCheckinAttempt(name,allowRetry){
         showAlreadyCheckin(name,r.time);
         notifyWhatsApp(r.rowIndex, name);   // pehli try ka message pending ho toh bhej do
       }
+      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ '+r.msg); }
       else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
       else{ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
     })
@@ -1078,6 +1083,7 @@ function doCheckoutAttempt(name,allowRetry){
         showAlreadyCheckedOut2(name,r.time);
         notifyWhatsApp(r.rowIndex, name);
       }
+      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ '+r.msg); }
       else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
       else{ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
     })

@@ -43,7 +43,7 @@
   var fns = {
     // ---------------------------------------------------------------- Payments
     login_payments: function () {   // the page starts from the portal session; this just tells it who that is
-      return ask('GET', '/payments/bootstrap').then(function (b) { return { success: true, username: b.username, role: b.role, fullName: b.fullName }; });
+      return ask('GET', '/payments/bootstrap').then(function (b) { return { success: true, username: b.username, role: b.role, fullName: b.fullName, expenseLevel: b.expenseLevel || null }; });
     },
     getBootstrapData: function () { return ask('GET', '/payments/bootstrap'); },
     getParties: function (company, txnType) { return ask('GET', '/payments/parties' + qs({ company: company, txn_type: txnType })); },
@@ -71,6 +71,24 @@
     getWeeklyReview: function (staffId, anchor) { return ask('GET', '/delegation/weekly' + qs({ staff_id: staffId, anchor: anchor })); },
     saveWeeklyPlan: function (staffId, staffName, weekStart, weekEnd, g, y, r) { return ask('POST', '/delegation/weekly-plan', { staffId: staffId, weekStart: weekStart, green: g, yellow: y, red: r }); },
     logExtraWork: function (userId, userName, role, desc, photo) { return ask('POST', '/delegation/extra-work', { desc: desc, photo: photo }); },
+
+    // ---------------------------------------------------------------- Checklist (a part of the Delegation screen)
+    chkMe: get('/checklist/me'),
+    chkMine: get('/checklist/mine'),
+    chkMark: function (key, body) { return ask('POST', '/checklist/occurrences/' + key + '/mark', body); },
+    chkCalendar: function (year, month, assignee, category) { return ask('GET', '/checklist/calendar' + qs({ year: year, month: month, assignee: assignee, category: category })); },
+    chkList: get('/checklist/checklists'),
+    chkCreate: function (body) { return ask('POST', '/checklist/checklists', body); },
+    chkUpdate: function (key, body) { return ask('PUT', '/checklist/checklists/' + key, body); },
+    chkSetActive: function (key, active) { return ask('POST', '/checklist/checklists/' + key + '/active', { active: active }); },
+    chkDelete: function (key) { return ask('DELETE', '/checklist/checklists/' + key); },
+
+    // ---------------------------------------------------------------- Regular expenses (a tab of the Payments screen)
+    expBootstrap: get('/payments/expenses/bootstrap'),
+    expSummary: function (account, from, to) { return ask('GET', '/payments/expenses/summary' + qs({ account: account, date_from: from, date_to: to })); },
+    expEntries: function (account, from, to, category, kind) { return ask('GET', '/payments/expenses/entries' + qs({ account: account, date_from: from, date_to: to, category: category, kind: kind })); },
+    expAdd: function (body) { return ask('POST', '/payments/expenses/entries', body); },
+    expVoid: function (key, reason) { return ask('POST', '/payments/expenses/entries/' + key + '/void', { reason: reason }); },
 
     // ---------------------------------------------------------------- Purchase
     login_purchase: function () { return ask('GET', '/purchase/me'); },
@@ -103,7 +121,7 @@
   fns.getEmployeeSalaryView = function (name) { return attPublic('getEmployeeSalaryView', [name, salaryPass[String(name).toLowerCase().trim()] || '']); };
   ['verifyOwnerPassword', 'getTodayAttendance', 'manualCheckout', 'getAllSalaries', 'setEmployeeSalary', 'getAllAdvances', 'addAdvancePayment',
    'deleteAdvance', 'getSalaryReport', 'getMonthlyReport', 'getAbsentStreak', 'getEmployeeStreak', 'getAllEmployees', 'addEmployee',
-   'deleteEmployee', 'getAllPINs', 'setEmployeePIN'].forEach(function (n) {
+   'deleteEmployee', 'getAllPINs', 'setEmployeePIN', 'getWorkPlaces', 'setEmployeePlaces'].forEach(function (n) {
     fns[n] = function () { return attOwner(n, Array.prototype.slice.call(arguments)); };
   });
 

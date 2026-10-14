@@ -45,11 +45,17 @@ PAGES: dict[str, tuple[str, str]] = {
     # ---- Payments (the role the old script gave a login - Cashier / Account - is now simply which pages a person holds)
     "pay_cashier": ("Payments", "Payments - Cashier (enter and edit own entries for today)"),
     "pay_account": ("Payments", "Payments - Account (see all entries, approve or reject, edit pending)"),
+    "pay_expense": ("Payments", "Payments - Regular expenses (record expenses, see the balance, export)"),
+    "pay_expense_manage": ("Payments", "Payments - Regular expenses manager (also add money to the account and void wrong entries)"),
     # ---- Delegation
     "deleg_mine": ("Delegation", "Delegation - My tasks"),
     "deleg_week": ("Delegation", "Delegation - My week (planned vs actual)"),
     "deleg_scoreboard": ("Delegation", "Delegation - Scoreboard"),
     "deleg_manage": ("Delegation", "Delegation - Manager (assign, review, follow up, all tasks)"),
+    # ---- Checklist (a part of the Delegation screen; each page below is one switch)
+    "chk_mine": ("Checklist", "Checklist - My checklist (mark my items Done / Not Done)"),
+    "chk_calendar": ("Checklist", "Checklist - Compliance calendar (my own items; a manager sees everyone's)"),
+    "chk_manage": ("Checklist", "Checklist - Manager (create, edit, assign and stop checklists, see everyone's)"),
     # ---- Purchase report
     "po_godown": ("Purchase", "Purchase - Godown entries"),
     "po_shop": ("Purchase", "Purchase - Shop entries"),
@@ -64,9 +70,10 @@ PAGES: dict[str, tuple[str, str]] = {
 # The business modules shown as tiles on the home screen. A person sees a tile when they hold at least one of its pages.
 # Adding a module = one entry here + its pages above; the home screen, access matrix and admin overview follow.
 MODULES: list[dict] = [
-    {"key": "payments", "title": "Payments", "icon": "💳", "url": "/payments/", "pages": ["pay_cashier", "pay_account"]},
+    {"key": "payments", "title": "Payments", "icon": "💳", "url": "/payments/",
+     "pages": ["pay_cashier", "pay_account", "pay_expense", "pay_expense_manage"]},
     {"key": "delegation", "title": "Delegation", "icon": "✅", "url": "/delegation/",
-     "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage"]},
+     "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage", "chk_mine", "chk_calendar", "chk_manage"]},
     {"key": "purchase", "title": "Purchase Report", "icon": "🧾", "url": "/purchase/", "pages": ["po_godown", "po_shop", "po_all"]},
     {"key": "decor", "title": "VT Decor", "icon": "🎨", "url": "/decor/", "pages": ["decor_owner", "decor_staff"]},
     {"key": "attendance_owner", "title": "Attendance - Owner", "icon": "📊", "url": "/attendance/dashboard.html", "pages": ["att_owner"]},

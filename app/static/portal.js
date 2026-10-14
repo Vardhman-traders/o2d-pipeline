@@ -254,10 +254,14 @@ function showLogin(message) {
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; pass.value = ''; }
   });
   mount(h('div', { class: 'login-screen' }, h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
-    h('h1', { text: 'Vardhman Traders' }), h('p', { class: 'sub', text: 'Sign in to your sales & operations portal' }), form,
+    h('h1', { text: 'Vardhman Traders' }),
     // Staff mark attendance without signing in: the employee check-in page is open (the owner dashboard is not part of this).
-    h('div', { class: 'login-alt' }, h('span', { text: 'Not signing in? Staff can mark attendance directly.' }),
-      h('a', { class: 'btn', id: 'markAttendanceBtn', href: '/attendance/', text: '🕘 Mark attendance' })))));
+    // It sits above the sign-in form, big, so nobody has to look for it.
+    h('a', { class: 'mark-attendance-cta', id: 'markAttendanceBtn', href: '/attendance/' },
+      h('span', { class: 'mark-attendance-icon', text: '🕘' }), h('span', { text: 'MARK ATTENDANCE' }),
+      h('small', { text: 'No sign-in needed' })),
+    h('div', { class: 'login-or', text: 'or sign in to the portal' }),
+    h('p', { class: 'sub', text: 'Sign in to your sales & operations portal' }), form)));
 }
 
 function showChangePassword(forced) {

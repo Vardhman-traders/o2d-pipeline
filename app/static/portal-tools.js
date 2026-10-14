@@ -487,7 +487,7 @@ async function renderAccessRequests(panel) {
 const IMPORT_GROUPS = [
   { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
   { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries']] },
-  { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks']] },
+  { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks'], ['checklists', 'Checklists']] },
   { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries']] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses']] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
@@ -495,7 +495,7 @@ const IMPORT_GROUPS = [
 const IMPORT_KINDS = IMPORT_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label]));
 const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', tasks: 'tasks', purchases: 'purchase entries',
   decor_clients: 'VT Decor clients', decor_payments: 'VT Decor payments', decor_expenses: 'VT Decor expenses',
-  att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances' };
+  att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances', checklists: 'checklists' };
 const IMPORT_TEMPLATE_NOTE = {
   orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
@@ -505,6 +505,7 @@ const IMPORT_TEMPLATE_NOTE = {
   decor_clients: 'The Excel template has dropdowns for Product Type and Status. Amounts are real rupees (not divided by 100). Upload clients first: payments and expenses refer to the client code (C001 ...). Rows marked EXAMPLE are ignored.',
   decor_payments: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',
   decor_expenses: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',
+  checklists: 'The Excel template has dropdowns for Frequency, Category, Day and Month. Day means the weekday for Weekly and the date of the month for Monthly / Quarterly / Yearly. Put several usernames in Assigned To (separated by ;) to give each their own copy. Rows marked EXAMPLE are ignored.',
   att_employees: 'Upload employees before their attendance records and advances. Rows marked EXAMPLE are ignored.',
   att_attendance: 'For days before the portal started (or missed days): employee, date, check-in and check-out time (24-hour). The status is worked out from your Module settings unless you write it. No WhatsApp message is sent. Rows marked EXAMPLE are ignored.',
   att_advances: 'The employee must already exist. Advances are deducted in that month’s salary report. Rows marked EXAMPLE are ignored.' };
@@ -683,13 +684,15 @@ function masterCell(f, row) {
 // Which module each list belongs to (the picker shows one chip per module, and its lists underneath), with the short name used on the chip.
 const LIST_GROUPS = [
   { id: 'orders', label: 'Orders', icon: '📋', items: ['channel', 'submission_type', 'delivery_status', 'payment_status', 'ready_by', 'colour_making', 'delivery'] },
-  { id: 'payments', label: 'Payments', icon: '💳', items: ['company', 'payment_mode', 'txn_type', 'party'] },
+  { id: 'payments', label: 'Payments', icon: '💳', items: ['company', 'payment_mode', 'txn_type', 'party', 'expense_account', 'expense_category'] },
+  { id: 'checklist', label: 'Checklist', icon: '☑️', items: ['checklist_category'] },
   { id: 'purchase', label: 'Purchase', icon: '🧾', items: ['vendor'] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: ['decor_type', 'decor_stage', 'decor_expense_type'] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: ['att_location', 'att_employee'] }];
 const LIST_SHORT = { company: 'Companies', payment_mode: 'Payment modes', txn_type: 'Transaction types', party: 'Parties', vendor: 'Vendors',
   decor_type: 'Product types', decor_stage: 'Stages of each product type', decor_expense_type: 'Expense types (suggestions)',
-  att_location: 'Work places (GPS spot)', att_employee: 'Employees' };
+  att_location: 'Work places (GPS spot)', att_employee: 'Employees',
+  expense_account: 'Regular expenses - accounts', expense_category: 'Regular expenses - categories', checklist_category: 'Categories' };
 
 const SCOPE_LABEL = { both: 'Both dispatch screens', shop: 'Shop dispatch & receiving only', godown: 'Godown dispatch only' };
 const SCOPE_FIELD = { name: 'dispatch_scope', label: 'Offered on', type: 'select', value: 'both',
