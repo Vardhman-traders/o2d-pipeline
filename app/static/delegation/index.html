@@ -120,10 +120,14 @@
         <button id="tabWeekBtn" onclick="switchTab('week')" class="py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-calendar-week mr-1"></i>My Week</button>
         <button onclick="openExtraWorkModal()" class="py-3 whitespace-nowrap text-slate-500 hover:text-slate-700"><i class="fa-solid fa-plus-circle mr-1"></i>Add Extra Work</button>
         <button id="tabScoreboardBtn" onclick="switchTab('scoreboard')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-trophy mr-1"></i>Scoreboard</button>
+        <button id="tabChkMineBtn" onclick="switchTab('chkmine')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-list-check mr-1"></i>My Checklist</button>
+        <button id="tabChkCalBtn" onclick="switchTab('chkcal')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-calendar-days mr-1"></i>Compliance Calendar</button>
+        <button id="tabChkManageBtn" onclick="switchTab('chkmanage')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-clipboard-check mr-1"></i>Manage Checklists</button>
       </div>
     </div>
 
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6 space-y-6">
+      <div id="taskArea" class="space-y-6">
 
       <div class="grid grid-cols-3 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div class="text-center">
@@ -344,6 +348,69 @@
         </div>
       </div>
 
+      </div>
+
+      <!-- ============ CHECKLIST (own area; the task screens above are hidden while it is open) ============ -->
+      <div id="chkArea" class="hidden space-y-6">
+
+        <!-- MY CHECKLIST -->
+        <div id="chkViewMine" class="hidden space-y-4">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-list-check vt-text-navy mr-2"></i>My Checklist</h3>
+            <p class="text-xs text-slate-500 mt-1">Mark each item <b>Done</b> when finished, or <b>Not Done</b> with a reason.</p>
+          </div>
+          <div id="chkMineBody" class="space-y-4"></div>
+        </div>
+
+        <!-- COMPLIANCE CALENDAR -->
+        <div id="chkViewCal" class="hidden space-y-4">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div class="flex flex-wrap items-center gap-3 justify-between">
+              <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-calendar-days vt-text-navy mr-2"></i>Compliance Calendar</h3>
+              <div class="flex flex-wrap items-center gap-2">
+                <select id="chkCalPerson" onchange="chkLoadCalendar()" class="hidden px-3 py-2 bg-slate-50 border rounded-xl text-sm"></select>
+                <select id="chkCalCategory" onchange="chkLoadCalendar()" class="px-3 py-2 bg-slate-50 border rounded-xl text-sm"></select>
+                <button onclick="chkMonth(-1)" class="px-3 py-2 border rounded-xl text-sm bg-white">&larr;</button>
+                <span id="chkCalTitle" class="font-semibold text-slate-700 min-w-[130px] text-center"></span>
+                <button onclick="chkMonth(1)" class="px-3 py-2 border rounded-xl text-sm bg-white">&rarr;</button>
+                <button onclick="chkMonth(0)" class="px-3 py-2 border rounded-xl text-sm bg-white">Today</button>
+              </div>
+            </div>
+            <div id="chkCalCounts" class="flex flex-wrap gap-2 text-xs font-semibold"></div>
+            <div class="overflow-x-auto">
+              <div class="min-w-[640px]">
+                <div class="grid grid-cols-7 text-center text-xs font-bold text-slate-400 uppercase mb-1">
+                  <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                </div>
+                <div id="chkCalGrid" class="grid grid-cols-7 gap-1"></div>
+              </div>
+            </div>
+          </div>
+          <div id="chkDayPanel" class="hidden bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3"></div>
+        </div>
+
+        <!-- MANAGE CHECKLISTS -->
+        <div id="chkViewManage" class="hidden space-y-4">
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-3 justify-between">
+            <div>
+              <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-clipboard-check vt-text-navy mr-2"></i>Manage Checklists</h3>
+              <p class="text-xs text-slate-500 mt-1">Create a checklist once; it comes back on its schedule. Many at once: Setup &rsaquo; Import &rsaquo; Checklists.</p>
+            </div>
+            <button id="chkNewBtn" onclick="chkOpenForm(null)" class="px-5 py-2.5 vt-btn font-medium text-sm rounded-xl shadow flex items-center gap-2">
+              <i class="fa-solid fa-plus text-xs"></i> New Checklist
+            </button>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr><th class="text-left px-4 py-3">Checklist</th><th class="text-left px-4 py-3">Assigned to</th><th class="text-left px-4 py-3">When</th>
+                    <th class="text-left px-4 py-3">Done / Not done / Overdue</th><th class="px-4 py-3"></th></tr>
+              </thead>
+              <tbody id="chkManageBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -440,6 +507,79 @@
       <textarea id="extendRemark" rows="2" placeholder="Remark (optional)" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
       <button onclick="submitExtendDeadline()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Confirm New Deadline</button>
       <p id="extendMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
+
+  <!-- CHECKLIST: mark Not Done / remark -->
+  <div id="chkMarkModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-3">
+      <div class="flex justify-between items-center">
+        <h3 id="chkMarkTitle" class="vt-display font-bold text-slate-800 text-lg">Not done</h3>
+        <button onclick="chkCloseMark()" class="text-slate-400 hover:text-slate-700 text-xl">&times;</button>
+      </div>
+      <p id="chkMarkWhat" class="text-sm text-slate-600"></p>
+      <textarea id="chkMarkRemark" rows="3" placeholder="Reason (required)" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+      <button id="chkMarkSave" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Save</button>
+      <p id="chkMarkMsg" class="text-xs text-center font-medium text-rose-600 min-h-[16px]"></p>
+    </div>
+  </div>
+
+  <!-- CHECKLIST: create / edit -->
+  <div id="chkFormModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-3">
+      <div class="flex justify-between items-center">
+        <h3 id="chkFormTitle" class="vt-display font-bold text-slate-800 text-lg">New checklist</h3>
+        <button onclick="chkCloseForm()" class="text-slate-400 hover:text-slate-700 text-xl">&times;</button>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">What has to be done *</label>
+        <input type="text" id="chkFTitle" maxlength="200" placeholder="e.g. File GSTR-3B return" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Details (optional)</label>
+        <textarea id="chkFDesc" rows="2" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Category</label>
+          <select id="chkFCategory" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Assigned to *</label>
+          <select id="chkFAssignee" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">How often *</label>
+          <select id="chkFFreq" onchange="chkFreqChanged()" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        </div>
+        <div id="chkFDowWrap" class="hidden">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">On which day *</label>
+          <select id="chkFDow" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        </div>
+        <div id="chkFMonthWrap" class="hidden">
+          <label id="chkFMonthLabel" class="block text-xs font-semibold text-slate-500 mb-1">Month *</label>
+          <select id="chkFMonth" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        </div>
+        <div id="chkFDayWrap" class="hidden">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Date of the month * <span class="font-normal">(31 = last day)</span></label>
+          <input type="number" id="chkFDay" min="1" max="31" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1"><span id="chkFStartLabel">Starts on</span></label>
+          <input type="date" id="chkFStart" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+        <div id="chkFEndWrap">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Ends on (optional)</label>
+          <input type="date" id="chkFEnd" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+      </div>
+      <button id="chkFSave" onclick="chkSaveForm()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Save checklist</button>
+      <p id="chkFMsg" class="text-xs text-center font-medium text-rose-600 min-h-[16px]"></p>
     </div>
   </div>
 
@@ -572,6 +712,9 @@
       document.getElementById('tabMineBtn').classList.toggle('hidden', !pageOn_('deleg_mine'));
       document.getElementById('tabWeekBtn').classList.toggle('hidden', !pageOn_('deleg_week'));
       document.getElementById('tabScoreboardBtn').classList.toggle('hidden', !pageOn_('deleg_scoreboard'));
+      document.getElementById('tabChkMineBtn').classList.toggle('hidden', !chkOn_('chk_mine'));
+      document.getElementById('tabChkCalBtn').classList.toggle('hidden', !chkOn_('chk_calendar'));
+      document.getElementById('tabChkManageBtn').classList.toggle('hidden', !chkOn_('chk_manage'));
       document.getElementById('followUpSection').classList.toggle('hidden', !privileged);
       document.getElementById('needsReviewSection').classList.toggle('hidden', !privileged);
       document.getElementById('weeklyStaffPickerWrap').classList.toggle('hidden', !privileged);
@@ -595,23 +738,284 @@
       if (pageOn_('deleg_mine')) return 'mine';
       if (isPrivileged()) return 'allpending';
       if (pageOn_('deleg_week')) return 'week';
+      if (chkOn_('deleg_scoreboard')) return 'scoreboard';
+      if (chkOn_('chk_mine')) return 'chkmine';
+      if (chkOn_('chk_calendar')) return 'chkcal';
+      if (chkOn_('chk_manage')) return 'chkmanage';
       return pageOn_('deleg_scoreboard') ? 'scoreboard' : 'mine';
     }
     function pts_(n) { return (n > 0 ? '+' : '') + n + ' point' + (Math.abs(n) === 1 ? '' : 's'); }
 
+
+    // ====================== CHECKLIST ======================
+    var CHK = null, chkCalY = 0, chkCalM = 0, chkCalData = null, chkMarkKey = null, chkEditKey = null, chkOpenDay = null;
+    var CHK_DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var CHK_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    function chkOn_(p) { return !!DELEG_PAGES && DELEG_PAGES.indexOf(p) !== -1; }
+    function chkFmt(iso) { var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : ''; }
+    function chkIsManager() { return chkOn_('chk_manage'); }
+    function chkBoot(then) {
+      if (CHK) return then();
+      VT.run.withSuccessHandler(function (r) { CHK = r; then(); }).withFailureHandler(onGenericError).chkMe();
+    }
+
+    var CHK_TABS = { chkmine: ['tabChkMineBtn', 'chkViewMine'], chkcal: ['tabChkCalBtn', 'chkViewCal'], chkmanage: ['tabChkManageBtn', 'chkViewManage'] };
+    function chkShow(tab) {
+      document.getElementById('taskArea').classList.add('hidden');
+      document.getElementById('chkArea').classList.remove('hidden');
+      Object.keys(CHK_TABS).forEach(function (t) { document.getElementById(CHK_TABS[t][1]).classList.toggle('hidden', t !== tab); });
+      chkBoot(function () {
+        if (tab === 'chkmine') chkLoadMine();
+        if (tab === 'chkcal') chkInitCalendar();
+        if (tab === 'chkmanage') chkLoadManage();
+      });
+    }
+    function chkHide() {
+      document.getElementById('taskArea').classList.remove('hidden');
+      document.getElementById('chkArea').classList.add('hidden');
+    }
+
+    // ---- one item (used by My checklist and by the calendar's day panel)
+    function chkBadge(it) {
+      if (it.status === 'Done') return '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">Done</span>';
+      if (it.status === 'Not Done') return '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">Not done</span>';
+      if (it.overdue) return '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700">Overdue</span>';
+      return '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">Pending</span>';
+    }
+    function chkRow(it, showWho) {
+      var mine = it.assigneeId === currentUser.id, can = mine || chkIsManager();
+      var btns = '';
+      if (it.status === 'Pending' && can) {
+        btns = '<button onclick="chkDone(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white">&#10003; Done</button>' +
+               '<button onclick="chkNotDone(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 bg-white">Not done</button>';
+      } else if (it.status !== 'Pending' && chkIsManager()) {
+        btns = '<button onclick="chkReopen(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-600 bg-white">Re-open</button>';
+      }
+      return '<div class="flex flex-wrap items-center gap-3 justify-between border border-slate-100 rounded-xl px-4 py-3">' +
+        '<div class="min-w-0">' +
+          '<div class="font-semibold text-slate-800 break-words">' + escapeHtml(it.title) + '</div>' +
+          '<div class="text-xs text-slate-500 mt-0.5">Due ' + chkFmt(it.due) + (it.category ? ' &middot; ' + escapeHtml(it.category) : '') +
+            (showWho ? ' &middot; ' + escapeHtml(it.assignee) : '') + '</div>' +
+          (it.description ? '<div class="text-xs text-slate-500 mt-1">' + escapeHtml(it.description) + '</div>' : '') +
+          (it.remark ? '<div class="text-xs text-slate-600 mt-1">&ldquo;' + escapeHtml(it.remark) + '&rdquo;' + (it.markedBy ? ' &mdash; ' + escapeHtml(it.markedBy) : '') + '</div>' : '') +
+        '</div>' +
+        '<div class="flex items-center gap-2">' + chkBadge(it) + btns + '</div></div>';
+    }
+
+    // ---- mark Done / Not done
+    function chkApi_(key, status, remark, then) {
+      VT.run.withSuccessHandler(function () { then(); }).withFailureHandler(function (e) { onGenericError(e); })
+        .chkMark(key, { status: status, remark: remark || '' });
+    }
+    function chkRefresh_() {
+      if (!document.getElementById('chkViewMine').classList.contains('hidden')) chkLoadMine();
+      if (!document.getElementById('chkViewCal').classList.contains('hidden')) chkLoadCalendar(true);
+    }
+    function chkDone(key) { chkApi_(key, 'Done', '', function () { showToast('Marked done.'); chkRefresh_(); }); }
+    function chkReopen(key) { chkApi_(key, 'Pending', '', function () { showToast('Re-opened.'); chkRefresh_(); }); }
+    function chkNotDone(key) {
+      chkMarkKey = key;
+      document.getElementById('chkMarkRemark').value = '';
+      document.getElementById('chkMarkMsg').textContent = '';
+      document.getElementById('chkMarkWhat').textContent = 'Why was this not done?';
+      document.getElementById('chkMarkModal').classList.remove('hidden');
+      document.getElementById('chkMarkSave').onclick = function () {
+        var remark = document.getElementById('chkMarkRemark').value.trim();
+        if (!remark) { document.getElementById('chkMarkMsg').textContent = 'Please give a short reason.'; return; }
+        VT.run.withSuccessHandler(function () { chkCloseMark(); showToast('Saved.'); chkRefresh_(); })
+          .withFailureHandler(function (e) { document.getElementById('chkMarkMsg').textContent = e.message; })
+          .chkMark(chkMarkKey, { status: 'Not Done', remark: remark });
+      };
+    }
+    function chkCloseMark() { document.getElementById('chkMarkModal').classList.add('hidden'); }
+
+    // ---- My checklist
+    function chkSection(title, items, tone, empty) {
+      return '<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">' +
+        '<h4 class="font-bold text-sm ' + tone + '">' + title + ' <span class="text-slate-400 font-semibold">(' + items.length + ')</span></h4>' +
+        (items.length ? items.map(function (i) { return chkRow(i, false); }).join('') : '<p class="text-sm text-slate-400">' + empty + '</p>') + '</div>';
+    }
+    function chkLoadMine() {
+      VT.run.withSuccessHandler(function (r) {
+        document.getElementById('chkMineBody').innerHTML =
+          chkSection('Overdue', r.overdue, 'text-red-600', 'Nothing overdue. Well done.') +
+          chkSection('Due today', r.dueToday, 'text-amber-600', 'Nothing due today.') +
+          chkSection('Coming up', r.upcoming, 'text-slate-700', 'Nothing in the next few weeks.') +
+          chkSection('Finished in the last 2 weeks', r.finished, 'text-emerald-700', 'Nothing finished yet.');
+      }).withFailureHandler(onGenericError).chkMine();
+    }
+
+    // ---- compliance calendar
+    function chkInitCalendar() {
+      var sel = document.getElementById('chkCalCategory');
+      if (!sel.options.length) {
+        sel.innerHTML = '<option value="">All categories</option>' + CHK.categories.map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
+      }
+      var ps = document.getElementById('chkCalPerson');
+      if (chkIsManager()) {
+        ps.classList.remove('hidden');
+        if (!ps.options.length) {
+          ps.innerHTML = '<option value="">Everyone</option>' + CHK.staff.map(function (s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.name) + '</option>'; }).join('');
+        }
+      }
+      if (!chkCalY) { var t = CHK.today.split('-'); chkCalY = +t[0]; chkCalM = +t[1]; }
+      chkLoadCalendar();
+    }
+    function chkMonth(d) {
+      if (d === 0) { var t = CHK.today.split('-'); chkCalY = +t[0]; chkCalM = +t[1]; }
+      else { chkCalM += d; if (chkCalM < 1) { chkCalM = 12; chkCalY--; } if (chkCalM > 12) { chkCalM = 1; chkCalY++; } }
+      chkOpenDay = null;
+      chkLoadCalendar();
+    }
+    function chkLoadCalendar(keepDay) {
+      var who = chkIsManager() ? document.getElementById('chkCalPerson').value : '';
+      VT.run.withSuccessHandler(function (r) { chkCalData = r; chkDrawCalendar(r); if (keepDay && chkOpenDay) chkShowDay(chkOpenDay); else document.getElementById('chkDayPanel').classList.add('hidden'); })
+        .withFailureHandler(onGenericError)
+        .chkCalendar(chkCalY, chkCalM, who, document.getElementById('chkCalCategory').value);
+    }
+    function chkDrawCalendar(r) {
+      document.getElementById('chkCalTitle').textContent = r.monthName + ' ' + r.year;
+      var c = r.counts;
+      document.getElementById('chkCalCounts').innerHTML =
+        '<span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">' + c.total + ' items</span>' +
+        '<span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">' + c.done + ' done</span>' +
+        '<span class="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">' + c.notDone + ' not done</span>' +
+        '<span class="px-2.5 py-1 rounded-full bg-red-100 text-red-700">' + c.overdue + ' overdue</span>' +
+        '<span class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">' + c.pending + ' to do</span>';
+      var html = '';
+      for (var b = 0; b < r.firstDow; b++) html += '<div></div>';
+      for (var d = 1; d <= r.daysInMonth; d++) {
+        var iso = r.year + '-' + ('0' + r.month).slice(-2) + '-' + ('0' + d).slice(-2);
+        var items = r.days[iso] || [], dow = (r.firstDow + d - 1) % 7, isToday = iso === r.today;
+        var chips = items.slice(0, 3).map(function (it) {
+          var cls = it.status === 'Done' ? 'bg-emerald-100 text-emerald-800' : it.status === 'Not Done' ? 'bg-rose-100 text-rose-800'
+                  : it.overdue ? 'bg-red-100 text-red-700' : 'bg-amber-50 text-amber-800';
+          return '<div class="truncate rounded px-1 py-0.5 text-[10px] font-semibold ' + cls + '">' + escapeHtml(it.title) + '</div>';
+        }).join('');
+        if (items.length > 3) chips += '<div class="text-[10px] text-slate-500 font-semibold">+' + (items.length - 3) + ' more</div>';
+        html += '<button onclick="chkShowDay(\'' + iso + '\')" class="text-left min-h-[84px] p-1.5 rounded-lg border ' +
+          (isToday ? 'border-2 vt-ring ' : 'border-slate-200 ') + (dow === r.weeklyOffDay ? 'bg-slate-50' : 'bg-white') + ' hover:border-slate-400 space-y-1">' +
+          '<div class="text-xs font-bold ' + (isToday ? 'vt-text-navy' : 'text-slate-500') + '">' + d + '</div>' + chips + '</button>';
+      }
+      document.getElementById('chkCalGrid').innerHTML = html;
+    }
+    function chkShowDay(iso) {
+      chkOpenDay = iso;
+      var items = (chkCalData && chkCalData.days[iso]) || [];
+      var p = document.getElementById('chkDayPanel');
+      p.classList.remove('hidden');
+      var everyone = chkIsManager() && !document.getElementById('chkCalPerson').value;
+      p.innerHTML = '<h4 class="font-bold text-slate-800">' + chkFmt(iso) + '</h4>' +
+        (items.length ? items.map(function (i) { return chkRow(i, everyone); }).join('') : '<p class="text-sm text-slate-400">Nothing due on this day.</p>');
+    }
+
+    // ---- manage: list + create / edit form
+    function chkWhen(c) {
+      return escapeHtml(c.when) + '<div class="text-xs text-slate-400">from ' + chkFmt(c.startDate) + (c.endDate ? ' to ' + chkFmt(c.endDate) : '') + '</div>';
+    }
+    function chkLoadManage() {
+      document.getElementById('chkNewBtn').classList.toggle('hidden', !CHK.canWrite);
+      VT.run.withSuccessHandler(function (rows) {
+        window.chkRows = rows;
+        document.getElementById('chkManageBody').innerHTML = rows.length ? rows.map(function (c, i) {
+          return '<tr class="border-t border-slate-100 ' + (c.active ? '' : 'opacity-60') + '">' +
+            '<td class="px-4 py-3"><div class="font-semibold text-slate-800">' + escapeHtml(c.title) + (c.active ? '' : ' <span class="text-xs text-slate-400">(stopped)</span>') + '</div>' +
+              '<div class="text-xs text-slate-500">' + escapeHtml(c.category || 'No category') + '</div></td>' +
+            '<td class="px-4 py-3">' + escapeHtml(c.assignee) + '</td>' +
+            '<td class="px-4 py-3">' + chkWhen(c) + '</td>' +
+            '<td class="px-4 py-3 text-xs"><b class="text-emerald-700">' + c.done + '</b> / <b class="text-rose-700">' + c.notDone + '</b> / <b class="text-red-700">' + c.overdue + '</b></td>' +
+            '<td class="px-4 py-3 text-right whitespace-nowrap">' + (CHK.canWrite ?
+              '<button onclick="chkOpenForm(' + i + ')" class="px-2.5 py-1 text-xs font-semibold border rounded-lg bg-white">Edit</button> ' +
+              '<button onclick="chkToggle(' + i + ')" class="px-2.5 py-1 text-xs font-semibold border rounded-lg bg-white">' + (c.active ? 'Stop' : 'Restart') + '</button> ' +
+              '<button onclick="chkRemove(' + i + ')" class="px-2.5 py-1 text-xs font-semibold border rounded-lg bg-white text-rose-600">Delete</button>' : '') + '</td></tr>';
+        }).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No checklists yet. Press &ldquo;New Checklist&rdquo;.</td></tr>';
+      }).withFailureHandler(onGenericError).chkList();
+    }
+    function chkToggle(i) {
+      var c = window.chkRows[i];
+      VT.run.withSuccessHandler(function () { showToast(c.active ? 'Stopped.' : 'Restarted.'); chkLoadManage(); }).withFailureHandler(onGenericError)
+        .chkSetActive(c.key, !c.active);
+    }
+    function chkRemove(i) {
+      var c = window.chkRows[i];
+      if (!confirm('Delete "' + c.title + '"?\nIf anyone has already marked items on it, it cannot be deleted - stop it instead.')) return;
+      VT.run.withSuccessHandler(function () { showToast('Deleted.'); chkLoadManage(); }).withFailureHandler(onGenericError).chkDelete(c.key);
+    }
+    function chkOpts(list, blank) {
+      return (blank ? '<option value="">' + blank + '</option>' : '') + list.map(function (o) {
+        return '<option value="' + escapeHtml(o[0]) + '">' + escapeHtml(o[1]) + '</option>'; }).join('');
+    }
+    function chkFreqChanged() {
+      var f = document.getElementById('chkFFreq').value;
+      document.getElementById('chkFDowWrap').classList.toggle('hidden', f !== 'Weekly');
+      document.getElementById('chkFDayWrap').classList.toggle('hidden', ['Monthly', 'Quarterly', 'Yearly'].indexOf(f) === -1);
+      document.getElementById('chkFMonthWrap').classList.toggle('hidden', ['Quarterly', 'Yearly'].indexOf(f) === -1);
+      document.getElementById('chkFMonthLabel').textContent = f === 'Quarterly' ? 'First month of the cycle *' : 'Month *';
+      document.getElementById('chkFEndWrap').classList.toggle('hidden', f === 'Once');
+      document.getElementById('chkFStartLabel').textContent = f === 'Once' ? 'Due on' : 'Starts on';
+    }
+    function chkOpenForm(i) {
+      var c = i === null ? null : window.chkRows[i];
+      chkEditKey = c ? c.key : null;
+      document.getElementById('chkFormTitle').textContent = c ? 'Edit checklist' : 'New checklist';
+      document.getElementById('chkFMsg').textContent = '';
+      document.getElementById('chkFCategory').innerHTML = chkOpts(CHK.categories.map(function (x) { return [x, x]; }), 'No category');
+      document.getElementById('chkFAssignee').innerHTML = chkOpts(CHK.staff.map(function (s) { return [s.id, s.name]; }), '-- Select person --');
+      document.getElementById('chkFFreq').innerHTML = chkOpts(CHK.frequencies.map(function (x) { return [x, x]; }));
+      document.getElementById('chkFDow').innerHTML = chkOpts(CHK_DOW.map(function (n, k) { return [k, n]; }));
+      document.getElementById('chkFMonth').innerHTML = chkOpts(CHK_MONTHS.map(function (n, k) { return [k + 1, n]; }));
+      document.getElementById('chkFTitle').value = c ? c.title : '';
+      document.getElementById('chkFDesc').value = c ? c.description : '';
+      document.getElementById('chkFCategory').value = c ? c.category : '';
+      document.getElementById('chkFAssignee').value = c ? c.assigneeId : '';
+      document.getElementById('chkFFreq').value = c ? c.frequency : 'Daily';
+      document.getElementById('chkFDow').value = c && c.dueDow !== null ? c.dueDow : 1;
+      document.getElementById('chkFMonth').value = c && c.dueMonth ? c.dueMonth : 1;
+      document.getElementById('chkFDay').value = c && c.dueDay ? c.dueDay : '';
+      document.getElementById('chkFStart').value = c ? c.startDate : CHK.today;
+      document.getElementById('chkFStart').min = c && c.startDate < CHK.today ? c.startDate : CHK.today;
+      document.getElementById('chkFEnd').value = c ? c.endDate : '';
+      chkFreqChanged();
+      document.getElementById('chkFormModal').classList.remove('hidden');
+    }
+    function chkCloseForm() { document.getElementById('chkFormModal').classList.add('hidden'); }
+    function chkSaveForm() {
+      var f = document.getElementById('chkFFreq').value, msg = document.getElementById('chkFMsg');
+      var p = {
+        title: document.getElementById('chkFTitle').value, description: document.getElementById('chkFDesc').value,
+        category: document.getElementById('chkFCategory').value, assignee: document.getElementById('chkFAssignee').value, frequency: f,
+        dueDow: f === 'Weekly' ? +document.getElementById('chkFDow').value : null,
+        dueDay: ['Monthly', 'Quarterly', 'Yearly'].indexOf(f) !== -1 ? (parseInt(document.getElementById('chkFDay').value, 10) || null) : null,
+        dueMonth: ['Quarterly', 'Yearly'].indexOf(f) !== -1 ? +document.getElementById('chkFMonth').value : null,
+        startDate: document.getElementById('chkFStart').value, endDate: f === 'Once' ? '' : document.getElementById('chkFEnd').value
+      };
+      if (!p.title.trim()) { msg.textContent = 'Please say what has to be done.'; return; }
+      if (!p.assignee) { msg.textContent = 'Please choose who it is for.'; return; }
+      msg.textContent = '';
+      var ok = function () { chkCloseForm(); showToast('Checklist saved.'); chkLoadManage(); };
+      var bad = function (e) { msg.textContent = e.message; };
+      if (chkEditKey) VT.run.withSuccessHandler(ok).withFailureHandler(bad).chkUpdate(chkEditKey, p);
+      else VT.run.withSuccessHandler(ok).withFailureHandler(bad).chkCreate(p);
+    }
+
     // ====================== TABS ======================
     function switchTab(tab) {
       currentTab = tab;
-      var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabScoreboardBtn'];
+      var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabScoreboardBtn', 'tabChkMineBtn', 'tabChkCalBtn', 'tabChkManageBtn'];
       ids.forEach(function (id) {
         var el = document.getElementById(id);
         el.classList.remove('vt-tab-active');
         el.classList.add('border-transparent', 'text-slate-500');
       });
-      var activeMap = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn' };
+      var activeMap = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn',
+        chkmine: 'tabChkMineBtn', chkcal: 'tabChkCalBtn', chkmanage: 'tabChkManageBtn' };
       var activeBtn = document.getElementById(activeMap[tab]);
       activeBtn.classList.add('vt-tab-active');
       activeBtn.classList.remove('border-transparent', 'text-slate-500');
+
+      if (CHK_TABS[tab]) { chkShow(tab); return; }
+      chkHide();
 
       document.getElementById('viewTaskTable').classList.toggle('hidden', tab === 'scoreboard' || tab === 'week');
       document.getElementById('viewScoreboard').classList.toggle('hidden', tab !== 'scoreboard');

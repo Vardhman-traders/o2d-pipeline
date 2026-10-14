@@ -34,8 +34,13 @@ LEFT JOIN dim_user au ON au.user_key = t.approved_by_user_key
 """
 
 
-def pay_role(user) -> str:
-    """Admin / Account / Cashier - worked out from the pages the person holds, the way the old login handed it out."""
+EXPENSE_PAGES = ("pay_expense", "pay_expense_manage")
+
+
+def pay_role(user, allow_expenses_only: bool = False) -> str:
+    """Admin / Account / Cashier - worked out from the pages the person holds, the way the old login handed it out.
+    A person who holds only the Regular expenses pages is "Expenses": they may open the screen (and so get the lists) but not
+    the transaction entries - every other route keeps refusing them."""
     if user["role"] == "admin":
         return "Admin"
     held = access.effective_access(user)
@@ -43,11 +48,21 @@ def pay_role(user) -> str:
         return "Account"
     if "pay_cashier" in held:
         return "Cashier"
+    if allow_expenses_only and set(EXPENSE_PAGES) & set(held):
+        return "Expenses"
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 
 
-def _user_gate(user) -> str:
-    role = pay_role(user)
+def expense_level(user) -> str | None:
+    """'manage' / 'enter' / None - what the person may do on the Regular expenses tab."""
+    if user["role"] == "admin":
+        return "manage"
+    held = access.effective_access(user)
+    return "manage" if "pay_expense_manage" in held else "enter" if "pay_expense" in held else None
+
+
+def _user_gate(user, allow_expenses_only: bool = False) -> str:
+    role = pay_role(user, allow_expenses_only)
     if user.get("must_change_password"):
         raise HTTPException(403, "Password change required. POST /auth/change-password first.")
     return role
@@ -70,7 +85,7 @@ def _row(r: dict, today: date) -> dict:
 # ------------------------------------------------------------------ lists the screen fills its dropdowns from
 @router.get("/bootstrap")
 def bootstrap(user=Depends(ANY)):
-    role = _user_gate(user)
+    role = _user_gate(user, allow_expenses_only=True)
     with db.cursor() as cur:
         cur.execute("SELECT company_name, is_sales_company FROM dim_company ORDER BY sort_order, lower(company_name)")
         comps = cur.fetchall()
@@ -81,7 +96,7 @@ def bootstrap(user=Depends(ANY)):
                     "FROM dim_txn_type ORDER BY sort_order, lower(type_name)")
         types = cur.fetchall()
     return {"ok": True, "role": role, "username": user["username"], "fullName": user["display_name"],
-            "canWrite": not access.is_view_only(user, *PAGES),
+            "canWrite": not access.is_view_only(user, *PAGES), "expenseLevel": expense_level(user),
             "companies": companies, "paymentModes": [m["mode_name"] for m in modes],
             "pendingModes": [m["mode_name"] for m in modes if m["needs_approval"]],
             "txnTypes": [t["type_name"] for t in types],

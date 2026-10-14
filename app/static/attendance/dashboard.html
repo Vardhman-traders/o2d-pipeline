@@ -213,6 +213,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 .emp-streak-header{display:flex;align-items:center;gap:1rem;background:linear-gradient(135deg,#1a237e,#3949ab);border-radius:14px;padding:1rem 1.2rem;margin-bottom:1rem;color:#fff}
 .emp-streak-avatar{width:48px;height:48px;background:rgba(255,255,255,.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:900;flex-shrink:0}
 
+/* forms open as pop-ups from a button instead of sitting on the page */
+.mform{display:none}
+.mform.open{display:block;position:fixed;z-index:210;left:50%;top:50%;transform:translate(-50%,-50%);width:min(640px,94vw);max-height:92vh;overflow:visible;box-shadow:0 20px 60px rgba(0,0,0,.35);margin:0}
+.mform-back{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:205;display:none}
+.mform-back.open{display:block}
+.mform-x{position:absolute;top:.5rem;right:.7rem;border:none;background:transparent;font-size:1.4rem;line-height:1;cursor:pointer;color:#64748b;padding:.2rem .4rem}
+.act-bar{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem}
+.place-chk{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;border:1.5px solid #e2e8f0;border-radius:11px;margin-bottom:.5rem;font-weight:700;cursor:pointer}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem}
 .modal{background:#fff;border-radius:20px;padding:2rem;max-width:380px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,.2)}
 .modal-title{font-size:1rem;font-weight:800;margin-bottom:.4rem}
@@ -329,6 +337,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
   <!-- SALARY TAB -->
   <div class="view" id="v-salary">
+    <div class="act-bar">
+      <button class="btn" onclick="openMform('mf-salary')">💰 Set / Update Salary</button>
+      <button class="btn btn-amber" onclick="openMform('mf-pin')">🔐 Set Employee PIN</button>
+    </div>
     <div class="card">
       <div class="card-title">💰 Employee Salary Set Karo</div>
       <div class="card-sub">Har employee ki salary ek baar set karo — woh fix ho jaayegi. Baad mein sirf change karne par update hogi.</div>
@@ -343,7 +355,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         Advance = <strong>Amount deduct hoga</strong>
       </div>
 
-      <div class="sal-set-card">
+      <div class="sal-set-card mform" id="mf-salary">
         <div class="sal-set-title">➕ Salary Set / Update Karo</div>
         <div class="sal-set-sub">Employee ka naam search karo aur monthly salary daalo. Ek baar set hone ke baad wahi salary use hogi jab tak change na karo.</div>
         <div class="sal-set-grid">
@@ -377,7 +389,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     <div class="card">
       <div class="card-title">🔐 Employee Salary PIN Set Karo</div>
       <div class="card-sub">Har employee ko ek alag PIN do — woh apni salary sirf PIN daalne ke baad dekh paayega. Bina PIN ke salary nahi dikhegi.</div>
-      <div class="sal-set-card" style="background:#fff7ed;border-color:#fed7aa">
+      <div class="sal-set-card mform" id="mf-pin" style="background:#fff7ed;border-color:#fed7aa">
         <div class="sal-set-title" style="color:#c2410c">➕ PIN Set / Change Karo</div>
         <div class="sal-set-sub">Employee naam search karo aur 4+ digit PIN daalo. Baad mein change bhi ho sakta hai.</div>
         <div class="sal-set-grid">
@@ -423,11 +435,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
   <!-- ADVANCE TAB -->
   <div class="view" id="v-advance">
+    <div class="act-bar">
+      <button class="btn btn-amber" onclick="openMform('mf-adv')">💸 Add Advance</button>
+    </div>
     <div class="card">
       <div class="card-title">💸 Advance Payment Daalo</div>
       <div class="card-sub">Employee ko advance diya ho toh yahan record karo — salary calculate karte waqt automatically deduct ho jaayega</div>
 
-      <div class="adv-form-card">
+      <div class="adv-form-card mform" id="mf-adv">
         <div class="adv-form-title">➕ Naya Advance Add Karo</div>
         <div class="adv-form-sub">Ek mahine mein multiple advance entries ho sakti hain. Sab deduct honge.</div>
         <div class="adv-form-grid">
@@ -508,7 +523,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
   <!-- EMPLOYEES -->
   <div class="view" id="v-emps">
-    <div class="card">
+    <div class="act-bar">
+      <button class="btn" onclick="openMform('mf-emp')">➕ Add Employee</button>
+    </div>
+    <div class="card mform" id="mf-emp">
       <div class="card-title">➕ New Employee Add Karo</div>
       <div class="card-sub">Attendance dropdown mein turant show hoga</div>
       <div class="form-grid">
@@ -527,12 +545,25 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
       </div>
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Added On</th><th style="text-align:right">Action</th></tr></thead>
-          <tbody id="empListBody"><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Role</th><th>Can mark attendance from</th><th>Status</th><th>Added On</th><th style="text-align:right">Action</th></tr></thead>
+          <tbody id="empListBody"><tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
   </div>
+</div>
+
+<!-- WORK PLACES PER EMPLOYEE -->
+<div class="card mform" id="mf-places">
+  <div class="card-title">📍 Work places</div>
+  <div class="card-sub" id="placesSub">Employee jin jagah se attendance mark kar sakta hai</div>
+  <div id="placesList" style="margin-bottom:1rem"></div>
+  <div style="font-size:.75rem;color:#6b7280;margin-bottom:1rem;line-height:1.5">
+    Kuch bhi select na karo toh employee <strong>kisi bhi work place</strong> se attendance mark kar sakta hai.
+    Select karne par sirf chune hue place se hi hoga — doosri jagah se mark karne par message aayega.
+    New work place add karne ke liye Setup &gt; Dropdown values &gt; Attendance - work places.
+  </div>
+  <button class="btn btn-full" onclick="savePlaces()">💾 Save</button>
 </div>
 
 <!-- MANUAL CHECKOUT MODAL -->
@@ -1136,13 +1167,15 @@ function renderEmpList(){
   var filtered=ALL_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1||(e.role||'').toLowerCase().indexOf(q)!==-1;});
   var ac=ALL_EMPS.filter(function(e){return e.active;}).length;
   document.getElementById('empCountSub').textContent=ac+' active · '+(ALL_EMPS.length-ac)+' removed · '+ALL_EMPS.length+' total';
-  if(!filtered.length){document.getElementById('empListBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">No match</td></tr>';return;}
+  if(!filtered.length){document.getElementById('empListBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">No match</td></tr>';return;}
   var rows='';
   for(var i=0;i<filtered.length;i++){
     var e=filtered[i];
     var pill=e.active?'<span class="pill green">Active</span>':'<span class="pill gray">Removed</span>';
     var action=e.active?'<button class="btn btn-sm btn-danger" onclick="doDeleteEmployee(\''+escH(e.name)+'\')">🗑️ Remove</button>':'<button class="btn btn-sm btn-ghost" onclick="doReactivate(\''+escH(e.name)+'\',\''+escH(e.role||'')+'\')">↩️ Restore</button>';
-    rows+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'—')+'</td><td>'+pill+'</td><td>'+escH(e.addedOn||'—')+'</td><td style="text-align:right">'+action+'</td></tr>';
+    var pl=(e.places&&e.places.length)?escH(e.places.join(', ')):'<span style="color:#94a3b8">Any work place</span>';
+    var plBtn=e.active?' <button class="btn btn-sm btn-ghost" onclick="openPlaces(\''+ALL_EMPS.indexOf(e)+'\')">📍 Edit</button>':'';
+    rows+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'—')+'</td><td>'+pl+plBtn+'</td><td>'+pill+'</td><td>'+escH(e.addedOn||'—')+'</td><td style="text-align:right">'+action+'</td></tr>';
   }
   document.getElementById('empListBody').innerHTML=rows;
 }
@@ -1318,7 +1351,59 @@ function filterPinSetSuggestions(){
 function fmt(n){ return Math.round(Number(n)).toLocaleString('en-IN'); }
 function escH(s){ return (s||'').toString().replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 function csvS(s){ s=(s||'').toString(); return (s.indexOf(',')!==-1||s.indexOf('"')!==-1||s.indexOf('\n')!==-1)?'"'+s.replace(/"/g,'""')+'"':s; }
-function toast(msg,kind){ var t=document.getElementById('toast'); t.textContent=msg; t.className='toast show '+(kind||''); setTimeout(function(){t.className='toast';},2800); }
+/* ─── POP-UP FORMS ─── */
+function openMform(id){
+  closeMforms();
+  document.getElementById('mformBack').className='mform-back open';
+  var f=document.getElementById(id); f.className=f.className.replace(/\s*\bopen\b/g,'')+' open';
+  var first=f.querySelector('input,select'); if(first) setTimeout(function(){first.focus();},50);
+}
+function closeMforms(){
+  var b=document.getElementById('mformBack'); if(b) b.className='mform-back';
+  var all=document.querySelectorAll('.mform.open');
+  for(var i=0;i<all.length;i++) all[i].className=all[i].className.replace(/\s*\bopen\b/g,'');
+}
+(function(){
+  var back=document.createElement('div'); back.id='mformBack'; back.className='mform-back'; back.onclick=closeMforms;
+  document.body.appendChild(back);
+  var all=document.querySelectorAll('.mform');
+  for(var i=0;i<all.length;i++){
+    var x=document.createElement('button'); x.className='mform-x'; x.type='button'; x.innerHTML='&times;'; x.title='Close'; x.onclick=closeMforms;
+    all[i].insertBefore(x,all[i].firstChild);
+  }
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeMforms(); });
+})();
+
+/* ─── WORK PLACES (which places an employee may mark attendance from) ─── */
+var PLACES_EMP='', WORK_PLACES=null;
+function openPlaces(idx){
+  var e=ALL_EMPS[parseInt(idx,10)]; if(!e) return;
+  PLACES_EMP=e.name;
+  document.getElementById('placesSub').textContent=e.name+' — kaunsi jagah se attendance mark kar sakta hai';
+  var draw=function(){
+    var mine=e.places||[];
+    document.getElementById('placesList').innerHTML=WORK_PLACES.map(function(p,i){
+      var on=mine.indexOf(p.name)!==-1;
+      return '<label class="place-chk"><input type="checkbox" class="placeBox" value="'+escH(p.name)+'"'+(on?' checked':'')+'> <span>'+escH(p.icon||'📍')+' '+escH(p.name)+'</span></label>';
+    }).join('')||'<div class="empty-state">No work places set up yet</div>';
+    openMform('mf-places');
+  };
+  if(WORK_PLACES) return draw();
+  VT.run.withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} WORK_PLACES=r.places||[]; draw(); })
+    .withFailureHandler(function(){ toast('Could not load work places','err'); }).getWorkPlaces(PWD);
+}
+function savePlaces(){
+  var boxes=document.querySelectorAll('.placeBox'), chosen=[];
+  for(var i=0;i<boxes.length;i++) if(boxes[i].checked) chosen.push(boxes[i].value);
+  VT.run.withSuccessHandler(function(r){
+      if(r.status==='unauthorized'){logout();return;}
+      if(r.status==='ok'){ toast('📍 Saved for '+PLACES_EMP,'ok'); loadEmployeeList(); }
+      else{ toast('❌ '+(r.msg||'Failed'),'err'); }
+    }).withFailureHandler(function(){ toast('Connection error','err'); })
+    .setEmployeePlaces(PWD,PLACES_EMP,chosen);
+}
+
+function toast(msg,kind){ if(kind==='ok') closeMforms(); var t=document.getElementById('toast'); t.textContent=msg; t.className='toast show '+(kind||''); setTimeout(function(){t.className='toast';},2800); }
 
 document.addEventListener('click',function(e){
   var boxes=['empSuggestions','salSetSuggestions','salCalcSuggestions','advEmpSuggestions','streakEmpSuggestions','pinSetSuggestions'];
