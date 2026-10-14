@@ -43,7 +43,7 @@
   var fns = {
     // ---------------------------------------------------------------- Payments
     login_payments: function () {   // the page starts from the portal session; this just tells it who that is
-      return ask('GET', '/payments/bootstrap').then(function (b) { return { success: true, username: b.username, role: b.role, fullName: b.fullName, expenseLevel: b.expenseLevel || null }; });
+      return ask('GET', '/payments/bootstrap').then(function (b) { return { success: true, username: b.username, role: b.role, fullName: b.fullName, expenseLevel: b.expenseLevel || null, challan: !!b.challan }; });
     },
     getBootstrapData: function () { return ask('GET', '/payments/bootstrap'); },
     getParties: function (company, txnType) { return ask('GET', '/payments/parties' + qs({ company: company, txn_type: txnType })); },
