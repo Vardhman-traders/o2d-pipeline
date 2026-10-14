@@ -22,7 +22,7 @@ MAX_BYTES = 8 * 1024 * 1024          # the screens shrink photos first; this onl
 MAX_PER_KIND = 5                     # photos per order and kind
 LINK_SECONDS = 600
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic"}
-PDF_MODULES = {"decor"}   # modules whose documents (challans) may also be a PDF
+PDF_MODULES = {"decor", "challan"}   # modules whose documents (challans) may also be a PDF
 # which O2D pages may attach / see each kind of photo
 UPLOAD_PAGES = {"dispatch": ("o2d_shop_dispatch", "o2d_godown_dispatch"),
                 "receiving": ("o2d_receiving", "o2d_shop_dispatch")}

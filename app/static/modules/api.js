@@ -90,6 +90,10 @@
     expAdd: function (body) { return ask('POST', '/payments/expenses/entries', body); },
     expVoid: function (key, reason) { return ask('POST', '/payments/expenses/entries/' + key + '/void', { reason: reason }); },
 
+    // ---------------------------------------------------------------- Upload challan (a tab of the Payments screen)
+    chList: function (from, to) { return ask('GET', '/payments/challans' + qs({ date_from: from, date_to: to })); },
+    chUpload: function (body) { return ask('POST', '/payments/challans', body); },
+
     // ---------------------------------------------------------------- Purchase
     login_purchase: function () { return ask('GET', '/purchase/me'); },
     getVendors: get('/purchase/vendors'),

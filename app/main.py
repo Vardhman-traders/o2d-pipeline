@@ -12,7 +12,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import (access, admin, admin_tools, attachments, auth, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
+from . import (access, admin, admin_tools, attachments, auth, challans, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
                o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles,
                timeline, doc_numbers, whatsapp, daily_reports)
 
@@ -521,6 +521,7 @@ app.include_router(payments.router)
 app.include_router(delegation.router)
 app.include_router(checklist.router)
 app.include_router(expenses.router)
+app.include_router(challans.router)
 app.include_router(purchase.router)
 app.include_router(decor.router)
 app.include_router(attendance.router)
