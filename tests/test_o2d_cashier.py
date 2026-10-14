@@ -143,3 +143,22 @@ def test_cashier_is_the_last_screen_and_its_setup_controls_are_listed(client, db
     assert fields[0]["name"] == "cashier_review"
     rows = client.get("/admin/lookups/payment-statuses", headers=admin).json()
     assert all("cashier_review" in r for r in rows)
+
+
+def test_awaiting_is_newest_first_and_not_capped(client, db_conn, seed):
+    admin = login(client, db_conn, "admin")
+    cash = _status(client, admin, True)
+    cashier = _cashier(client, db_conn)
+    first, _ = _received(client, db_conn, cash)
+    second, _ = _received(client, db_conn, cash)
+    with db_conn.cursor() as cur:   # a backlog far bigger than the old 500-row cap
+        cur.execute("INSERT INTO fact_orders (sl_no, dc_inv_no, order_received_date_key, submission_type_key, payment_status_key, "
+                    "amount_received, last_updated_at) SELECT 900000 + g, 'BK-' || g, o.order_received_date_key, o.submission_type_key, "
+                    "o.payment_status_key, 100, now() - interval '30 days' FROM generate_series(1, 600) g, fact_orders o WHERE o.sl_no = %s",
+                    (first,))
+    db_conn.commit()
+    d = client.get("/o2d/cashier", headers=cashier).json()
+    order = [o["slNo"] for o in d["awaiting"]]
+    assert len(order) >= 602 and d["truncated"] is False
+    assert order.index(second) < order.index(first) < order.index(900001)      # the newest update leads, the backlog follows
+
