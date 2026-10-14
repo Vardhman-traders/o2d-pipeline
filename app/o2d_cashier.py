@@ -28,7 +28,6 @@ from .o2d_screens import cleanup_cutoff
 router = APIRouter(prefix="/o2d/cashier", tags=["o2d-cashier"])
 IST = ZoneInfo("Asia/Kolkata")
 PAGE = "o2d_cashier"
-MAX_ROWS = 500
 
 _CONFIRM_COLS = ("o.cashier_confirmed_at AS confirmed_at, o.cashier_note AS confirm_note, "
                  "cb.display_name AS confirmed_by, ps.cashier_review, ps.payments_split, pp.status AS push_status, "
@@ -96,15 +95,16 @@ def _row(r: dict) -> dict:
 
 
 def fetch_cashier(user) -> tuple[list[dict], list[dict]]:
-    """(awaiting, confirmed): oldest receiving first for the awaiting box, latest confirmation first for the other."""
+    """(awaiting, confirmed): the latest-updated order first in the awaiting box (so today's orders are never buried under
+    older ones), latest confirmation first in the other. Nothing is cut off: every awaiting order is listed."""
     guard = _test_guard(user)
     with db.cursor() as cur:
         cur.execute(_select() + " WHERE ps.cashier_review = 'yes' AND o.cashier_confirmed_at IS NULL"
-                    f"{guard} ORDER BY o.last_updated_at, o.sl_no LIMIT %s", [MAX_ROWS])
+                    f"{guard} ORDER BY o.last_updated_at DESC, o.sl_no DESC")
         awaiting = cur.fetchall()
         # confirmed ones stay listed whatever the status flag says now: the cashier did confirm them
         cur.execute(_select() + f" WHERE o.cashier_confirmed_at > %s{guard} "
-                    "ORDER BY o.cashier_confirmed_at DESC, o.sl_no LIMIT %s", [cleanup_cutoff(), MAX_ROWS])
+                    "ORDER BY o.cashier_confirmed_at DESC, o.sl_no", [cleanup_cutoff()])
         confirmed = cur.fetchall()
     return awaiting, confirmed
 
@@ -126,7 +126,7 @@ def cashier_screen(user=Depends(access.require_page(PAGE))):
     awaiting, confirmed = fetch_cashier(user)
     pend, done = [_row(r) for r in awaiting], [_row(r) for r in confirmed]
     return {"ok": True, "awaiting": pend, "confirmed": done, "canEdit": not access.is_view_only(user, PAGE),
-            "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": len(pend) >= MAX_ROWS}
+            "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": False}
 
 
 class ConfirmIn(BaseModel):
