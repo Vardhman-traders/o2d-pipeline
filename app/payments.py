@@ -34,12 +34,12 @@ LEFT JOIN dim_user au ON au.user_key = t.approved_by_user_key
 """
 
 
-EXPENSE_PAGES = ("pay_expense", "pay_expense_manage")
+EXPENSE_PAGES = ("pay_expense", "pay_expense_manage", "pay_challan")   # the extra tabs of the screen
 
 
 def pay_role(user, allow_expenses_only: bool = False) -> str:
     """Admin / Account / Cashier - worked out from the pages the person holds, the way the old login handed it out.
-    A person who holds only the Regular expenses pages is "Expenses": they may open the screen (and so get the lists) but not
+    A person who holds only the Regular expenses pages is "Staff": they may open the screen (and so get the lists) but not
     the transaction entries - every other route keeps refusing them."""
     if user["role"] == "admin":
         return "Admin"
@@ -49,7 +49,7 @@ def pay_role(user, allow_expenses_only: bool = False) -> str:
     if "pay_cashier" in held:
         return "Cashier"
     if allow_expenses_only and set(EXPENSE_PAGES) & set(held):
-        return "Expenses"
+        return "Staff"
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 
 
@@ -97,6 +97,7 @@ def bootstrap(user=Depends(ANY)):
         types = cur.fetchall()
     return {"ok": True, "role": role, "username": user["username"], "fullName": user["display_name"],
             "canWrite": not access.is_view_only(user, *PAGES), "expenseLevel": expense_level(user),
+            "challan": user["role"] == "admin" or "pay_challan" in access.effective_access(user),
             "companies": companies, "paymentModes": [m["mode_name"] for m in modes],
             "pendingModes": [m["mode_name"] for m in modes if m["needs_approval"]],
             "txnTypes": [t["type_name"] for t in types],

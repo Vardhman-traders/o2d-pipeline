@@ -675,6 +675,7 @@
     <div class="tabbar" id="payTabs" style="display:none;margin-bottom:16px;">
       <button id="payTabTxn" class="active" onclick="payTab('txn')">Transactions</button>
       <button id="payTabExp" onclick="payTab('exp')">Regular Expenses</button>
+      <button id="payTabCh" onclick="payTab('ch')">Upload Challan</button>
     </div>
     <div id="payArea">
     <!-- SEARCH BAR -->
@@ -888,6 +889,42 @@
     </div>
     </div>
 
+    <!-- ===================== UPLOAD CHALLAN ===================== -->
+    <div id="chArea" style="display:none;">
+      <div class="list-panel">
+        <div class="list-header"><h3>Upload challan</h3></div>
+        <p id="chOff" style="display:none;color:var(--red);font-size:13px;margin:0 4px 10px;">Photo storage is not set up yet, so challans cannot be uploaded. Ask the administrator.</p>
+        <div id="chForm">
+          <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
+            <div class="field"><label for="chFile">Photo or PDF of the challan</label><input type="file" id="chFile" accept="image/*,application/pdf">
+              <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm" style="background:#546E7A;color:#fff;" onclick="document.getElementById('chCam').click()">📷 Take photo with camera</button>
+                <span id="chCamInfo" style="font-size:12px;color:var(--muted);"></span>
+                <input type="file" id="chCam" accept="image/*" capture="environment" style="display:none" onchange="chCamTaken(this)">
+              </div></div>
+            <div class="field"><label for="chDate">Challan date</label><input type="date" id="chDate"></div>
+            <div class="field"><label for="chRef">Challan no. (optional)</label><input type="text" id="chRef" maxlength="100"></div>
+            <div class="field"><label for="chNote">Note (optional)</label><input type="text" id="chNote" maxlength="500"></div>
+          </div>
+          <p id="chMsg" style="color:var(--red);font-size:13px;min-height:18px;margin:4px 0;"></p>
+          <button class="btn btn-sm" id="chSave" style="background:var(--teal);color:#fff;" onclick="chUpload()">⬆ Upload</button>
+        </div>
+      </div>
+      <div class="list-panel">
+        <div class="list-header">
+          <h3>Uploaded challans <span id="chCount" style="color:var(--muted);font-weight:500;"></span></h3>
+          <div class="field" style="margin:0;"><label for="chFrom">From</label><input type="date" id="chFrom" onchange="chLoad()"></div>
+          <div class="field" style="margin:0;"><label for="chTo">To</label><input type="date" id="chTo" onchange="chLoad()"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Challan</th><th>Challan date</th><th>Challan no.</th><th>Note</th><th>Uploaded by</th><th>Uploaded on</th></tr></thead>
+            <tbody id="chBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== REGULAR EXPENSES ===================== -->
     <div id="expArea" style="display:none;">
       <div class="toolbar" style="flex-wrap:wrap;align-items:flex-end;">
@@ -1079,7 +1116,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('loginScreen').style.display = 'none';
   window.VT.boot('payments', function () {
     VT.run.withSuccessHandler(function (res) {
-      currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null };
+      currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null, challan: !!res.challan };
       window.PAY_CAN_WRITE = res.canWrite !== false;
       enterApp();
     }).login();
@@ -1125,7 +1162,7 @@ function handleLogin(){
   VT.run
     .withSuccessHandler(res => {
       if (res.success) {
-        currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null };
+        currentUser = { username: res.username, role: res.role, fullName: res.fullName, expenseLevel: res.expenseLevel || null, challan: !!res.challan };
         sessionStorage.setItem('vt_user', JSON.stringify(currentUser));
         enterApp();
       } else { errBox.textContent = res.message || 'Login failed.'; errBox.style.display = 'block'; }
@@ -1155,7 +1192,7 @@ function enterApp(){
   badge.textContent = currentUser.role;
   badge.className = 'role-pill role-' + currentUser.role.toLowerCase();
   document.getElementById('fullNameLabel').textContent = currentUser.fullName;
-  if (currentUser.role === 'Expenses') { expSetupTabs(currentUser.expenseLevel, true); return; }   // only the Regular expenses pages
+  if (currentUser.role === 'Staff') { expSetupTabs(currentUser.expenseLevel, true, currentUser.challan); return; }   // only the extra tabs
 
   document.getElementById('entryPanelWrap').style.display = 'block';
   document.getElementById('addPartyPanelWrap').style.display = 'block';
@@ -1183,7 +1220,7 @@ function enterApp(){
 
   loadBootstrapData();
   refreshAll();
-  expSetupTabs(currentUser.expenseLevel, false);
+  expSetupTabs(currentUser.expenseLevel, false, currentUser.challan);
 
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
   autoRefreshTimer = setInterval(() => refreshAll(true), 30000);
@@ -2336,19 +2373,24 @@ function clearForm(){
 let EXP = null, expLast = null, expVoidKey = null, expKind = 'Expense';
 
 function payTab(which){
-  const exp = which === 'exp';
-  document.getElementById('payArea').style.display = exp ? 'none' : '';
-  document.getElementById('expArea').style.display = exp ? 'block' : 'none';
-  document.getElementById('payTabTxn').classList.toggle('active', !exp);
-  document.getElementById('payTabExp').classList.toggle('active', exp);
-  if (exp) expStart();
+  document.getElementById('payArea').style.display = which === 'txn' ? '' : 'none';
+  document.getElementById('expArea').style.display = which === 'exp' ? 'block' : 'none';
+  document.getElementById('chArea').style.display = which === 'ch' ? 'block' : 'none';
+  document.getElementById('payTabTxn').classList.toggle('active', which === 'txn');
+  document.getElementById('payTabExp').classList.toggle('active', which === 'exp');
+  document.getElementById('payTabCh').classList.toggle('active', which === 'ch');
+  if (which === 'exp') expStart();
+  if (which === 'ch') chStart();
 }
-function expSetupTabs(level, only){
-  if (!level) return;
+// which extra tabs this person has (Regular expenses, Upload challan); `only` = they have no transaction pages at all
+function expSetupTabs(level, only, challan){
+  if (!level && !challan) return;
   document.getElementById('payTabs').style.display = 'flex';
+  document.getElementById('payTabExp').style.display = level ? '' : 'none';
+  document.getElementById('payTabCh').style.display = challan ? '' : 'none';
   if (only) {
     document.getElementById('payTabTxn').style.display = 'none';
-    payTab('exp');
+    payTab(level ? 'exp' : 'ch');
   }
 }
 function expStart(){
@@ -2484,6 +2526,60 @@ function expExportCsv(){
   a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
   a.download = 'VT-Regular-Expenses-' + expLast.from + '-to-' + expLast.to + '.csv';
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+
+// ============================================================
+// UPLOAD CHALLAN (photo / PDF, date, who uploaded it)
+// ============================================================
+let CH_STARTED = false, CH_CAM = null;
+function chCamTaken(input){
+  CH_CAM = input.files && input.files[0] ? input.files[0] : null;
+  document.getElementById('chCamInfo').textContent = CH_CAM ? 'Camera photo ready' : '';
+  if (CH_CAM) document.getElementById('chFile').value = '';
+}
+function chStart(){
+  if (!CH_STARTED) {
+    CH_STARTED = true;
+    document.getElementById('chDate').value = todayISO();
+    document.getElementById('chDate').max = todayISO();
+  }
+  chLoad();
+}
+function chLoad(){
+  VT.run.withSuccessHandler(function(r){
+    document.getElementById('chOff').style.display = r.enabled ? 'none' : 'block';
+    document.getElementById('chForm').style.display = r.canWrite ? '' : 'none';
+    document.getElementById('chSave').disabled = !r.enabled;
+    document.getElementById('chCount').textContent = '(' + r.rows.length + (r.truncated ? '+' : '') + ')';
+    document.getElementById('chBody').innerHTML = r.rows.length ? r.rows.map(function(c){
+      const file = !c.url ? '<span style="color:var(--muted)">—</span>' : c.isPdf
+        ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">📄 Open PDF</a>`
+        : `<a href="${esc(c.url)}" target="_blank" rel="noopener"><img src="${esc(c.url)}" alt="Challan" style="height:56px;border-radius:6px;border:1px solid var(--line);"></a>`;
+      return `<tr><td>${file}</td><td>${esc(c.date)}</td><td>${esc(c.reference || '—')}</td><td>${esc(c.note || '—')}</td><td>${esc(c.uploadedBy || '—')}</td><td>${esc(c.uploadedAt)}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No challans uploaded yet.</td></tr>';
+  }).withFailureHandler(function(e){ alert(e.message); })
+    .chList(document.getElementById('chFrom').value, document.getElementById('chTo').value);
+}
+function chUpload(){
+  const msg = document.getElementById('chMsg'), f = document.getElementById('chFile').files[0] || CH_CAM;
+  msg.textContent = '';
+  if (!f) { msg.textContent = 'Choose the photo or PDF of the challan.'; return; }
+  if (f.size > 15 * 1024 * 1024) { msg.textContent = 'That file is too large.'; return; }
+  const btn = document.getElementById('chSave');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  VT.shrinkImage(f).then(function(data){
+    VT.run.withSuccessHandler(function(){
+      btn.disabled = false; btn.textContent = '⬆ Upload';
+      document.getElementById('chFile').value = '';
+      CH_CAM = null; document.getElementById('chCam').value = ''; document.getElementById('chCamInfo').textContent = '';
+      document.getElementById('chRef').value = '';
+      document.getElementById('chNote').value = '';
+      chLoad();
+    }).withFailureHandler(function(e){ btn.disabled = false; btn.textContent = '⬆ Upload'; msg.textContent = e.message; })
+      .chUpload({ date: document.getElementById('chDate').value, reference: document.getElementById('chRef').value,
+                  note: document.getElementById('chNote').value, data: data });
+  }).catch(function(e){ btn.disabled = false; btn.textContent = '⬆ Upload'; msg.textContent = e.message; });
 }
 
 function rupee(n){

@@ -184,7 +184,7 @@ def test_regular_expenses_balance_roles_and_void(client, db_conn, days, seed):
 
     # a person holding only the expenses page opens the Payments screen (lists), but never the transaction entries
     b = client.get("/payments/bootstrap", headers=clerk)
-    assert b.status_code == 200 and b.json()["role"] == "Expenses" and b.json()["expenseLevel"] == "enter"
+    assert b.status_code == 200 and b.json()["role"] == "Staff" and b.json()["expenseLevel"] == "enter"
     assert client.get("/payments/transactions", headers=clerk).status_code == 403
 
     # the opening balance is a Setup value
@@ -228,3 +228,39 @@ def test_regular_expenses_balance_roles_and_void(client, db_conn, days, seed):
     grant(db_conn, clerk_name, "pay_expense", view_only=True)
     assert client.get("/payments/expenses/summary", headers=clerk).status_code == 200
     assert add(clerk).status_code == 403
+
+
+# ------------------------------------------------------------------ upload challan
+def test_challan_upload_list_and_access(client, db_conn, days, seed, monkeypatch):
+    from app import attachments
+    from tests.test_modules import FakeStore
+    for k in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
+        monkeypatch.setenv(k, "bkt" if k == "R2_BUCKET" else "x")
+    attachments.set_storage(FakeStore())
+    try:
+        who, who_name = user(client, db_conn, "staff")
+        nobody, _ = user(client, db_conn, "purchase_godown")
+        looker, look_name = user(client, db_conn, "manager")
+        grant(db_conn, who_name, "pay_challan")
+        grant(db_conn, look_name, "pay_challan", view_only=True)
+        photo = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+        assert client.get("/payments/challans", headers=nobody).status_code == 403
+        assert client.get("/payments/bootstrap", headers=who).json()["challan"] is True
+
+        r = client.post("/payments/challans", headers=who, json={"data": photo, "reference": "CH-77", "note": "  two boxes "})
+        assert r.status_code == 201, r.text
+        assert client.post("/payments/challans", headers=who, json={"data": "nope"}).status_code == 422
+        future = (modcommon.today_ist() + timedelta(days=1)).isoformat()
+        assert client.post("/payments/challans", headers=who, json={"data": photo, "date": future}).status_code == 422
+        assert client.post("/payments/challans", headers=who, json={"data": "data:application/pdf;base64,JVBERi0="}).status_code == 201
+        assert client.post("/payments/challans", headers=looker, json={"data": photo}).status_code == 403     # view only
+
+        body = client.get("/payments/challans", headers=looker).json()
+        rows = body["rows"]
+        assert len(rows) == 2 and {r["reference"] for r in rows} == {"CH-77", ""} and any(r["isPdf"] for r in rows)
+        one = next(r for r in rows if r["reference"] == "CH-77")
+        assert one["note"] == "two boxes" and one["uploadedBy"] == who_name.title() and one["date"] == modcommon.today_ist().isoformat()
+        assert body["canWrite"] is False
+        assert len(client.get(f"/payments/challans?date_from={future}", headers=looker).json()["rows"]) == 0
+    finally:
+        attachments.set_storage(None)

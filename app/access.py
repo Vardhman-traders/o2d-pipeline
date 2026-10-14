@@ -45,6 +45,7 @@ PAGES: dict[str, tuple[str, str]] = {
     # ---- Payments (the role the old script gave a login - Cashier / Account - is now simply which pages a person holds)
     "pay_cashier": ("Payments", "Payments - Cashier (enter and edit own entries for today)"),
     "pay_account": ("Payments", "Payments - Account (see all entries, approve or reject, edit pending)"),
+    "pay_challan": ("Payments", "Payments - Upload challan (upload challan photos / PDFs and see the list; View only = look, not upload)"),
     "pay_expense": ("Payments", "Payments - Regular expenses (record expenses, see the balance, export)"),
     "pay_expense_manage": ("Payments", "Payments - Regular expenses manager (also add money to the account and void wrong entries)"),
     # ---- Delegation
@@ -71,7 +72,7 @@ PAGES: dict[str, tuple[str, str]] = {
 # Adding a module = one entry here + its pages above; the home screen, access matrix and admin overview follow.
 MODULES: list[dict] = [
     {"key": "payments", "title": "Payments", "icon": "💳", "url": "/payments/",
-     "pages": ["pay_cashier", "pay_account", "pay_expense", "pay_expense_manage"]},
+     "pages": ["pay_cashier", "pay_account", "pay_expense", "pay_expense_manage", "pay_challan"]},
     {"key": "delegation", "title": "Delegation", "icon": "✅", "url": "/delegation/",
      "pages": ["deleg_mine", "deleg_week", "deleg_scoreboard", "deleg_manage", "chk_mine", "chk_calendar", "chk_manage"]},
     {"key": "purchase", "title": "Purchase Report", "icon": "🧾", "url": "/purchase/", "pages": ["po_godown", "po_shop", "po_all"]},

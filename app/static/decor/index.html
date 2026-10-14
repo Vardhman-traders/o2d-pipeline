@@ -552,6 +552,10 @@ tr:hover td{background:#F5F6FF}
           <div class="uz-text"><b>Click to attach challan</b> or drag &amp; drop<br><span style="color:var(--t3)">JPG, PNG, WEBP, PDF — optional</span></div>
           <div id="ex2_filename" style="margin-top:8px;font-size:.8rem;color:var(--bl);font-weight:600"></div>
         </div>
+        <div style="margin-bottom:10px">
+          <button type="button" class="btn" style="background:#546E7A;color:#fff" onclick="document.getElementById('ex2_cam').click()">&#128247; Take photo with camera</button>
+          <input type="file" id="ex2_cam" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelectEx2(this)">
+        </div>
         <div class="upload-progress" id="uploadProgress2"><div class="upload-progress-bar" id="uploadProgressBar2"></div></div>
         <button class="btn btn-danger" onclick="submitExpenseWithPhoto()" style="width:100%;margin-top:4px;padding:11px;font-size:.9rem">
           Save Expense<span id="ex2_btnLabel"> (+ upload challan if attached)</span>
@@ -727,7 +731,7 @@ function submitExpenseWithPhoto(){
 function _resetExpenseTab(){
   document.getElementById('ex2_type').value='';document.getElementById('ex2_amount').value='';
   document.getElementById('ex2_notes').value='';document.getElementById('ex2_preview').textContent='';
-  document.getElementById('ex2_filename').textContent='';document.getElementById('ex2_file').value='';
+  document.getElementById('ex2_filename').textContent='';document.getElementById('ex2_file').value='';document.getElementById('ex2_cam').value='';
   document.getElementById('ex2_btnLabel').textContent=' (+ upload challan if attached)';
   EX2_FILE_DATA=null;
 }
