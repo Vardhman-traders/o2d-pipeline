@@ -1273,7 +1273,6 @@ function loadBootstrapData(){
     const typeOpts = (list) => list.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
     document.getElementById('f_type').innerHTML = typeOpts(data.entryTypes || TXN_TYPES);
     document.getElementById('e_type').innerHTML = typeOpts(TXN_TYPES);
-    document.getElementById('np_txntype').innerHTML = '<option value="">All types</option>' + typeOpts(TXN_TYPES);
     const pt = document.getElementById('pendingTypeSelect');
     if (pt) pt.innerHTML = '<option value="all">All Types</option>' + typeOpts(TXN_TYPES);
 
@@ -1281,7 +1280,6 @@ function loadBootstrapData(){
     document.getElementById('companyFilter').innerHTML =
       '<option value="All Companies">All Companies</option>' + companyOptions;
     document.getElementById('f_company').innerHTML  = companyOptions;
-    document.getElementById('np_company').innerHTML = companyOptions;
     document.getElementById('e_company').innerHTML  = companyOptions;
 
     const modeOptions = modesCache.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
@@ -1289,7 +1287,7 @@ function loadBootstrapData(){
     document.getElementById('e_mode').innerHTML = modeOptions;
 
     // a company that is not on the list can be added right here; it is usable at once and an admin reviews it in Setup
-    ['f_company','np_company'].forEach(id => {
+    ['f_company'].forEach(id => {
       const sel = document.getElementById(id);
       if (!sel || !currentUserCanWrite()) return;
       sel.insertAdjacentHTML('beforeend', '<option value="__new__">➕ Add new company…</option>');
@@ -1315,7 +1313,7 @@ function addCompanyFlow(sel){
   VT.run.withSuccessHandler(res => {
     if (res.company) {
       companiesCache = companiesCache.includes(res.company) ? companiesCache : companiesCache.concat(res.company);
-      ['f_company','e_company','np_company','companyFilter'].forEach(id => {
+      ['f_company','e_company','companyFilter'].forEach(id => {
         const s = document.getElementById(id);
         if (s && !Array.from(s.options).some(o => o.value === res.company)) {
           const o = document.createElement('option'); o.value = o.textContent = res.company;

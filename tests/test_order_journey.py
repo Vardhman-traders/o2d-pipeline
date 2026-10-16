@@ -24,9 +24,18 @@ def people(client, db_conn, seed):
         cur.execute("UPDATE dim_delivery_status SET dispatch_route = 'none' WHERE status_name IN ('Processing', 'Delivery for NextDay')")
         cur.execute("UPDATE dim_delivery_status SET amount_effect = 'subtract' WHERE status_name = 'Goods Return'")
     db_conn.commit()
+    with db_conn.cursor() as cur:   # these tests pin the 11 PM clean-up, which is now a setting that is off by default
+        cur.execute("INSERT INTO app_config (key, value) VALUES ('o2d_cleanup_enabled', '1') ON CONFLICT (key) DO UPDATE SET value = '1'")
+    db_conn.commit()
+    from app import config
+    config._value_cache.clear()
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
-    return {r: login(client, db_conn, r) for r in ("shop", "godown", "godown_dispatch", "shop_dispatch", "receiving", "admin")}, today
+    yield {r: login(client, db_conn, r) for r in ("shop", "godown", "godown_dispatch", "shop_dispatch", "receiving", "admin")}, today
+    with db_conn.cursor() as cur:   # back to the default (off) for the rest of the session
+        cur.execute("DELETE FROM app_config WHERE key = 'o2d_cleanup_enabled'")
+    db_conn.commit()
+    config._value_cache.clear()
 
 
 def _dc():
@@ -207,3 +216,21 @@ def test_godown_dispatch_never_lists_shop_side_orders_whoever_opens_it(client, p
         cur.execute("DELETE FROM page_access WHERE page_key = 'o2d_godown_dispatch' AND role = 'purchase_shop'")
         cur.execute("DELETE FROM role_view_access WHERE role = 'purchase_shop'")
     db_conn.commit()
+
+
+def test_without_the_11_pm_clean_up_closed_orders_stay_listed(client, people, db_conn):
+    """The clean-up is a setting that is off by default: a fully closed order stays on its dashboards (until it is archived)."""
+    from app import config
+    h, today = people
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM app_config WHERE key = 'o2d_cleanup_enabled'")
+    db_conn.commit()
+    config._value_cache.clear()
+    dc = _dc()
+    sl = add(client, h["shop"], today, dc)["slNo"]
+    _status(client, h, sl, "Godown to Dispatch")
+    _dispatch(client, h, "godown_dispatch", sl)
+    assert client.put(f"/o2d/orders/{sl}/receiving", headers=h["receiving"],
+                      json={"dateOfReceiving": today.isoformat(), "paymentStatus": "Paid", "amountReceived": 100}).json()["success"]
+    _clean_up(db_conn, sl)                                           # closed two days ago
+    assert _where(client, h, dc) == {"shop:recentOrders", "receiving:completed"}

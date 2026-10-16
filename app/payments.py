@@ -182,8 +182,12 @@ def _scope(role: str, user, company: str | None, date_from, date_to, *, rows_for
     if company and company != "All Companies":
         where.append("c.company_name = %s"); params.append(company)
     if rows_for_list and role == "Cashier":
-        where += ["lower(cu.username) = lower(%s)", "d.full_date = %s", "t.status <> 'Rejected'"]
-        params += [user["username"], mc.today_ist()]
+        # a cashier who enters sees the entries they typed today; someone who may only LOOK (View only) has typed none, so they see today's
+        # entries of everyone - the same entries the cards above the table add up
+        if not access.is_view_only(user, *PAGES):
+            where.append("lower(cu.username) = lower(%s)"); params.append(user["username"])
+        where += ["d.full_date = %s", "t.status <> 'Rejected'"]
+        params.append(mc.today_ist())
     if role in ("Admin", "Account") and (date_from or date_to):
         if date_from:
             where.append("d.full_date >= %s"); params.append(date_from)

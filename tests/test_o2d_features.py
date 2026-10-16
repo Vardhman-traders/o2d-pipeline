@@ -152,7 +152,7 @@ def test_photo_upload_and_listing_follow_order_visibility(client, db_conn, seed,
     assert listed["enabled"] and [p["kind"] for p in listed["photos"]] == ["dispatch"] and listed["photos"][0]["url"].startswith("https://signed.example/")
     # a role that cannot see this order (receiving only sees delivered ones) gets a 404, not a link
     rec = login(client, db_conn, "cashier")
-    assert client.get(f"/o2d/orders/{sl}/photos", headers=rec).status_code == 404
+    assert client.get(f"/o2d/orders/{sl}/photos", headers=rec).status_code in (403, 404)   # no order page: no photos, no link
 
 
 def test_photo_limit_per_order_and_kind(client, db_conn, seed, r2):
