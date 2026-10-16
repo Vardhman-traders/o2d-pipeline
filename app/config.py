@@ -169,6 +169,24 @@ def editable_fields_for_role(role: str) -> set:
     return _perm_cache.get(role, set())
 
 
+# The order fields a person may set follow the O2D screens they hold (their role is not asked): each screen brings the fields set for it
+# under Setup > Role permissions, so one person can work on several screens (e.g. Shop Dispatch and Godown Dispatch) with the rights of both.
+PAGE_FIELD_ROLE = {"o2d_shop": "shop", "o2d_godown": "godown", "o2d_shop_dispatch": "shop_dispatch",
+                   "o2d_godown_dispatch": "godown_dispatch", "o2d_receiving": "receiving"}
+
+
+def editable_fields_for_user(user) -> set:
+    if user["role"] == "admin":
+        return set(ALL_ORDER_FIELDS)
+    from . import access
+    held = access.effective_access(user)
+    out: set = set()
+    for page, screen_role in PAGE_FIELD_ROLE.items():
+        if held.get(page) == "edit":
+            out |= editable_fields_for_role(screen_role)
+    return out
+
+
 def all_field_permissions() -> list:
     """Every (role, field_name, editable) row, for the admin Permissions screen."""
     with db.cursor() as cur:

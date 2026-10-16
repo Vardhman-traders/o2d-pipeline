@@ -29,9 +29,12 @@ def user(client, db_conn, role, username=None):
 
 
 def txn(**kw):
+    """`amount` is the figure that should end up stored; the page sends it x100 because the server divides what is typed by 100."""
     base = {"date": modcommon.today_ist().isoformat(), "type": "Payment Received", "company": "IRIS", "party": "Acme", "mode": "Cash",
             "amount": 1000, "invoice": "INV-1", "remarks": ""}
-    return {**base, **kw}
+    out = {**base, **kw}
+    out["amount"] = out["amount"] * 100
+    return out
 
 
 # ---------------------------------------------------------------- payments
@@ -95,7 +98,7 @@ def test_cashier_edit_and_visibility_rules(client, db_conn, days, seed):
     assert client.put(f"/payments/transactions/{mine}", json=txn(amount=2000), headers=cash2).json()["success"] is False      # not theirs
     assert client.put(f"/payments/transactions/{mine}", json=txn(amount=2000), headers=cash).json()["success"] is True
     assert next(r for r in client.get("/payments/transactions", headers=acct).json()["rows"] if r["TxnID"] == mine)["Amount"] == 2000
-    # amounts are stored as typed (the old sheet stored them divided by 100)
+    # what is typed is divided by 100 when saved (txn() sends the amount x100)
     assert client.get("/payments/transactions", headers=cash).json()["rows"][0]["Amount"] == 2000
 
 
@@ -279,7 +282,7 @@ def test_master_lists_are_managed_in_setup_and_protected_when_used(client, db_co
     rows = client.get("/admin/masters/vendor", headers=admin).json()["rows"]
     assert isinstance(rows, list)
     co = client.get("/admin/masters/party", headers=admin).json()
-    assert any(f["name"] == "company_key" and f["options"] for f in co["fields"])
+    assert co["fields"] == []                                                                                  # a party is just a name
     assert "company" in [k["kind"] for k in client.get("/admin/reconcile", headers=admin).json()]          # merge works on the new lists too
 
 
@@ -359,3 +362,29 @@ def test_staff_are_managed_in_setup_only_and_no_old_system_is_named_in_the_pages
         assert "manageStaff" not in text and "staffModal" not in text
         visible = re.sub(r"fonts\.(googleapis|gstatic)\.com", "", text)
         assert not re.search(r"google|apps script|spreadsheet", visible, re.I), re.findall(r".{20}(?:google|apps script|spreadsheet).{20}", visible, re.I)
+
+
+def test_typed_payment_amounts_are_divided_by_100(client, db_conn, days, seed):
+    admin = login(client, db_conn, "admin")
+    r = client.post("/payments/transactions", json={**txn(), "amount": 10000}, headers=admin).json()
+    assert r["success"] is True
+    row = next(x for x in client.get("/payments/transactions", headers=admin).json()["rows"] if x["TxnID"] == r["txnId"])
+    assert row["Amount"] == 100                                        # typed 10,000 -> saved and shown as 100
+    assert client.post("/payments/transactions", json={**txn(), "amount": 0.4}, headers=admin).json()["success"] is False   # rounds to 0
+
+
+def test_one_party_list_a_known_name_is_used_a_new_name_is_added_once(client, db_conn, days, seed):
+    admin = login(client, db_conn, "admin")
+    name = "One List Traders"
+    for company, typ in (("IRIS", "Payment Received"), ("VT", "Payment Paid"), ("IRIS", "Expense")):
+        assert client.post("/payments/transactions", json=txn(company=company, type=typ, party=name.upper() if company == "VT" else name), headers=admin).json()["success"]
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*), min(company_key) IS NULL, min(txn_type_key) IS NULL FROM dim_party WHERE party_kind = 'payment' AND lower(party_name) = %s", (name.lower(),))
+        assert cur.fetchone() == (1, True, True)                       # one party for every company and type, whatever the capitals
+    # the suggestion list is the same for any company / type
+    a = client.get("/payments/parties?company=IRIS&txn_type=Expense", headers=admin).json()
+    b = client.get("/payments/parties", headers=admin).json()
+    assert name in a and a == b
+    # adding by hand: a second time says it is already there
+    assert client.post("/payments/parties", json={"name": "Hand Added"}, headers=admin).json()["success"] is True
+    assert "already" in client.post("/payments/parties", json={"name": "hand  added"}, headers=admin).json()["message"]

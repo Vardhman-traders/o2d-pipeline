@@ -69,3 +69,33 @@ def test_failed_migration_rolls_back_and_is_not_recorded(fresh_db_url, tmp_path)
 
 def test_migrations_dir_is_a_path():
     assert isinstance(MIGRATIONS, Path) and MIGRATIONS.is_dir()
+
+
+@pytest.mark.slow
+def test_037_merges_duplicate_parties_and_repoints_entries(fresh_db_url, tmp_path):
+    """Parties that differ only by company / type become one party; every entry follows the one that stays."""
+    old = tmp_path / "before"
+    old.mkdir()
+    for f in MIGRATIONS.glob("*.sql"):
+        if int(f.name[:3]) < 37:
+            shutil.copy(f, old / f.name)
+    assert run_migrations(fresh_db_url, old) == 0
+    conn = psycopg2.connect(fresh_db_url)
+    with conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO dim_company (company_name) VALUES ('C1'), ('C2') ON CONFLICT DO NOTHING")
+        cur.execute("SELECT company_key FROM dim_company ORDER BY company_key LIMIT 2")
+        c1, c2 = [r[0] for r in cur.fetchall()]
+        keys = []
+        for ck in (c1, c2):
+            cur.execute("INSERT INTO dim_party (party_name, party_kind, company_key, review_status) VALUES ('Acme Ltd', 'payment', %s, 'pending') RETURNING party_key", (ck,))
+            keys.append(cur.fetchone()[0])
+        cur.execute("INSERT INTO dim_party (party_name, party_kind, review_status) VALUES ('  acme ltd', 'payment', 'approved') RETURNING party_key")
+        keys.append(cur.fetchone()[0])
+    conn.close()
+    assert run_migrations(fresh_db_url) == 0
+    conn = psycopg2.connect(fresh_db_url)
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT party_key, company_key FROM dim_party WHERE party_kind = 'payment' AND lower(btrim(party_name)) = 'acme ltd'")
+        rows = cur.fetchall()
+    conn.close()
+    assert rows == [(keys[2], None)]               # one left: the approved one, with no company

@@ -181,14 +181,16 @@ def test_validation_messages(client, db_conn, seed):
 
 
 def test_role_field_permissions_still_enforced(client, db_conn, seed):
+    """What a person may SAVE still follows the screens (pages) they hold; what they SEE does not depend on who logged the order."""
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
     shop = login(client, db_conn, "shop")
     sl = add(client, shop, today, "7" + str(uuid.uuid4().int)[:7])["slNo"]
-    receiving = login(client, db_conn, "receiving")
-    # receiving cannot see a fresh (not yet delivered) order, so the write is refused, not applied
-    r = client.put(f"/o2d/orders/{sl}/receiving", headers=receiving, json={"paymentStatus": "Paid"}).json()
-    assert r["success"] is False
+    godown, receiving = login(client, db_conn, "godown"), login(client, db_conn, "receiving")
+    # the godown screen holds no receiving page: it cannot save receiving details, whatever it can see
+    assert client.put(f"/o2d/orders/{sl}/receiving", headers=godown, json={"paymentStatus": "Paid"}).status_code == 403
+    # the receiving screen holds the page and its fields: any order is open to it, so the save goes through
+    assert client.put(f"/o2d/orders/{sl}/receiving", headers=receiving, json={"paymentStatus": "Paid"}).json()["success"] is True
 
 
 # ---------------------------------------------------------------- admin
@@ -252,7 +254,7 @@ def test_admin_sees_orders_and_cashier_view_is_a_toggle(client, db_conn, seed):
 
     toggle(True)
     assert seen_by(cashier) is True, "toggle on: cashier can view"
-    edit = client.put("/o2d/orders/1/receiving", headers=cashier, json={"paymentStatus": "Paid"}).json()
-    assert edit["success"] is False, "the toggle grants viewing only, never editing"
+    edit = client.put("/o2d/orders/1/receiving", headers=cashier, json={"paymentStatus": "Paid"})
+    assert edit.status_code == 403 or edit.json()["success"] is False, "the toggle grants viewing only, never editing"
     toggle(False)
     assert seen_by(cashier) is False, "toggle off: back to nothing"

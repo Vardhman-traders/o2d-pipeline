@@ -81,6 +81,9 @@ MODULES: list[dict] = [
 ]
 DASHBOARD_PAGES = ("dashboard_overview", "dashboard_orders")
 O2D_PAGES = tuple(k for k in PAGES if k.startswith("o2d_"))
+# The pages that list orders: holding any of them means seeing every order. (The Cashier, Cartage, Reports and "enter a missing number"
+# pages work on their own data and do not open the order lists.)
+ORDER_PAGES = ("o2d_overview", "o2d_shop", "o2d_godown", "o2d_shop_dispatch", "o2d_godown_dispatch", "o2d_receiving") + DASHBOARD_PAGES
 # Roles that can be given pages in the matrix (admin has everything, legacy cannot sign in).
 MATRIX_ROLES = sorted(roles.ALL_ROLES - {"admin", "legacy"})
 

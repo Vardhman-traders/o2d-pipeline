@@ -20,7 +20,17 @@ log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
 IST = ZoneInfo("Asia/Kolkata")
 
-ANY_VIEWER = auth.require_roles(*roles.ORDER_ROLES, "admin", "cashier", "accounts", "cartage")
+ANY_VIEWER = access.require_page(*access.O2D_PAGES)   # anyone holding an O2D page; the page decides, not the role
+
+
+def _need_edit(user, *pages: str):
+    """Saving on a screen needs that screen's page with full (not "View only") access."""
+    acc = access.effective_access(user)
+    if any(acc.get(p) == "edit" for p in pages):
+        return
+    if any(p in acc for p in pages):
+        raise HTTPException(403, "You have view-only access to this page, so you cannot save changes here.")
+    raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 ADMIN_ONLY = auth.require_roles("admin")
 MAX_ROWS = 200
 UNKNOWN_VALUE = "Unknown dropdown value selected. Please refresh and try again."
@@ -165,6 +175,24 @@ def _orders(user, *, date_from=None, date_to=None, q=None, archived=None, limit=
     return [map_order(r) for r in rows]
 
 
+def _with_photos(*lists: list[dict]) -> None:
+    """Put each order's photo count on the rows (the lists show a camera badge you can click to see them)."""
+    rows = [o for lst in lists for o in lst]
+    counts = attachments.photo_counts(sorted({o["orderKey"] for o in rows}))
+    for o in rows:
+        o["photoCount"] = counts.get(o["orderKey"], 0)
+
+
+def _screen_orders(user, screen: str) -> list[dict]:
+    """The orders one screen lists (roles.SCREEN_FILTERS), chosen in the database so a long history can never push an open order out."""
+    from . import main
+    vis_sql, vis_params = roles.visibility(user)
+    with db.cursor() as cur:
+        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.SCREEN_FILTERS[screen]} "
+                    "ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s", vis_params + [500])
+        return [map_order(r) for r in cur.fetchall()]
+
+
 def _write(user, sl_no: int, payload: dict, archived: bool | None = None) -> dict:
     """Apply a partial update through the one real update path; translate errors to {success: False}."""
     from . import main
@@ -291,26 +319,32 @@ def _shop_box_orders(user) -> list[dict]:
 def shop_screen(user=Depends(access.require_page("o2d_shop"))):
     # "recentOrders" is the Shop's New Orders box: every order that is not fully closed, plus the ones closed since the last 11 PM
     # (the status columns update as the order moves on; at 11 PM the closed ones drop off)
-    return {"ok": True, "dropdowns": _dropdowns("shop"),
-            "recentOrders": [o for o in _shop_box_orders(user) if not is_closed(o) or closed_since_cleanup(o)], "dateWindow": dashboard_window()}
+    recent = [o for o in _shop_box_orders(user) if not is_closed(o) or closed_since_cleanup(o)]
+    _with_photos(recent)
+    return {"ok": True, "dropdowns": _dropdowns("shop"), "recentOrders": recent, "dateWindow": dashboard_window()}
 
 
 @router.get("/godown")
 def godown_screen(user=Depends(access.require_page("o2d_godown"))):
-    orders = _orders(user)
-    return {"ok": True, "dropdowns": _dropdowns("godown"),
-            "pending": [o for o in orders if awaiting_godown(o)],
-            "completed": [o for o in orders if under_processing(o)], "dateWindow": dashboard_window()}
+    orders = _screen_orders(user, "godown")
+    pending, completed = [o for o in orders if awaiting_godown(o)], [o for o in orders if under_processing(o)]
+    _with_photos(pending, completed)
+    return {"ok": True, "dropdowns": _dropdowns("godown"), "pending": pending, "completed": completed, "dateWindow": dashboard_window()}
 
 
 @router.get("/dispatch")
 def dispatch_screen(view_as: str | None = Query(default=None),
                     user=Depends(access.require_page("o2d_shop_dispatch", "o2d_godown_dispatch"))):
-    # Admin has no dispatch role of its own: it picks which dispatch screen it is looking at ("View as").
-    # Everyone else always gets their own role's lists, whatever is passed.
-    role = view_as if user["role"] == "admin" and view_as in DISPATCH_SCOPES else user["role"]
-    side = {"shop_dispatch": "shop", "godown_dispatch": "godown"}.get(role)   # admin without "View as" sees both sides
-    orders = _orders(user)
+    # The side comes from the SCREEN being opened, never from who is looking: Godown Dispatch lists godown-route orders only and
+    # Shop Dispatch & Receiving lists shop-route orders only, for admin and for any role that was given the page.
+    pages = {"shop_dispatch": "o2d_shop_dispatch", "godown_dispatch": "o2d_godown_dispatch"}
+    held = {v for v, pg in pages.items() if pg in access.effective_pages(user)}
+    if user["role"] == "admin":
+        held = set(pages)
+    # the screen asked for, if this person holds its page; otherwise the one they hold (their own screen first)
+    role = view_as if view_as in held else (user["role"] if user["role"] in held else (sorted(held)[0] if held else "godown_dispatch"))
+    side = {"shop_dispatch": "shop", "godown_dispatch": "godown"}[role]
+    orders = _screen_orders(user, role)
     pending = [o for o in orders if ready_for_dispatch(o, side)]
     for o in pending:
         if _delivered(o):
@@ -321,16 +355,17 @@ def dispatch_screen(view_as: str | None = Query(default=None),
     for o in completed:
         if not _received(o):
             o["stuckReason"] = "Receiving pending"
+    _with_photos(pending, completed)
     return {"ok": True, "dropdowns": _dropdowns(role), "pending": pending, "completed": completed,
             "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
 
 
 @router.get("/receiving")
 def receiving_screen(user=Depends(access.require_page("o2d_receiving"))):
-    orders = _orders(user)
-    return {"ok": True, "dropdowns": _dropdowns("receiving"),
-            "pending": [o for o in orders if awaiting_receiving_godown(o)],
-            "completed": [o for o in orders if received_godown(o)],
+    orders = _screen_orders(user, "receiving")
+    pending, completed = [o for o in orders if awaiting_receiving_godown(o)], [o for o in orders if received_godown(o)]
+    _with_photos(pending, completed)
+    return {"ok": True, "dropdowns": _dropdowns("receiving"), "pending": pending, "completed": completed,
             "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
 
 
@@ -482,7 +517,9 @@ def admin_form_options(user=Depends(ADMIN_ONLY)):
 @router.get("/search")
 def search_orders(date_: date | None = Query(default=None, alias="date"),
                   dc_no: str | None = Query(default=None, max_length=100), user=Depends(ANY_VIEWER)):
-    return {"ok": True, "results": _orders(user, date_from=date_, date_to=date_, q=dc_no, limit=100)}
+    found = _orders(user, date_from=date_, date_to=date_, q=dc_no, limit=100)
+    _with_photos(found)
+    return {"ok": True, "results": found}
 
 
 # ------------------------------------------------------------------ missing numbers
@@ -532,7 +569,9 @@ def missing_numbers(date_: date | None = Query(default=None, alias="date"), user
 
 
 # ------------------------------------------------------------------ missing bill numbers
-GAP_RESOLVERS = {"admin", "shop"}  # who may mark a missing number as "no bill to punch"
+def _can_resolve(user) -> bool:
+    """Who may mark a missing number as "no bill to punch": anyone with full access to the Shop screen."""
+    return access.effective_access(user).get("o2d_shop") == "edit"
 
 
 @router.get("/doc-gaps")
@@ -541,15 +580,14 @@ def doc_gaps(user=Depends(ANY_VIEWER)):
     with db.cursor() as cur:
         out = doc_numbers.open_gaps(cur, today_ist())
         series_types = doc_numbers.types_by_series(cur)
-    return {"ok": True, "canResolve": user["role"] in GAP_RESOLVERS, "canPunch": _can_punch(user), "seriesTypes": series_types, **out}
+    return {"ok": True, "canResolve": _can_resolve(user), "canPunch": _can_punch(user), "seriesTypes": series_types, **out}
 
 
 def _can_punch(user) -> bool:
     """May this person click a missing number and enter it? The shop always could; anyone else only when an
     admin has switched on the "o2d_missing_entry" page for their role or for them personally."""
-    if user["role"] in roles.CREATE_ORDER_ROLES and not access.is_view_only(user, "o2d_shop"):
-        return True
-    return access.effective_access(user).get("o2d_missing_entry") == "edit"
+    acc = access.effective_access(user)
+    return acc.get("o2d_shop") == "edit" or acc.get("o2d_missing_entry") == "edit"
 
 
 @router.get("/missing-entry/options")
@@ -607,9 +645,9 @@ def _missing_required(form: Form) -> list[str]:
 
 
 @router.post("/orders")
-def add_order(form: Form, user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+def add_order(form: Form, user=Depends(access.require_page("o2d_shop"))):
     from . import main
-    access.require_edit(user, "o2d_shop")
+    _need_edit(user, "o2d_shop")
     missing = _missing_required(form)
     if missing:
         return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
@@ -625,7 +663,7 @@ def add_order(form: Form, user=Depends(auth.require_roles(*roles.CREATE_ORDER_RO
 
 @router.put("/orders/{sl_no}/shop")
 def update_shop(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    access.require_edit(user, "o2d_shop")
+    _need_edit(user, "o2d_shop")
     missing = _missing_required(form)
     if missing:
         return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
@@ -645,7 +683,7 @@ def _receiving_fields(form: Form, payments) -> dict:
 
 @router.put("/orders/{sl_no}/godown")
 def update_godown(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    access.require_edit(user, "o2d_godown")
+    _need_edit(user, "o2d_godown")
     p: dict = {}
     if form.readyByWhom:
         p["ready_by_person_key"] = _key_by_name(_people_rows("ready_by"), form.readyByWhom)
@@ -677,9 +715,10 @@ def _delivered_by(p: dict, form: Form, scopes: tuple | None) -> str | None:
 
 @router.put("/orders/{sl_no}/dispatch")
 def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    access.require_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
+    _need_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
     before = None
-    if user["role"] == "godown_dispatch":
+    screen = form.viewAs if form.viewAs in DISPATCH_SCOPES else user["role"]   # the dispatch screen being worked
+    if screen == "godown_dispatch":
         from . import main
         try:
             before = map_order(main.get_order(sl_no, archived=None, user=user))
@@ -691,7 +730,7 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     if form.materialDeliveryDateTime:
         p["material_delivery_datetime"] = form.materialDeliveryDateTime
     if form.deliveredByWhom:
-        err = _delivered_by(p, form, DISPATCH_SCOPES.get(user["role"] if user["role"] != "admin" else form.viewAs))
+        err = _delivered_by(p, form, DISPATCH_SCOPES.get(screen))
         if err:
             return {"ok": True, "success": False, "message": err}
     if _has(form.cartage):
@@ -699,7 +738,7 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     if form.paymentStatus is not None:  # payment inputs are only sent when this role is allowed them
         p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
     result = _write(user, sl_no, p)
-    if result["success"] and user["role"] == "godown_dispatch" and before is not None:
+    if result["success"] and screen == "godown_dispatch" and before is not None:
         updated = result["order"]
         was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
         now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
@@ -718,7 +757,7 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
 @router.post("/orders/{sl_no}/whatsapp-resend")
 def resend_dispatch_alert(sl_no: int, user=Depends(ANY_VIEWER)):
     """Send the dispatch WhatsApp alert for an order again (the first one goes automatically, once). Godown dispatch / admin."""
-    access.require_edit(user, "o2d_godown_dispatch")
+    _need_edit(user, "o2d_godown_dispatch")
     from . import main
     try:
         order = map_order(main.get_order(sl_no, archived=None, user=user))
@@ -741,7 +780,7 @@ def resend_dispatch_alert(sl_no: int, user=Depends(ANY_VIEWER)):
 
 @router.put("/orders/{sl_no}/receiving")
 def update_receiving(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
-    access.require_edit(user, "o2d_receiving")
+    _need_edit(user, "o2d_receiving")
     result = _write(user, sl_no, _receiving_fields(form, _lookup_rows("payment-statuses")))
     result.pop("order", None)
     return result
@@ -808,9 +847,8 @@ class GapVoid(BaseModel):
 @router.post("/doc-gaps/void")
 def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
     """Close a missing number (or a run of them) that needs no punch, e.g. the bill was voided in BUSY."""
-    if user["role"] not in GAP_RESOLVERS:
+    if not _can_resolve(user):
         raise HTTPException(403, "Only admin or the shop can close a missing number.")
-    access.require_edit(user, "o2d_shop")
     reason = body.reason.strip()
     if body.doc_type not in ("Challan", "Invoice"):
         raise HTTPException(422, "doc_type must be Challan or Invoice")
@@ -830,7 +868,7 @@ def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
 @router.get("/doc-check")
 def doc_check(type_name: str, date_: date = Query(alias="date"), number: str = Query(max_length=50),
               bill: str | None = Query(default=None, max_length=10),
-              user=Depends(auth.require_roles(*roles.CREATE_ORDER_ROLES))):
+              user=Depends(access.require_page("o2d_shop", "o2d_missing_entry"))):
     """Used by the order form while a number is typed: which bill series is this submission type (if any), is the number digits,
     already taken, or skipping ahead of the series? For a type that allows either series, `bill` is the shop's Challan / Invoice pick."""
     with db.cursor() as cur:

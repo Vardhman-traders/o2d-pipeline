@@ -766,7 +766,7 @@
           <div id="f_party_suggestions" class="suggest-list"></div>
         </div>
         <div class="field">
-          <label for="f_amount">Amount (₹)</label>
+          <label for="f_amount">Amount (₹) <span style="font-weight:400;color:var(--muted,#64748b)">- saved ÷ 100</span></label>
           <input type="number" id="f_amount" min="0" step="0.01" placeholder="0.00">
         </div>
         <div class="field">
@@ -793,32 +793,14 @@
         <div class="panel-icon" style="background:#f0fdf4;color:var(--green);">👤</div>
         <h3>Add New Party</h3>
       </div>
-      <!-- CHANGE v19: TxnType dropdown added — party saved against specific type -->
       <div class="form-grid">
-        <div class="field">
-          <label for="np_company">Company</label>
-          <select id="np_company"></select>
-        </div>
-        <div class="field">
-          <label for="np_txntype">Transaction Type</label>
-          <select id="np_txntype">
-            <option value="">All Types (General)</option>
-            <option>Payment Received</option>
-            <option>Payment Paid</option>
-            <option>Sales</option>
-            <option>Expense</option>
-            <option>Cash Deposit</option>
-            <option>Cash Withdrawn</option>
-            <option>Sale Return</option>
-          </select>
-        </div>
         <div class="field" style="grid-column:span 2;">
           <label for="np_name">Party Name</label>
           <input type="text" id="np_name" placeholder="New party name">
         </div>
       </div>
       <p style="font-size:11.5px;color:var(--muted);margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:8px;">
-        💡 <strong>All Types (General)</strong> select karo toh party har type ke liye dikhegi. Specific type select karo toh sirf usi type mein dikhegi.
+        💡 One party list for every company and type. A name typed on an entry that is not in the list is added to it automatically.
       </p>
       <div class="form-actions">
         <button class="btn btn-primary" style="width:auto;" onclick="handleAddParty()">Add Party</button>
@@ -1063,7 +1045,7 @@
         <div id="e_party_suggestions" class="suggest-list"></div>
       </div>
       <div class="field">
-        <label for="e_amount">Amount (₹)</label>
+        <label for="e_amount">Amount (₹) <span style="font-weight:400;color:var(--muted,#64748b)">- saved ÷ 100</span></label>
         <input type="number" id="e_amount" min="0" step="0.01" placeholder="0.00">
       </div>
       <div class="field">
@@ -1356,16 +1338,12 @@ let partiesCache = [];
 // CHANGE v19: reads both f_company AND f_type — sends both to backend
 // Called when either company OR type dropdown changes in New Entry form
 function loadPartiesForTypeCompany(){
-  const company = document.getElementById('f_company').value || '';
-  const txnType = document.getElementById('f_type').value   || '';
-  document.getElementById('f_party_input').value = '';
+  // one party list for everyone: the company and type no longer filter it, and what was typed stays
   document.getElementById('f_party_suggestions').classList.remove('open');
-  partiesCache = [];
-  if (!company) return;
   VT.run
     .withSuccessHandler(names => { partiesCache = names || []; })
     .withFailureHandler(() => { partiesCache = []; })
-    .getParties(company, txnType);
+    .getParties('', '');
 }
 
 // Keep old function name as alias for bootstrap call compatibility
@@ -1381,7 +1359,7 @@ function onPartyInput(){
   const matches = (q ? partiesCache.filter(n => n.toLowerCase().includes(q)) : partiesCache).slice(0,12);
   box.innerHTML = matches.length
     ? matches.map(n => `<div class="suggest-item" data-name="${esc(n)}">${esc(n)}</div>`).join('')
-    : `<div class="suggest-empty">${partiesCache.length ? 'No matching party.' : 'No parties for this company yet.'}</div>`;
+    : `<div class="suggest-empty">${partiesCache.length ? 'No matching party.' : 'No parties yet - the name you type is added to the list.'}</div>`;
   box.classList.add('open');
 }
 function selectPartySuggestion(name){
@@ -1433,15 +1411,13 @@ function hideEditPartySuggestionsSoon(){
 // CHANGE v19: reads np_txntype and passes to backend
 // ============================================================
 function handleAddParty(){
-  const company = document.getElementById('np_company').value;
+  const company = '', txnType = '';
   const name    = document.getElementById('np_name').value.trim();
-  const txnType = document.getElementById('np_txntype')
-                    ? document.getElementById('np_txntype').value : '';
   const msg     = document.getElementById('addPartyMsg');
   msg.style.display = 'none';
-  if (!company || !name) {
+  if (!name) {
     msg.className = 'err'; msg.style.display = 'block';
-    msg.textContent = 'Enter both a company and a party name.'; return;
+    msg.textContent = 'Enter the party name.'; return;
   }
   VT.run
     .withSuccessHandler(res => {
@@ -2272,7 +2248,7 @@ function openEditModal(txnId){
   document.getElementById('e_date').value    = row.Date;
   document.getElementById('e_type').value    = row.Type;
   document.getElementById('e_company').value = row.Company;
-  document.getElementById('e_amount').value  = Number(row.Amount)||0;
+  document.getElementById('e_amount').value  = Math.round((Number(row.Amount)||0) * 100 * 100) / 100;   // back to what was typed (saved ÷ 100)
   document.getElementById('e_invoice').value = row.Invoice  || '';
   document.getElementById('e_remarks').value = row.Remarks  || '';
   document.getElementById('e_mode').value    = row.Mode;

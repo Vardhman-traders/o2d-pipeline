@@ -182,3 +182,28 @@ def test_old_open_orders_stay_on_the_shop_box_but_old_closed_ones_do_not(client,
     db_conn.commit()
     shop_seen = {o["dcNo"] for o in client.get("/o2d/shop", headers=h["shop"]).json()["recentOrders"]}
     assert old_open in shop_seen and old_closed not in shop_seen
+
+
+def test_godown_dispatch_never_lists_shop_side_orders_whoever_opens_it(client, people, db_conn):
+    """The side belongs to the screen, not the person: any role given the Godown Dispatch page (and admin) sees godown-route orders only."""
+    h, today = people
+    godown_side, shop_side = _dc(), _dc()
+    for dc, status in ((godown_side, "Godown to Dispatch"), (shop_side, "Dispatch for Shop")):
+        _status(client, h, add(client, h["shop"], today, dc)["slNo"], status)
+    viewer = login(client, db_conn, "purchase_shop")
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO page_access (page_key, role) VALUES ('o2d_godown_dispatch', 'purchase_shop') ON CONFLICT DO NOTHING")
+        cur.execute("INSERT INTO role_view_access (role, can_view) VALUES ('purchase_shop', true) ON CONFLICT (role) DO UPDATE SET can_view = true")
+    db_conn.commit()
+    for url in ("/o2d/dispatch", "/o2d/dispatch?view_as=godown_dispatch"):
+        seen = {o["dcNo"] for o in client.get(url, headers=viewer).json()["pending"]}
+        assert godown_side in seen and shop_side not in seen, url
+    seen = {o["dcNo"] for o in client.get("/o2d/dispatch?view_as=godown_dispatch", headers=h["admin"]).json()["pending"]}
+    assert godown_side in seen and shop_side not in seen
+    # asking for a screen they were not given just gives them the one they hold
+    seen = {o["dcNo"] for o in client.get("/o2d/dispatch?view_as=shop_dispatch", headers=viewer).json()["pending"]}
+    assert godown_side in seen and shop_side not in seen
+    with db_conn.cursor() as cur:   # leave the shared test database as found
+        cur.execute("DELETE FROM page_access WHERE page_key = 'o2d_godown_dispatch' AND role = 'purchase_shop'")
+        cur.execute("DELETE FROM role_view_access WHERE role = 'purchase_shop'")
+    db_conn.commit()

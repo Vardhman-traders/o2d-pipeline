@@ -348,7 +348,19 @@ async function openOrderDetail(slNo) {
       h('h3', { class: 'tl-title', text: 'Order timeline' }),
       note ? h('p', { class: 'note', text: note }) : null,
       h('ol', { class: 'timeline', id: 'orderTimeline' }, events));
+    showOrderPhotos(slNo, body);
   } catch (ex) { body.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+}
+
+// The dispatch and receiving photos taken on the O2D screens, shown on the order's details.
+async function showOrderPhotos(slNo, body) {
+  let d;
+  try { d = await api(`/o2d/orders/${slNo}/photos`); } catch { return; }
+  if (!d || !d.enabled || !d.photos.length) return;
+  const grid = h('div', { id: 'orderPhotos', style: 'display:flex;flex-wrap:wrap;gap:10px' }, d.photos.map((p) => h('a', { href: p.url, target: '_blank', rel: 'noopener',
+    title: `${p.kind} photo by ${p.uploadedBy || '?'} - ${fmtExact(p.uploadedAt)} IST`, style: 'display:block;width:140px;height:140px;border-radius:10px;overflow:hidden;border:1px solid var(--border)' },
+    h('img', { src: p.url, alt: p.kind + ' photo', style: 'width:100%;height:100%;object-fit:cover' }))));
+  body.append(h('h3', { class: 'tl-title', text: `Photos (${d.photos.length})` }), grid);
 }
 
 // ------------------------------------------------------------------ Setup > Access & permissions (one page)
@@ -486,20 +498,21 @@ async function renderAccessRequests(panel) {
 // what the picker shows: one chip per module, its uploads underneath
 const IMPORT_GROUPS = [
   { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
-  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries']] },
+  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries'], ['parties', 'Parties']] },
   { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks'], ['checklists', 'Checklists']] },
   { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries']] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses']] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
 ].map((g) => ({ ...g, items: g.items.map(([id, label]) => ({ id, label })) }));
 const IMPORT_KINDS = IMPORT_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label]));
-const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', tasks: 'tasks', purchases: 'purchase entries',
+const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', parties: 'payment parties', tasks: 'tasks', purchases: 'purchase entries',
   decor_clients: 'VT Decor clients', decor_payments: 'VT Decor payments', decor_expenses: 'VT Decor expenses',
   att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances', checklists: 'checklists' };
 const IMPORT_TEMPLATE_NOTE = {
   orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
   payments: 'The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  parties: 'One column: the party name. This is the list the Payments entry form suggests from; names already in it are rejected as duplicates. Rows marked EXAMPLE are ignored.',
   tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
   purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   decor_clients: 'The Excel template has dropdowns for Product Type and Status. Amounts are real rupees (not divided by 100). Upload clients first: payments and expenses refer to the client code (C001 ...). Rows marked EXAMPLE are ignored.',
@@ -1018,4 +1031,57 @@ async function renderWhatsApp(panel) {
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing. Click an alert to open it.' }),
     data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp API key (WHATSAPP_API_KEY) is not set on the server, so nothing can be sent yet.' }),
     ...cards);
+}
+
+
+// ------------------------------------------------------------------ Setup > Export & Delete
+// Export: every dashboard's data, one Excel file each (zipped). Delete: everything except completed orders - always previewed first,
+// and only done after the confirmation word is typed.
+async function renderDataTools(panel) {
+  const exportMsg = h('span', { class: 'msg', role: 'status' });
+  const exportBtn = h('button', { class: 'btn primary', id: 'exportAllBtn', text: '⬇ Export all dashboards (Excel, zipped)', onclick: async () => {
+    exportBtn.disabled = true; exportMsg.className = 'msg'; exportMsg.textContent = 'Preparing the files…';
+    try { await downloadFile('/admin/data/export.zip', 'vardhman_export.zip'); exportMsg.className = 'msg ok'; exportMsg.textContent = 'Downloaded.'; }
+    catch (ex) { exportMsg.className = 'msg error'; exportMsg.textContent = ex.message; }
+    exportBtn.disabled = false;
+  } });
+
+  const preview = h('div', { id: 'deletePreview' });
+  const previewBtn = h('button', { class: 'btn danger', id: 'deletePreviewBtn', text: 'Delete completed orders and the other dashboards’ data…', onclick: async () => {
+    previewBtn.disabled = true; preview.replaceChildren(h('p', { class: 'note', text: 'Counting…' }));
+    try {
+      const d = await api('/admin/data/delete-preview');
+      const word = h('input', { type: 'text', id: 'deleteWord', autocomplete: 'off', placeholder: `Type ${d.confirm_word}`, 'aria-label': 'Type the confirmation word', style: 'max-width:200px' });
+      const go = h('button', { class: 'btn danger', id: 'deleteGoBtn', text: 'Delete now', disabled: true });
+      const msg = h('div', { class: 'msg', role: 'status' });
+      word.addEventListener('input', () => { go.disabled = word.value.trim() !== d.confirm_word; });
+      go.addEventListener('click', async () => {
+        go.disabled = true; msg.className = 'msg'; msg.textContent = 'Deleting…';
+        try {
+          const r = await api('/admin/data/delete', { method: 'POST', body: { confirm: word.value } });
+          msg.className = 'msg ok';
+          msg.textContent = `Done. ${fmtInt(r.deleted.reduce((n, a) => n + a.count, 0))} records deleted; ${fmtInt(r.kept_orders)} orders that are not completed were kept.`;
+          word.disabled = true; previewBtn.disabled = false;
+        } catch (ex) { msg.className = 'msg error'; msg.textContent = ex.message; go.disabled = false; }
+      });
+      preview.replaceChildren(h('div', { class: 'card', style: 'border-left:4px solid var(--bad);margin-top:12px' },
+        h('h3', { text: 'This will permanently delete:' }),
+        h('div', { class: 'table-wrap' }, h('table', { id: 'deleteCounts' }, h('tbody', {}, d.areas.map((a) => h('tr', {}, h('td', { text: a.label }), h('td', { class: 'num', text: fmtInt(a.count) })))))),
+        h('p', { class: 'note', text: `${fmtInt(d.files)} uploaded photo/file record(s) are removed as well.` }),
+        h('p', { class: 'msg ok', text: `${fmtInt(d.kept_orders)} order(s) that are not completed are kept. ${d.kept_note}` }),
+        h('p', { class: 'msg error', role: 'alert', text: 'This cannot be undone. Export first if you may need this data.' }),
+        h('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' }, word, go), msg));
+    } catch (ex) { preview.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+    previewBtn.disabled = false;
+  } });
+
+  panel.replaceChildren(
+    h('div', { class: 'card', style: 'margin-bottom:16px' },
+      h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Export' }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'One Excel file for each dashboard (O2D orders, Payments with expenses, Delegation with checklist, Purchase, VT Decor, Attendance), all in one zip.' }),
+      h('div', { class: 'row', style: 'gap:10px;align-items:center' }, exportBtn, exportMsg)),
+    h('div', { class: 'card' },
+      h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Delete' }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Permanently removes every completed order (closed or cancelled, archived ones too) from the database and the working data of the other dashboards. Orders that are not completed, members, dropdown lists, access and WhatsApp settings are kept. You see exactly what will go before anything is deleted.' }),
+      previewBtn, preview));
 }

@@ -104,6 +104,14 @@
   .card.accent-dispatch { border-left: 4px solid var(--dispatch-color); }
   .card.accent-receiving{ border-left: 4px solid var(--receiving-color); }
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+  .photo-chip { border: 1px solid var(--border); background: var(--surface, #fff); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: var(--navy); }
+  .photo-chip:hover { border-color: var(--blue-2); }
+  .photo-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .photo-modal { background: #fff; border-radius: 14px; padding: 18px; max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; }
+  .photo-modal h2 { margin: 0 0 12px; font-size: 16px; } .photo-modal h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+  .photo-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .photo-grid a { display: block; width: 150px; height: 150px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+  .photo-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
   /* a card whose heading opens and closes it (Overview: Reports PDF, Daily delivery reports) */
   .cc > h2 { cursor: pointer; user-select: none; margin-bottom: 0; }
   .cc > h2::after { content: '\25BE'; margin-left: auto; color: var(--muted); transition: transform .15s; }
@@ -1013,6 +1021,44 @@
     if (b) b.addEventListener('change', shopCheckDocNumber);
   });
 
+  // ---- photos on the lists: a camera badge next to the DC / Inv no. opens that order's photos (dispatch and receiving shots)
+  function photoBadge_(o) {
+    return o && o.photoCount ? ' <button type="button" class="photo-chip" title="See the photos of this order" aria-label="See photos" onclick="openPhotos_(' + o.slNo + ', event)">&#128247; ' + o.photoCount + '</button>' : '';
+  }
+  function openPhotos_(slNo, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    var back = document.createElement('div');
+    back.className = 'photo-backdrop';
+    var box = document.createElement('div'); box.className = 'photo-modal'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    var head = el_('h2', null, 'Photos - Sl ' + slNo);
+    var close = el_('button', { type: 'button', class: 'ghost' }, 'Close');
+    var body = el_('div', null, 'Loading...');
+    box.appendChild(head); box.appendChild(body); box.appendChild(close);
+    back.appendChild(box); document.body.appendChild(back);
+    function shut() { if (back.parentNode) back.parentNode.removeChild(back); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') shut(); }
+    document.addEventListener('keydown', onKey);
+    close.onclick = shut; back.onclick = function (e) { if (e.target === back) shut(); };
+    VT.run.withSuccessHandler(function (d) {
+      body.textContent = '';
+      if (!d || !d.ok) { body.textContent = (d && d.error) || 'Could not load the photos.'; return; }
+      if (!d.enabled) { body.textContent = 'Photo storage is not set up on the server (R2 settings), so photos cannot be shown.'; return; }
+      if (!d.photos.length) { body.textContent = 'No photos on this order yet.'; return; }
+      [['dispatch', 'Dispatch'], ['receiving', 'Receiving']].forEach(function (k) {
+        var list = d.photos.filter(function (p) { return p.kind === k[0]; });
+        if (!list.length) return;
+        body.appendChild(el_('h3', null, k[1] + ' (' + list.length + ')'));
+        var grid = el_('div', { class: 'photo-grid' });
+        list.forEach(function (p) {
+          var a = el_('a', { href: p.url, target: '_blank', rel: 'noopener', title: 'Added by ' + p.uploadedBy + ' - ' + String(p.uploadedAt).replace('T', ' ').slice(0, 16) });
+          a.appendChild(el_('img', { src: p.url, alt: k[1] + ' photo' }));
+          grid.appendChild(a);
+        });
+        body.appendChild(grid);
+      });
+    }).withFailureHandler(function (err) { body.textContent = 'Could not load the photos: ' + err.message; }).getOrderPhotos(CURRENT_TOKEN, slNo);
+  }
+
   function toggleCc_(h2) {
     var card = h2.parentNode, collapsed = card.classList.toggle('collapsed');
     h2.setAttribute('aria-expanded', String(!collapsed));
@@ -1676,7 +1722,7 @@
       SHOP_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.dcNo || '') + '</td><td>' + (o.typeOfSubmission || '') + '</td>' +
+        '<td>' + (o.dcNo || '') + photoBadge_(o) + '</td><td>' + (o.typeOfSubmission || '') + '</td>' +
         '<td>' + (o.shippingLocation || '') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
         '<td>' + (o.deliveredByWhom || '') + '</td>' +
         '<td><button class="small" onclick="shopOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -1801,7 +1847,7 @@
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
-        '<td>' + (o.dcNo||'') + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
       body.appendChild(tr);
@@ -1816,7 +1862,7 @@
       GODOWN_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.dcNo||'') + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
         '<td>' + (o.readyByWhom||'') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -2004,7 +2050,7 @@
       DISPATCH_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.dcNo||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.readyByWhom||'') + '</td>' +
         '<td>' + statusPill(o.deliveryStatus) + stuckBadgeHtml_(o.stuckReason) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
@@ -2021,7 +2067,7 @@
       DISPATCH_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.dcNo||'') + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td>' +
         '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + stuckBadgeHtml_(o.stuckReason) + '</td>' +
         '<td>' + (o.deliveredByWhom||'') + (o.deliveredByDetail ? ' <span style="color:var(--muted);">(' + o.deliveredByDetail + ')</span>' : '') + '</td><td>' + (o.cartage||'') + '</td>' +
         '<td class="dispatch-recv-col">' + formatDateDisplay(o.dateOfReceiving) + '</td><td class="dispatch-recv-col">' + (o.paymentStatus||'') + '</td>' +
@@ -2399,7 +2445,7 @@
       RECEIVING_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
+        '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + photoBadge_(o) + '</td>' +
         '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + '</td>' +
         '<td>' + (o.deliveredByWhom||'') + '</td>' +
         '<td><button class="small" onclick="receivingOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -2415,7 +2461,7 @@
       RECEIVING_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-        '<td>' + (o.dcNo||'') + '</td><td>' + (o.shippingLocation||'') + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.shippingLocation||'') + '</td>' +
         '<td>' + formatDateDisplay(o.dateOfReceiving) + '</td>' +
         '<td>' + (o.paymentStatus||'') + '</td><td>' + formatAmount_(o.amountReceived) + '</td>' +
         '<td><button class="small" onclick="receivingOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -2494,7 +2540,7 @@
           if (CURRENT_ROLE === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
           var tr = document.createElement('tr');
           tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-            '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + '</td>' +
+            '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + photoBadge_(o) + '</td>' +
             '<td>' + (o.typeOfSubmission||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
             '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + editCell + '</td>';
           body.appendChild(tr);

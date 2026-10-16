@@ -174,3 +174,19 @@ def test_attendance_employees_records_and_advances_import_and_undo(client, db_co
     assert client.post(f"/admin/bulk/batches/{advs['batch_id']}/undo", headers=admin).json()["removed"] == 1
     assert client.post(f"/admin/bulk/batches/{recs['batch_id']}/undo", headers=admin).json()["removed"] == 2
     assert client.post(f"/admin/bulk/batches/{emps['batch_id']}/undo", headers=admin).json()["removed"] == 1
+
+
+def test_party_list_upload_rejects_duplicates_and_undoes(client, db_conn, seed):
+    admin = login(client, db_conn)
+    u = uuid.uuid4().hex[:6]
+    assert client.get("/admin/bulk/parties/template.xlsx", headers=admin).status_code == 200
+    lines = ["Party Name", f"Sharma {u}", f"Gupta {u}", f"sharma  {u}", "", "X" + "y" * 160]
+    rep = upload(client, admin, "parties", ("\n".join(lines) + "\n").encode())
+    assert rep["valid"] == 2
+    errs = " | ".join(e["error"] for e in rep["errors"])
+    assert "Duplicate of row" in errs and "longer than 150" in errs
+    res = confirm(client, admin, "parties", rep["rows"])
+    assert _count(db_conn, "dim_party", res["batch_id"]) == 2
+    again = upload(client, admin, "parties", f"Party Name\nSHARMA {u}\n".encode())
+    assert "already in the party list" in again["errors"][0]["error"]
+    assert client.post(f"/admin/bulk/batches/{res['batch_id']}/undo", headers=admin).json()["removed"] == 2

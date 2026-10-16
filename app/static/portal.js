@@ -334,7 +334,8 @@ const MODULES = {
   setup: { title: 'Setup', icon: '⚙️', stateKey: 'setupTab',
     sections: [['members', 'Members', (p) => renderMembers(p)], ['import', 'Import', (p) => renderImport(p)],
       ['lists', 'Dropdown values', (p) => renderReconcile(p)], ['access', 'Access & permissions', (p) => renderAccessHub(p)],
-      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)], ['modsettings', 'Module settings', (p) => renderModuleSettings(p)], ['whatsapp', 'WhatsApp', (p) => renderWhatsApp(p)]] },
+      ['schedule', 'Weekly off', (p) => renderWeeklyOff(p)], ['modsettings', 'Module settings', (p) => renderModuleSettings(p)], ['whatsapp', 'WhatsApp', (p) => renderWhatsApp(p)],
+      ['data', 'Export & Delete', (p) => renderDataTools(p)]] },
 };
 const sectionsOf = (mod) => mod.sections.filter((sec) => !sec[3] || can(sec[3]));
 
@@ -917,7 +918,7 @@ function dashboardNodes(d) {
 
 // ------------------------------------------------------------------ members
 const ROLE_HELP = { shop: 'Shop', godown: 'Godown', shop_dispatch: 'Shop dispatch & receiving', godown_dispatch: 'Godown dispatch', receiving: 'Godown receiving', admin: 'Admin', cashier: 'Cashier', accounts: 'Accounts', cartage: 'Cartage', legacy: 'Legacy (login disabled)',
-  manager: 'EA', staff: 'Staff', purchase_godown: 'Purchase - godown', purchase_shop: 'Purchase - shop' };
+  manager: 'EA', staff: 'Staff', purchase_godown: 'Purchase - godown', purchase_shop: 'Purchase - shop', runner: 'Runner' };
 const roleLabel = (r) => ROLE_HELP[r] || r;
 
 async function renderMembers(panel) {

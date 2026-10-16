@@ -47,9 +47,7 @@ MASTERS: dict[str, dict[str, Any]] = {
                             {"name": "counts_as_paid", "label": "Adds to Total Paid", "type": "bool"}
                             ]},
     "party": {"label": "Payment parties", "table": "dim_party", "key": "party_key", "name": "party_name", "kind": "party",
-              "role": "payment", "where": "party_kind = 'payment'", "defaults": {"party_kind": "payment"},
-              "fields": [{"name": "company_key", "label": "Company", "type": "select", "source": "company", "required": True},
-                         {"name": "txn_type_key", "label": "Offered for", "type": "select", "source": "txn_type", "blank": "Every type"}]},
+              "role": "payment", "where": "party_kind = 'payment'", "defaults": {"party_kind": "payment"}, "fields": []},
     "decor_type": {"label": "VT Decor - product types", "table": "dim_decor_product_type", "key": "type_key", "name": "type_name",
                    "kind": "decor_type", "role": None, "where": "TRUE", "defaults": {},
                    "fields": [{"name": "percent_stages", "label": "Each stage brings a share of the contract (like Wallpaper)", "type": "bool"}]},

@@ -637,6 +637,7 @@ function doCheckinAttempt(name,allowRetry){
       clearTimeout(timer); isSubmitting=false;
       if(r.status==='ok'){
         showCheckinSuccess(name,r.time,r.dist,r.site);
+        if(r.photoSaved===false) document.getElementById('doneMsg').textContent+=' ⚠️ Your photo could not be saved - please tell the admin.';
         notifyWhatsApp(r.rowIndex, name);
       }
       else if(r.status==='already_marked'){

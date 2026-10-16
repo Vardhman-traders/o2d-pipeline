@@ -10,7 +10,7 @@ ORDER_ROLES = {"shop", "godown", "shop_dispatch", "godown_dispatch", "receiving"
 # never assignable.
 NO_ACCESS_ROLES = {"admin", "cashier", "accounts", "cartage", "legacy",
                    # people who work in the other modules (Delegation, Purchase) and have no order screens
-                   "staff", "manager", "purchase_godown", "purchase_shop"}
+                   "staff", "manager", "purchase_godown", "purchase_shop", "runner"}
 ALL_ROLES = ORDER_ROLES | NO_ACCESS_ROLES
 
 _DISPATCH = {"delivery_status_key", "material_delivery_datetime", "delivered_by_person_key", "cartage"}
@@ -63,34 +63,19 @@ _SINCE_CLEANUP = ("o.last_updated_at > ((date_trunc('day', now() AT TIME ZONE 'A
                   "CASE WHEN (now() AT TIME ZONE 'Asia/Kolkata')::time >= time '23:00' THEN interval '0 hours' "
                   "ELSE interval '1 day' END) AT TIME ZONE 'Asia/Kolkata')")
 _CLOSED = "(o.material_delivery_datetime IS NOT NULL AND o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL)"
-VISIBILITY = {
-    # shop: only orders they created
-    "shop": ("o.created_by_user_key = %s", 1),
-    # godown: orders waiting for godown work (no delivery status yet), orders the godown has sent on and that are still
-    # waiting to be dispatched ("under processing"), plus ones they last touched
+# Which orders a SCREEN lists. This is about the screen, never about who is looking: anyone who holds the page sees every order the
+# screen's rule picks, whoever logged it or touched it last. (A screen's lists are cut down further by the order rules in o2d_screens.)
+SCREEN_FILTERS = {
+    # waiting for godown work (no delivery status yet) or sent on by the godown and still waiting to be dispatched ("under processing")
     "godown": ("((o.delivery_status_key IS NULL AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled')"
-               " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL)"
-               " OR o.last_updated_by_user_key = %s)", 1),
-    # shop dispatch & receiving: orders whose delivery status "goes to" the shop side (Dispatch for Shop, Cancelled) that are not fully
-    # closed, the ones closed since the last 11 PM clean-up (the "Received" box), plus ones they last touched
-    "shop_dispatch": (f"((ds.dispatch_route = 'shop' AND ({_OPEN} OR {_SINCE_CLEANUP})) OR o.last_updated_by_user_key = %s)", 1),
-    # godown dispatch: orders whose delivery status "goes to" Godown Dispatch, not fully closed, plus ones they last touched
-    "godown_dispatch": (f"((ds.dispatch_route = 'godown' AND {_OPEN})"
-                        " OR o.last_updated_by_user_key = %s)", 1),
-    # receiving: delivered godown-side orders (not the shop side: those are received on the shop dispatch screen) still missing
-    # receiving details or received since the last 11 PM clean-up (the "Received" box), plus ones they last touched
-    "receiving": ("((o.material_delivery_datetime IS NOT NULL AND ds.dispatch_route IS DISTINCT FROM 'shop'"
-                  f" AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL OR {_SINCE_CLEANUP}))"
-                  " OR o.last_updated_by_user_key = %s)", 1),
-    # admin: sees every order, and (per config.editable_fields_for_role) may edit any
-    # field - a full super-user, same powers as every operating role combined.
-    "admin": ("TRUE", 0),
-    # Every other role (cashier, accounts, cartage, and anything added later) is NOT
-    # listed here on purpose: those roles have no built-in operational workflow, so
-    # whether they can view orders at all is a pure admin-controlled setting - see
-    # visibility() below, which checks config.can_view_all_orders() for any role not
-    # in this dict. Defaults to no access until admin explicitly grants it from
-    # Setup -> Permissions.
+               " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL))"),
+    # Shop Dispatch & Receiving: statuses that "go to" the shop side, not fully closed, plus the ones closed since the last 11 PM
+    "shop_dispatch": f"(ds.dispatch_route = 'shop' AND ({_OPEN} OR {_SINCE_CLEANUP}))",
+    # Godown Dispatch: statuses that "go to" the godown side, not fully closed
+    "godown_dispatch": f"(ds.dispatch_route = 'godown' AND {_OPEN})",
+    # Godown Receiving: delivered godown-side orders still missing receiving details, or received since the last 11 PM
+    "receiving": ("(o.material_delivery_datetime IS NOT NULL AND ds.dispatch_route IS DISTINCT FROM 'shop'"
+                  f" AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL OR {_SINCE_CLEANUP}))"),
 }
 
 
@@ -107,23 +92,28 @@ def is_test_user(user):
 def visibility(user, archived=None):
     """(sql, params) restricting orders to those this user may see. Deny by default.
 
+    There is no role-level filter: admin, and anyone who holds an order page (any O2D screen or Dashboard page) or whose role was switched
+    on under Setup > View access, sees every order. Which orders a particular screen lists is that screen's rule (SCREEN_FILTERS).
+
     archived: only meaningful for admin - None/False means "active only" (everyone
     else's behavior, unconditionally); True means "archived only", for the admin
     dashboard's Current/Archive toggle. No other role can ever see archived orders,
     regardless of this argument - operating screens never pass it.
     """
-    entry = VISIBILITY.get(user["role"])
-    if entry is None:
-        # Not a role with built-in workflow visibility - fall through to the
-        # admin-controlled setting. No entry / not granted = deny, same as before.
-        entry = ("TRUE", 0) if config.can_view_all_orders(user["role"]) else None
-    if entry is None:
+    if not _sees_orders(user):
         return "FALSE", []
-    sql, n = entry
+    sql = "TRUE"
     if is_test_user(user):
-        sql = f"({sql}) AND upper(o.dc_inv_no) LIKE '{TEST_DC_PREFIX}%%'"
+        sql = f"upper(o.dc_inv_no) LIKE '{TEST_DC_PREFIX}%%'"
     if user["role"] == "admin" and archived:
         archived_clause = "o.archived_at IS NOT NULL"
     else:
         archived_clause = "o.archived_at IS NULL"
-    return f"{archived_clause} AND ({sql})", [user["user_key"]] * n
+    return f"{archived_clause} AND ({sql})", []
+
+
+def _sees_orders(user) -> bool:
+    if user["role"] == "admin" or config.can_view_all_orders(user["role"]):
+        return True
+    from . import access   # late: access imports this module
+    return bool(access.effective_pages(user) & set(access.ORDER_PAGES))
