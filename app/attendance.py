@@ -16,8 +16,6 @@ How it works:
   - WhatsApp messages (check-in, check-out, 8 PM summary) are sent right after the check-in / check-out and retried every five
     minutes for today's entries that did not go out; a background job also does the auto check-out once a day after 9 PM.
 """
-import hashlib
-import hmac
 import logging
 import math
 import os
@@ -39,7 +37,6 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July", "Augus
 MONTHS_SHORT = [m[:3] for m in MONTHS]
 WA = {"IN_PENDING": "IN Pending", "IN_SENT": "IN Sent", "OUT_PENDING": "OUT Pending", "BOTH_PENDING": "IN+OUT Pending",
       "DONE": "Done", "AUTO_DONE": "Done (Auto)", "SKIPPED": "Skipped (No WA)"}
-SALARY_TOKEN_SECONDS = 600
 AUTO_RUN_LOCK = 7004
 
 
@@ -205,16 +202,7 @@ def check_location(cur, lat, lng, emp_key: int | None = None) -> dict:
 
 # ------------------------------------------------------------------ WhatsApp
 def _wa_ok(code: int, body: str) -> bool:
-    if not 200 <= (code or 0) < 300:
-        return False
-    try:
-        import json
-        j = json.loads(body)
-        if isinstance(j, dict) and (j.get("success") is False or j.get("status") in ("error", False)):
-            return False
-    except ValueError:
-        pass
-    return True
+    return whatsapp.reply_ok(code, body)
 
 
 def _log_wa(kind: str, name: str, code, ok: bool, body: str):
@@ -340,7 +328,38 @@ def _photo_url(attachment_key: int | None) -> str:
 
 
 # ------------------------------------------------------------------ the employee page (public)
+_ELIGIBLE = "u.role NOT IN ('admin', 'legacy') AND u.password_hash <> %s"
+_sync_at = 0.0
+
+
+def sync_members(force: bool = False) -> None:
+    """Keep the attendance employee list in step with the portal members: a member with the same name is linked to the existing
+    employee, any other member is added, a renamed member renames the employee, a disabled member is made inactive. At most every 5 s."""
+    global _sync_at
+    if not force and _time.time() - _sync_at < 5:
+        return
+    _sync_at = _time.time()
+    d = auth.DISABLED_HASH
+    with db.cursor() as cur:
+        cur.execute(f"""UPDATE dim_att_employee e SET user_key = u.user_key FROM dim_user u
+                        WHERE e.user_key IS NULL AND {_ELIGIBLE} AND lower(btrim(e.employee_name)) = lower(btrim(u.display_name))
+                          AND NOT EXISTS (SELECT 1 FROM dim_att_employee x WHERE x.user_key = u.user_key)""", (d,))
+        cur.execute(f"""INSERT INTO dim_att_employee (employee_name, role_title, user_key)
+                        SELECT DISTINCT ON (lower(btrim(u.display_name))) left(btrim(u.display_name), 100), initcap(replace(u.role, '_', ' ')), u.user_key
+                        FROM dim_user u WHERE {_ELIGIBLE} AND btrim(u.display_name) <> ''
+                          AND NOT EXISTS (SELECT 1 FROM dim_att_employee x WHERE x.user_key = u.user_key)
+                          AND NOT EXISTS (SELECT 1 FROM dim_att_employee x WHERE lower(btrim(x.employee_name)) = lower(btrim(u.display_name)))
+                        ORDER BY lower(btrim(u.display_name)), u.user_key""", (d,))
+        cur.execute("""UPDATE dim_att_employee e SET employee_name = left(btrim(u.display_name), 100) FROM dim_user u
+                       WHERE e.user_key = u.user_key AND e.employee_name <> left(btrim(u.display_name), 100) AND btrim(u.display_name) <> ''
+                         AND NOT EXISTS (SELECT 1 FROM dim_att_employee x WHERE x.employee_key <> e.employee_key
+                                         AND lower(btrim(x.employee_name)) = lower(btrim(u.display_name)))""")
+        cur.execute("""UPDATE dim_att_employee e SET is_active = false FROM dim_user u
+                       WHERE e.user_key = u.user_key AND e.is_active AND (u.password_hash = %s OR u.role = 'legacy')""", (d,))
+
+
 def get_employees(rules=None) -> list[dict]:
+    sync_members()
     with db.cursor() as cur:
         cur.execute("SELECT employee_name, role_title FROM dim_att_employee WHERE is_active ORDER BY lower(employee_name)")
         return [{"name": r["employee_name"], "role": r["role_title"] or ""} for r in cur.fetchall()]
@@ -454,48 +473,6 @@ def notify_attendance(row_index, name):
     return process_wa_row(key)
 
 
-# --- salary PIN (hashed, lock after repeated wrong tries) and the short-lived pass the salary view needs
-def _sign(payload: str) -> str:
-    return hmac.new(os.environ["JWT_SECRET"].encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
-
-
-def _pass_for(emp_key: int) -> str:
-    exp = int(_time.time()) + SALARY_TOKEN_SECONDS
-    p = f"{emp_key}.{exp}"
-    return f"{p}.{_sign(p)}"
-
-
-def _pass_ok(token: str, emp_key: int) -> bool:
-    try:
-        k, exp, sig = str(token).split(".")
-        return int(k) == emp_key and int(exp) >= _time.time() and hmac.compare_digest(sig, _sign(f"{k}.{exp}"))
-    except (ValueError, AttributeError):
-        return False
-
-
-def verify_employee_pin(name, pin):
-    rules = Rules()
-    with db.cursor() as cur:
-        emp = _find_employee(cur, name)
-        if not emp or not emp["pin_hash"]:
-            return {"status": "no_pin"}
-        now = datetime.now(mc.IST)
-        if emp["pin_locked_until"] and emp["pin_locked_until"] > now:
-            mins = max(1, math.ceil((emp["pin_locked_until"] - now).total_seconds() / 60))
-            return {"status": "locked", "minutes": mins, "msg": f"Bahut galat try ho gaye. {mins} minute baad try karo."}
-        if auth.verify_password(str(pin or "").strip(), emp["pin_hash"]):
-            cur.execute("UPDATE dim_att_employee SET pin_failed_count = 0, pin_locked_until = NULL WHERE employee_key = %s", (emp["employee_key"],))
-            return {"status": "ok", "token": _pass_for(emp["employee_key"])}
-        fails = emp["pin_failed_count"] + 1
-        if fails >= rules.pin_attempts:
-            cur.execute("UPDATE dim_att_employee SET pin_failed_count = 0, pin_locked_until = now() + make_interval(mins => %s) WHERE employee_key = %s",
-                        (rules.pin_lock_minutes, emp["employee_key"]))
-            return {"status": "locked", "minutes": rules.pin_lock_minutes,
-                    "msg": f"Bahut galat try ho gaye. {rules.pin_lock_minutes} minute baad try karo."}
-        cur.execute("UPDATE dim_att_employee SET pin_failed_count = %s WHERE employee_key = %s", (fails, emp["employee_key"]))
-        return {"status": "wrong_pin"}
-
-
 def _month_records(cur, emp_key: int, year: int, month: int) -> dict[int, dict]:
     cur.execute("SELECT work_date, check_in_time, check_out_time, checkout_source, final_status, hours_worked_min, l.location_name "
                 "FROM fact_attendance a LEFT JOIN dim_att_location l ON l.location_key = a.location_key "
@@ -510,74 +487,6 @@ def _advances_for(cur, emp_key: int, year: int, month: int) -> list[dict]:
             for r in cur.fetchall()]
 
 
-def get_employee_salary_view(name, token=None):
-    rules = Rules()
-    now = _now()
-    year, month, today = now.year, now.month, now.day
-    try:
-        with db.cursor() as cur:
-            emp = _find_employee(cur, name)
-            if not emp or not _pass_ok(token or "", emp["employee_key"]):
-                return {"status": "locked", "msg": "PIN se unlock karo."}
-            if not emp["monthly_salary"] or float(emp["monthly_salary"]) <= 0:
-                return {"status": "no_salary"}
-            monthly = float(emp["monthly_salary"])
-            per_day = round(monthly / rules.base_days * 100) / 100
-            recs = _month_records(cur, emp["employee_key"], year, month)
-            advances = _advances_for(cur, emp["employee_key"], year, month)
-    except Exception as exc:
-        log.exception("salary view failed")
-        return {"status": "error", "msg": str(exc)}
-    days_in_month = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
-    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "incomplete": 0, "weeklyOff": 0, "workedDays": 0}
-    lists: dict[str, list] = {"present": [], "late": [], "halfDay": [], "absent": []}
-
-    def push(key, d, dow, rec, note=""):
-        in_t = _hhmm(rec["check_in_time"]) if rec else ""
-        out_t = _hhmm(rec["check_out_time"]) if rec and rec["check_out_time"] else ""
-        auto = bool(rec) and (rec["check_out_time"] is None or rec["checkout_source"] in ("Auto (8 PM)", "Auto (Fix)"))
-        lists[key].append({"day": d, "label": f"{d} {MONTHS_SHORT[month - 1]}", "dayName": JS_DAYS[dow], "inTime": in_t,
-                           "outTime": out_t or (rules.auto_out_text if auto else ""), "autoOut": auto, "note": note})
-
-    for d in range(1, days_in_month + 1):
-        if d > today:
-            continue
-        dow = rules.js_dow(date(year, month, d))
-        if dow == rules.off_day:
-            stats["weeklyOff"] += 1
-            stats["workedDays"] += 1   # the weekly off is a paid day
-            continue
-        stats["workedDays"] += 1
-        rec = recs.get(d)
-        s = rules.resolve(rec["final_status"], _mins(rec["check_in_time"])) if rec else ""
-        if not s:
-            stats["absent"] += 1
-            push("absent", d, dow, None, "Check-in nahi kiya")
-        elif s == "Present":
-            stats["present"] += 1
-            push("present", d, dow, rec)
-        elif s == "Late":
-            stats["late"] += 1
-            push("late", d, dow, rec)
-        elif s == "Half Day":
-            stats["halfDay"] += 1
-            push("halfDay", d, dow, rec)
-        elif s == "Absent":
-            stats["absent"] += 1
-            push("absent", d, dow, rec, "2 PM se pehle checkout")
-        else:
-            stats["incomplete"] += 1
-            push("absent", d, dow, rec, "Record adhoora")
-    ded_days = stats["absent"] + stats["halfDay"] * 0.5 + stats["incomplete"]
-    paid_days = max(0, stats["workedDays"] - ded_days)
-    total_adv = sum(a["amount"] for a in advances)
-    net = max(0, _round(paid_days * per_day) - total_adv)
-    return {"status": "ok", "monthName": MONTHS[month - 1], "year": year, "monthlySalary": monthly, "perDaySalary": per_day,
-            "baseDays": rules.base_days, "workedDays": stats["workedDays"], "stats": stats, "dayLists": lists, "totalDed": ded_days,
-            "dedAmount": _round(ded_days * per_day), "totalAdvance": total_adv, "advances": advances, "netSalary": net,
-            "paidDays": round(paid_days * 10) / 10}
-
-
 PUBLIC = {
     "getEmployees": lambda a: get_employees(),
     "getTodayStatus": lambda a: get_today_status(a[0]),
@@ -585,8 +494,6 @@ PUBLIC = {
     "saveAttendance": lambda a: save_attendance(a[0]),
     "saveCheckout": lambda a: save_checkout(a[0]),
     "notifyAttendance": lambda a: notify_attendance(a[0], a[1]),
-    "verifyEmployeePIN": lambda a: verify_employee_pin(a[0], a[1]),
-    "getEmployeeSalaryView": lambda a: get_employee_salary_view(a[0], a[1] if len(a) > 1 else None),
     "getDashboardUrl": lambda a: "/attendance/dashboard.html",
 }
 
@@ -855,6 +762,7 @@ def delete_advance(user, advance_id):
 
 # --- employees and PINs
 def get_all_employees(user):
+    sync_members()
     with db.cursor() as cur:
         cur.execute("SELECT * FROM dim_att_employee ORDER BY lower(employee_name)")
         emps = cur.fetchall()
