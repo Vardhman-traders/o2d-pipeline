@@ -13,7 +13,7 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, challans, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
-               o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles,
+               o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles, data_tools,
                timeline, doc_numbers, whatsapp, daily_reports)
 
 
@@ -127,7 +127,7 @@ def me(user=Depends(auth.current_user)):
     # editable_fields lets the front end show/hide fields based on whatever admin
     # has actually granted this role in Setup -> Permissions, instead of a
     # hardcoded assumption baked into the UI.
-    return {**user, "editable_fields": sorted(config.editable_fields_for_role(user["role"])),
+    return {**user, "editable_fields": sorted(config.editable_fields_for_user(user)),
             # pages this person may open; the portal and the O2D screens build their menus from this
             "pages": sorted(access.effective_pages(user)),
             "view_only_pages": sorted(k for k, v in access.effective_access(user).items() if v == "view"),
@@ -328,7 +328,7 @@ def _db_columns(fields: dict) -> dict:
 
 
 def _check_editable(fields: dict, user):
-    allowed = set(config.editable_fields_for_role(user["role"]))
+    allowed = set(config.editable_fields_for_user(user))
     if "submission_type_key" in allowed:
         allowed.add("bill_series")   # the Challan / Invoice tag goes with the submission type
     denied = sorted(set(fields) - allowed)
@@ -525,6 +525,7 @@ app.include_router(challans.router)
 app.include_router(purchase.router)
 app.include_router(decor.router)
 app.include_router(attendance.router)
+app.include_router(data_tools.router)
 app.include_router(module_admin.router)
 app.include_router(whatsapp.router)
 app.include_router(daily_reports.router)

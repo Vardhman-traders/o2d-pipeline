@@ -146,10 +146,12 @@ def test_photo_upload_and_listing_follow_order_visibility(client, db_conn, seed,
     # godown dispatch has no business attaching a *receiving* photo
     assert client.post(f"/o2d/orders/{sl}/photos?kind=receiving", content=b"x", headers={**gd, **jpeg}).status_code == 403
     assert client.post(f"/o2d/orders/{sl}/photos?kind=dispatch", content=b"x", headers={**gd, "Content-Type": "text/html"}).status_code == 415
+    shown = client.get("/o2d/dispatch", headers=gd).json()
+    assert [o["photoCount"] for o in shown["pending"] + shown["completed"] if o["slNo"] == sl] == [1]   # the list carries a camera badge
     listed = client.get(f"/o2d/orders/{sl}/photos", headers=gd).json()
     assert listed["enabled"] and [p["kind"] for p in listed["photos"]] == ["dispatch"] and listed["photos"][0]["url"].startswith("https://signed.example/")
     # a role that cannot see this order (receiving only sees delivered ones) gets a 404, not a link
-    rec = login(client, db_conn, "receiving")
+    rec = login(client, db_conn, "cashier")
     assert client.get(f"/o2d/orders/{sl}/photos", headers=rec).status_code == 404
 
 

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, auth, db, modcommon as mc, roles
+from . import access, auth, config, db, modcommon as mc, roles
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 PAGES = ("pay_cashier", "pay_account")
@@ -111,37 +111,29 @@ def bootstrap(user=Depends(ANY)):
 
 @router.get("/parties")
 def parties(company: str = Query(default=""), txn_type: str = Query(default=""), user=Depends(ANY)):
-    """Parties for a company; with a transaction type, those offered for that type plus the ones offered for every type."""
+    """The one party list. (company and txn_type are still accepted so older pages keep working, but they no longer filter anything.)"""
     _user_gate(user)
-    if not company or company == "All Companies":
-        return []
     with db.cursor() as cur:
-        ck = mc.lookup_key(cur, "dim_company", "company_key", "company_name", company)
-        if ck is None:
-            return []
-        tk = mc.lookup_key(cur, "dim_txn_type", "txn_type_key", "type_name", txn_type) if txn_type and txn_type != "all" else None
-        cur.execute("SELECT p.party_name FROM dim_party p WHERE p.party_kind = 'payment' AND p.company_key = %s "
-                    "AND (%s::int IS NULL OR p.txn_type_key IS NULL OR p.txn_type_key = %s) "
-                    "GROUP BY p.party_name ORDER BY MIN(p.sort_order), lower(p.party_name)", (ck, tk, tk))
+        cur.execute("SELECT party_name FROM dim_party WHERE party_kind = 'payment' ORDER BY sort_order, lower(party_name)")
         return [r["party_name"] for r in cur.fetchall()]
 
 
 class PartyIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     name: str = ""
-    company: str = ""
+    company: str = ""     # no longer used: a party belongs to no company or type
     txnType: str = ""
 
 
-def _add_party(cur, name: str, company_key: int, type_key: int | None, user=None) -> bool:
-    cur.execute("SELECT 1 FROM dim_party WHERE party_kind = 'payment' AND lower(btrim(party_name)) = lower(btrim(%s)) "
-                "AND company_key = %s AND txn_type_key IS NOT DISTINCT FROM %s", (name, company_key, type_key))
+def _add_party(cur, name: str, user=None) -> bool:
+    """Add a name to the party list unless it is already there (any capitals / spacing). Returns True when it was new."""
+    clean = " ".join(name.split())
+    cur.execute("SELECT 1 FROM dim_party WHERE party_kind = 'payment' AND lower(btrim(party_name)) = lower(%s)", (clean,))
     if cur.fetchone():
         return False
-    # a party typed on this page is usable at once and waits in Setup > Dropdown values for an admin to review it
-    cur.execute("INSERT INTO dim_party (party_name, party_kind, company_key, txn_type_key, review_status, created_by_user_key) "
-                "VALUES (%s, 'payment', %s, %s, 'pending', %s)",
-                (" ".join(name.split()), company_key, type_key, user["user_key"] if user else None))
+    # a party typed on a screen is usable at once and waits in Setup > Dropdown values for an admin to review it
+    cur.execute("INSERT INTO dim_party (party_name, party_kind, review_status, created_by_user_key) VALUES (%s, 'payment', 'pending', %s)",
+                (clean, user["user_key"] if user else None))
     return True
 
 
@@ -149,18 +141,15 @@ def _add_party(cur, name: str, company_key: int, type_key: int | None, user=None
 def add_party(body: PartyIn, user=Depends(ANY)):
     _user_gate(user)
     _can_write(user)
-    name, company, txn_type = body.name.strip(), body.company.strip(), body.txnType.strip()
-    if not name or not company:
-        return {"success": False, "message": "Enter both a party name and a company."}
+    name = " ".join(body.name.split())
+    if not name:
+        return {"success": False, "message": "Enter the party name."}
+    if len(name) > 150:
+        return {"success": False, "message": "The party name is too long (150 characters at most)."}
     with db.cursor() as cur:
-        ck = mc.lookup_key(cur, "dim_company", "company_key", "company_name", company)
-        tk = mc.lookup_key(cur, "dim_txn_type", "txn_type_key", "type_name", txn_type) if txn_type else None
-        if ck is None or (txn_type and tk is None):
-            return {"success": False, "message": "Unknown company or type. Please refresh and try again."}
-        added = _add_party(cur, name, ck, tk, user)
-    label = f" ({txn_type})" if txn_type else ""
-    return ({"success": True, "message": f'"{name}" added under {company}{label}.'} if added
-            else {"success": False, "message": f'"{name}" already exists under {company}{label}.'})
+        added = _add_party(cur, name, user)
+    return ({"success": True, "message": f'"{name}" added to the party list.'} if added
+            else {"success": False, "message": f'"{name}" is already in the party list.'})
 
 
 class CompanyIn(BaseModel):
@@ -289,10 +278,13 @@ class TxnIn(BaseModel):
     remarks: str = ""
 
 
+AMOUNT_DIVISOR = config.AMOUNT_RECEIVED_DIVISOR
+
+
 def _clean(body: TxnIn, cur) -> dict:
     """Validate the form and turn the names into master-list keys. Raises 422 with a message the screen shows as is."""
-    try:
-        amount = round(float(body.amount or 0), 2)
+    try:   # what is typed is divided by 100, like every amount in the portal (type 10,000 -> saved and shown as 100)
+        amount = round(float(body.amount or 0) / AMOUNT_DIVISOR, 2)
     except (TypeError, ValueError):
         amount = 0
     if not body.date or not body.type or not body.company or amount <= 0:
@@ -308,13 +300,13 @@ def _clean(body: TxnIn, cur) -> dict:
     return out
 
 
-def _party_key(cur, name: str, company_key: int, type_key: int, user=None) -> int | None:
-    """The party an entry points at; a new name is added to the list (for this company and type), so it is there next time."""
+def _party_key(cur, name: str, user=None) -> int | None:
+    """The party an entry points at. A name in the list is used as it is; a new name is added to the list once, for everyone."""
     if not name:
         return None
-    _add_party(cur, name, company_key, type_key, user)
+    _add_party(cur, name, user)
     cur.execute("SELECT party_key FROM dim_party WHERE party_kind = 'payment' AND lower(btrim(party_name)) = lower(btrim(%s)) "
-                "AND company_key = %s ORDER BY (txn_type_key = %s) DESC NULLS LAST, party_key LIMIT 1", (name, company_key, type_key))
+                "ORDER BY party_key LIMIT 1", (name,))
     return cur.fetchone()["party_key"]
 
 
@@ -329,7 +321,7 @@ def save_transaction(body: TxnIn, user=Depends(ANY)):
             cur.execute("SELECT needs_approval FROM dim_payment_mode WHERE mode_key = %s", (c["mode_key"],))
             needs = cur.fetchone()["needs_approval"]
             auto = role in ("Account", "Admin") or (role == "Cashier" and not needs)
-            party = _party_key(cur, c["party"], c["company_key"], c["type_key"], user)
+            party = _party_key(cur, c["party"], user)
             cur.execute(
                 "INSERT INTO fact_payment_txn (txn_date_key, txn_type_key, company_key, party_key, mode_key, amount, account_name, "
                 "invoice_no, remarks, status, is_backdated, created_by_user_key, approved_by_user_key, approved_at) "
@@ -369,7 +361,7 @@ def update_transaction(txn_no: str, body: TxnIn, user=Depends(ANY)):
                     return {"success": False, "message": "You can only edit your own entries."}
                 if row["full_date"] != today:
                     return {"success": False, "message": "You can only edit today's entries. Previous day entries are locked."}
-            party = _party_key(cur, c["party"], c["company_key"], c["type_key"], user)
+            party = _party_key(cur, c["party"], user)
             cur.execute("UPDATE fact_payment_txn SET txn_date_key=%s, txn_type_key=%s, company_key=%s, party_key=%s, mode_key=%s, "
                         "amount=%s, invoice_no=%s, remarks=%s, is_backdated=%s, updated_at=now() WHERE txn_key=%s",
                         (mc.date_key(c["date"]), c["type_key"], c["company_key"], party, c["mode_key"], c["amount"],

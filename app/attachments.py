@@ -16,7 +16,7 @@ from . import access, auth, db, roles
 
 log = logging.getLogger("o2d.photos")
 router = APIRouter(prefix="/o2d", tags=["o2d-photos"])
-ANY_VIEWER = auth.require_roles(*roles.ORDER_ROLES, "admin", "cashier", "accounts", "cartage")
+ANY_VIEWER = access.require_page(*access.ORDER_PAGES)   # whoever can see the order lists can see its photos
 
 MAX_BYTES = 8 * 1024 * 1024          # the screens shrink photos first; this only stops abuse
 MAX_PER_KIND = 5                     # photos per order and kind
@@ -88,6 +88,15 @@ def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> d
         except Exception:
             log.exception("could not remove orphaned photo %s", key)
         raise
+
+
+def photo_counts(order_keys: list[int]) -> dict[int, int]:
+    """order_key -> how many photos it has (for the camera badge on the lists). Needs no storage access."""
+    if not order_keys:
+        return {}
+    with db.cursor() as cur:
+        cur.execute("SELECT order_key, count(*) AS n FROM order_attachments WHERE order_key = ANY(%s) GROUP BY order_key", (list(order_keys),))
+        return {r["order_key"]: r["n"] for r in cur.fetchall()}
 
 
 def list_photos(user, sl_no: int) -> list[dict]:

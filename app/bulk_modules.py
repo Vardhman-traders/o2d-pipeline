@@ -6,7 +6,7 @@ flow (template, validate, fix, confirm, undo) lives in admin_tools.py. Imports a
 from datetime import datetime
 from decimal import Decimal
 
-from . import auth, db
+from . import auth, config, db
 from . import modcommon as mc
 from .bulk_entities import IST, MAX_MONEY, _report, parse_date, parse_money
 
@@ -82,8 +82,8 @@ PAYMENT_EXAMPLES = [
     ["EXAMPLE 16-09-2026", "Expense", "VT", "", "UPI", "1200", "", "", "Tea and snacks"]]
 PAYMENT_HELP = ("One payment entry per row. Date, Type, Company and Amount are required. Date: dd-mm-yyyy. Type, Company and "
                 "Mode must already exist under Setup > Dropdown values (the check lists the valid values); Mode defaults to Cash. "
-                "A Party that is new is added to the party list for that company and type, waiting for an admin to review it. "
-                "Imported entries are saved as Approved, with the importing admin as the creator. Rows marked EXAMPLE are ignored.")
+                "A Party that is new is added to the one party list, waiting for an admin to review it. "
+                "Amount is divided by 100 when it is saved (type 10,000 for 100), like typing it on the Payments page. Imported entries are saved as Approved, with the importing admin as the creator. Rows marked EXAMPLE are ignored.")
 
 
 def payment_lists() -> dict:
@@ -115,7 +115,10 @@ def validate_payments(rows: list[dict]) -> dict:
                     errs.append(e)
                 else:
                     n[key] = k
-        n["amount"] = _money(g, "Amount", errs, positive=True)
+        typed = _money(g, "Amount", errs, positive=True)
+        n["amount"] = None if typed is None else (typed / config.AMOUNT_RECEIVED_DIVISOR).quantize(Decimal("0.01"))   # divided by 100, like typing it
+        if typed is not None and n["amount"] <= 0:
+            errs.append("Amount is too small: it is divided by 100 and must stay above 0")
         for col, limit in (("Party", 150), ("Account Name", 150), ("Invoice No", 80)):
             if len(g(col)) > limit:
                 errs.append(f"{col} is longer than {limit} characters")
@@ -129,13 +132,53 @@ def insert_payments(cur, normalised: list[dict], batch_id: int, admin: dict) -> 
     from . import payments
     today = mc.today_ist()
     for n in normalised:
-        party = payments._party_key(cur, n["party"], n["company_key"], n["type_key"], admin) if n["party"] else None
+        party = payments._party_key(cur, n["party"], admin) if n["party"] else None
         cur.execute(
             "INSERT INTO fact_payment_txn (txn_date_key, txn_type_key, company_key, party_key, mode_key, amount, account_name, "
             "invoice_no, remarks, status, is_backdated, created_by_user_key, approved_by_user_key, approved_at, import_batch_id) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Approved', %s, %s, %s, now(), %s)",
             (mc.date_key(n["date"]), n["type_key"], n["company_key"], party, n["mode_key"], n["amount"], n["account"],
              n["invoice"], n["remarks"], n["date"] < today, admin["user_key"], admin["user_key"], batch_id))
+
+
+# ------------------------------------------------------------------ payment parties (the one party list)
+PARTY_COLUMNS = ["Party Name"]
+PARTY_REQUIRED = ["Party Name"]
+PARTY_EXAMPLES = [["EXAMPLE Sharma Traders"], ["EXAMPLE Gupta & Sons"]]
+PARTY_HELP = ("One party per row; this is the list the Payments entry form suggests from. Party Name is required, up to 150 characters. "
+              "A name already in the list (capital letters and extra spaces do not matter) is rejected as a duplicate, and so is a repeat "
+              "inside the file. Uploaded parties are approved straight away. A party typed on an entry that is not in the list is added "
+              "to it by itself later. Rows marked EXAMPLE are ignored.")
+
+
+def validate_parties(rows: list[dict]) -> dict:
+    with db.cursor() as cur:
+        cur.execute("SELECT lower(btrim(party_name)) AS n FROM dim_party WHERE party_kind = 'payment'")
+        existing = {r["n"] for r in cur.fetchall()}
+    seen_rows: dict = {}
+    results = []
+    for r in rows:
+        g = _row_getter(r)
+        errs: list[str] = []
+        name = " ".join(g("Party Name").split())
+        if not name:
+            errs.append("Party Name is required")
+        elif len(name) > 150:
+            errs.append("Party Name is longer than 150 characters")
+        elif name.lower() in existing:
+            errs.append(f"{name} is already in the party list")
+        elif name.lower() in seen_rows:
+            errs.append(f"Duplicate of row {seen_rows[name.lower()]} in this file")
+        else:
+            seen_rows[name.lower()] = r.get("_row")
+        results.append((r, "; ".join(errs) or None, None if errs else {"name": name}))
+    return _report(rows, results)
+
+
+def insert_parties(cur, normalised: list[dict], batch_id: int, admin: dict) -> None:
+    for n in normalised:
+        cur.execute("INSERT INTO dim_party (party_name, party_kind, review_status, created_by_user_key, import_batch_id) "
+                    "VALUES (%s, 'payment', 'approved', %s, %s)", (n["name"], admin["user_key"], batch_id))
 
 
 # ------------------------------------------------------------------ delegation tasks
@@ -681,6 +724,9 @@ def insert_att_advances(cur, normalised: list[dict], batch_id: int, admin: dict)
                     "VALUES (%s,%s,%s,%s,%s,%s)", (n["employee_key"], n["day"], n["amount"], n["note"], admin["user_key"], batch_id))
 
 
+ENTITIES["parties"] = {"label": "payment parties", "columns": PARTY_COLUMNS, "required": PARTY_REQUIRED, "examples": PARTY_EXAMPLES,
+                       "help": PARTY_HELP, "validate": validate_parties, "insert": insert_parties, "lists": lambda: {},
+                       "table": "dim_party", "edited": "EXISTS (SELECT 1 FROM fact_payment_txn x WHERE x.party_key = dim_party.party_key)"}
 ENTITIES.update({
     "decor_clients": {"label": "VT Decor clients", "columns": DECOR_CLIENT_COLUMNS, "required": DECOR_CLIENT_REQUIRED,
                       "examples": DECOR_CLIENT_EXAMPLES, "help": DECOR_CLIENT_HELP, "validate": validate_decor_clients,

@@ -225,7 +225,7 @@ def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
     if None in (out["cash_mode"], out["bank_mode"]):
         raise HTTPException(422, "The Cash / Bank payment modes are not set up. "
                                  "An admin can set them in Setup > Module settings.")
-    out["party_key"] = payments._party_key(cur, body.party.strip(), out["company_key"], out["type_key"], user)
+    out["party_key"] = payments._party_key(cur, body.party.strip(), user)
     return out
 
 
