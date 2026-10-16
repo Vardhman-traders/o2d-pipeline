@@ -1047,7 +1047,7 @@ async function renderDataTools(panel) {
   } });
 
   const preview = h('div', { id: 'deletePreview' });
-  const previewBtn = h('button', { class: 'btn danger', id: 'deletePreviewBtn', text: 'Delete completed orders and the other dashboards’ data…', onclick: async () => {
+  const previewBtn = h('button', { class: 'btn danger', id: 'deletePreviewBtn', text: 'Delete completed orders and Payments entries…', onclick: async () => {
     previewBtn.disabled = true; preview.replaceChildren(h('p', { class: 'note', text: 'Counting…' }));
     try {
       const d = await api('/admin/data/delete-preview');
@@ -1082,6 +1082,6 @@ async function renderDataTools(panel) {
       h('div', { class: 'row', style: 'gap:10px;align-items:center' }, exportBtn, exportMsg)),
     h('div', { class: 'card' },
       h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Delete' }),
-      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Permanently removes every completed order (closed or cancelled, archived ones too) from the database and the working data of the other dashboards. Orders that are not completed, members, dropdown lists, access and WhatsApp settings are kept. You see exactly what will go before anything is deleted.' }),
+      h('p', { class: 'note', style: 'margin-bottom:10px', text: 'Permanently removes every completed order (closed or cancelled, archived ones too) and every Payments entry from the database. Orders that are not completed are kept, and so is everything else (Delegation, Purchase, VT Decor, Attendance, members, dropdown lists, settings). You see exactly what will go before anything is deleted.' }),
       previewBtn, preview));
 }

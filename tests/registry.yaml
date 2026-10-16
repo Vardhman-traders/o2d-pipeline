@@ -248,7 +248,7 @@ entries:
     speed: fast
     tests:
       - tests/test_modules.py::test_dashboard_totals_follow_the_list_flags
-      - tests/test_modules.py::test_parties_are_scoped_by_company_and_type_and_added_on_first_use
+      - tests/test_modules.py::test_parties_are_one_list_added_on_first_use
   - id: DELEG-1
     what: Delegation - assign, complete, send back, approve; scoring, privacy, week classification and plan; extension counts red
     speed: fast

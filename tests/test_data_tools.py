@@ -1,6 +1,6 @@
 # ruff: noqa: F811
-"""Setup > Export & Delete: one Excel per dashboard in a zip; delete removes completed orders and the other dashboards' data (open orders stay),
-only after a preview and the confirmation word."""
+"""Setup > Export & Delete: one Excel per dashboard in a zip; delete removes completed orders and Payments entries only (open orders and
+every other dashboard stay), only after a preview and the confirmation word."""
 import io
 import uuid
 import zipfile
@@ -40,9 +40,15 @@ def test_delete_removes_completed_orders_keeps_open_ones_and_needs_the_word(clie
     pre = client.get("/admin/data/delete-preview", headers=admin).json()
     assert pre["kept_orders"] >= 1 and pre["confirm_word"] == "DELETE"
     assert next(a for a in pre["areas"] if a["label"].startswith("Completed orders"))["count"] >= 1
+    assert [a["label"].split(" (")[0] for a in pre["areas"]] == ["Completed orders", "Cashier confirmations waiting for Payments", "Payments entries"]
     # nothing is deleted without the word
     assert client.post("/admin/data/delete", json={"confirm": "yes"}, headers=admin).status_code == 422
     assert client.post("/admin/data/delete", json={"confirm": "DELETE"}, headers=shop).status_code == 403
+    with db_conn.cursor() as cur:   # another dashboard's data must survive
+        cur.execute("INSERT INTO dim_att_employee (employee_name) VALUES (%s)", ("Keeper " + uuid.uuid4().hex[:6],))
+        cur.execute("INSERT INTO fact_attendance (employee_key, work_date, check_in_time) "
+                    "SELECT max(employee_key), current_date, '09:00' FROM dim_att_employee")
+    db_conn.commit()
     r = client.post("/admin/data/delete", json={"confirm": "DELETE"}, headers=admin)
     assert r.status_code == 200 and r.json()["ok"] is True
     with db_conn.cursor() as cur:
@@ -50,6 +56,8 @@ def test_delete_removes_completed_orders_keeps_open_ones_and_needs_the_word(clie
         assert [x[0] for x in cur.fetchall()] == [open_]                     # the completed one is gone from the table, the open one stays
         cur.execute("SELECT count(*) FROM fact_payment_txn")
         assert cur.fetchone()[0] == 0
+        cur.execute("SELECT count(*) FROM fact_attendance")
+        assert cur.fetchone()[0] >= 1                                        # attendance (and the other dashboards) are not touched
         cur.execute("SELECT count(*) FROM dim_user")
         assert cur.fetchone()[0] >= 2                                         # members are never touched
         cur.execute("SELECT count(*) FROM admin_audit_log WHERE action = 'data.delete_all'")

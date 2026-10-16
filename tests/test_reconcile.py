@@ -73,7 +73,7 @@ def test_values_follow_the_dropdown_order_with_usage_and_duplicates_are_suggeste
     overview = {o["kind"]: o for o in client.get(API, headers=admin).json()}
     assert set(overview) == {"channel", "submission_type", "delivery_status", "payment_status", "person",
                              "company", "payment_mode", "txn_type", "party", "decor_type", "decor_stage", "decor_expense_type",
-                             "att_location", "att_employee"}
+                             "att_location", "att_employee", "checklist_category", "expense_category", "expense_account"}
     assert overview["person"]["possible_duplicates"] >= 1
 
 

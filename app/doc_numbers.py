@@ -154,14 +154,18 @@ def _gaps_in(cur, doc_type: str, key: str, present: dict[int, date], start: int,
         return None
     hi = max(present)
     voided = _voided(cur, doc_type, key) if voided is None else voided
-    missing = [n for n in range(start, hi + 1) if n not in present and n not in voided]
-    if not missing:
+    # the count is arithmetic, so a mistyped huge number (say 99999999) costs nothing; only the newest stretch is actually walked
+    total = (hi - start + 1) - sum(1 for n in present if n >= start) - sum(1 for n in voided if start <= n <= hi and n not in present)
+    if total <= 0:
         return None
+    walk_from = max(start, hi - SCAN_WINDOW + 1)
+    missing = [n for n in range(walk_from, hi + 1) if n not in present and n not in voided]
     # a long list keeps the NEWEST gaps: old holes (e.g. before the records were imported) must not bury a number skipped today
-    return {"series": key, "highest": hi, "total": len(missing), "ranges": _ranges(missing[-MAX_LISTED:], present),
-            "truncated": len(missing) > MAX_LISTED}
+    return {"series": key, "highest": hi, "total": total, "ranges": _ranges(missing[-MAX_LISTED:], present),
+            "truncated": total > MAX_LISTED}
 
 
+SCAN_WINDOW = 50000      # how far below the highest number the missing ones are walked one by one
 MAX_DAYS_LISTED = 60      # newest days with open gaps shown; older ones are only counted (clear them with "No bill / voided")
 
 

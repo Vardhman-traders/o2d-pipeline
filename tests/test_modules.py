@@ -388,3 +388,16 @@ def test_one_party_list_a_known_name_is_used_a_new_name_is_added_once(client, db
     # adding by hand: a second time says it is already there
     assert client.post("/payments/parties", json={"name": "Hand Added"}, headers=admin).json()["success"] is True
     assert "already" in client.post("/payments/parties", json={"name": "hand  added"}, headers=admin).json()["message"]
+
+
+def test_view_only_payments_user_sees_the_entries_behind_the_cards(client, db_conn, days, seed):
+    """A View-only holder of the cashier page sees today's entries of everyone (like the cards), not just their own - which is none."""
+    cash, _ = user(client, db_conn, "cashier")
+    looker, _ = user(client, db_conn, "cashier")
+    admin = login(client, db_conn, "admin")
+    mine = client.post("/payments/transactions", json=txn(party="Visible To Viewers"), headers=cash).json()["txnId"]
+    key = client.get("/auth/me", headers=looker).json()["user_key"]
+    client.put(f"/admin/access/users/{key}", headers=admin, json={"page_key": "pay_cashier", "allowed": True, "view_only": True})
+    assert mine in [r["TxnID"] for r in client.get("/payments/transactions", headers=looker).json()["rows"]]
+    other, _ = user(client, db_conn, "cashier")                           # a cashier who can enter still sees only their own
+    assert mine not in [r["TxnID"] for r in client.get("/payments/transactions", headers=other).json()["rows"]]

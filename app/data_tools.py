@@ -2,11 +2,10 @@
 """Setup > "Export & Delete": two admin-only buttons.
 
 Export  - every dashboard's data in its own Excel file (orders, payments, delegation, purchase, VT Decor, attendance), zipped.
-Delete  - removes every completed order (Closed or Cancelled, archived ones too) from the database, and the working data of the other
-          dashboards: payments and expenses, delegation tasks / checklist, purchase entries, VT Decor clients, attendance records,
-          reports, uploaded files. Orders that are NOT completed stay, as do the lists that drive the dropdowns, the members, the access
-          settings, the WhatsApp settings and the audit log.
-          A preview with the counts always comes first, and nothing is deleted without typing the confirmation word.
+Delete  - removes every completed order (Closed or Cancelled, archived ones too) and every Payments entry from the database. Orders that
+          are NOT completed stay. Nothing else is touched: Delegation, Purchase, VT Decor, Attendance, expenses, uploaded challans, the
+          members, the dropdown lists, the settings and the audit log are all left as they are. A preview with the counts always comes
+          first, and nothing is deleted without typing the confirmation word.
 """
 import io
 import logging
@@ -157,19 +156,6 @@ AREAS: list[tuple[str, str, str]] = [
      f"DELETE FROM fact_orders WHERE order_key IN {COMPLETED_ORDERS}"),
     ("Cashier confirmations waiting for Payments", "SELECT count(*) FROM payment_push", "DELETE FROM payment_push"),
     ("Payments entries", "SELECT count(*) FROM fact_payment_txn", "DELETE FROM fact_payment_txn"),
-    ("Expense entries (Payments)", "SELECT count(*) FROM fact_expense_entry", "DELETE FROM fact_expense_entry"),
-    ("Delegation tasks", "SELECT count(*) FROM fact_task", "DELETE FROM fact_task"),
-    ("Delegation weekly plans and extra work", "SELECT (SELECT count(*) FROM fact_weekly_plan) + (SELECT count(*) FROM fact_extra_work)",
-     "DELETE FROM fact_weekly_plan; DELETE FROM fact_extra_work"),
-    ("Checklist occurrences", "SELECT count(*) FROM fact_checklist_occurrence", "DELETE FROM fact_checklist_occurrence"),
-    ("Purchase entries", "SELECT count(*) FROM fact_purchase_entry", "DELETE FROM fact_purchase_entry"),
-    ("VT Decor clients (with their payments, expenses, items, photos)", "SELECT count(*) FROM dim_decor_client",
-     "DELETE FROM dim_decor_client; DELETE FROM fact_decor_photo; DELETE FROM fact_decor_quotation; DELETE FROM decor_fixed_expense"),
-    ("Attendance records and advances", "SELECT (SELECT count(*) FROM fact_attendance) + (SELECT count(*) FROM fact_att_advance)",
-     "DELETE FROM fact_attendance; DELETE FROM fact_att_advance; DELETE FROM att_wa_log; DELETE FROM att_auto_run"),
-    ("Challan uploads", "SELECT count(*) FROM fact_challan_upload", "DELETE FROM fact_challan_upload"),
-    ("Daily delivery reports", "SELECT count(*) FROM daily_delivery_report", "DELETE FROM daily_delivery_report; DELETE FROM daily_report_run"),
-    ("Closed missing bill numbers", "SELECT count(*) FROM doc_gap_void", "DELETE FROM doc_gap_void"),
 ]
 
 
@@ -180,10 +166,8 @@ def _counts(cur) -> tuple[list[dict], int, int]:
         out.append({"label": label, "count": list(cur.fetchone().values())[0]})
     cur.execute(f"SELECT count(*) AS n FROM fact_orders WHERE order_key NOT IN {COMPLETED_ORDERS}")
     kept = cur.fetchone()["n"]
-    cur.execute("SELECT count(*) AS n FROM file_attachment")
-    files = cur.fetchone()["n"]
     cur.execute(f"SELECT count(*) AS n FROM order_attachments WHERE order_key IN {COMPLETED_ORDERS}")
-    files += cur.fetchone()["n"]
+    files = cur.fetchone()["n"]
     return out, kept, files
 
 
@@ -192,7 +176,7 @@ def delete_preview(admin=Depends(ADMIN)):
     with db.cursor() as cur:
         areas, kept, files = _counts(cur)
     return {"areas": areas, "kept_orders": kept, "files": files, "confirm_word": CONFIRM_WORD,
-            "kept_note": "Kept: the orders that are not completed, members, access settings, every dropdown list, WhatsApp settings, module settings and the audit log."}
+            "kept_note": "Everything else is kept: Delegation, Purchase, VT Decor, Attendance, expenses, uploaded challans, members, access settings, dropdown lists, WhatsApp and module settings, and the audit log."}
 
 
 class DeleteIn(BaseModel):
@@ -210,15 +194,12 @@ def delete_everything(body: DeleteIn, admin=Depends(ADMIN)):
         # files that go with the deleted data (removed from storage after the database change succeeds)
         cur.execute(f"SELECT object_key FROM order_attachments WHERE order_key IN {COMPLETED_ORDERS}")
         object_keys += [r["object_key"] for r in cur.fetchall()]
-        cur.execute("SELECT object_key FROM file_attachment")
-        object_keys += [r["object_key"] for r in cur.fetchall()]
         for _, _, delete_sql in AREAS:
             for stmt in delete_sql.split(";"):
                 cur.execute(stmt)
-        cur.execute("DELETE FROM file_attachment")
         cur.execute("UPDATE fact_orders SET cashier_confirmed_at = NULL, cashier_confirmed_by_user_key = NULL, cashier_note = NULL "
                     "WHERE cashier_confirmed_at IS NOT NULL")   # the payments they pointed to are gone: the cashier confirms again
-        cur.execute("UPDATE import_batch SET undone_at = now() WHERE undone_at IS NULL")   # nothing left for an import's Undo to remove
+        cur.execute("UPDATE import_batch SET undone_at = now() WHERE entity IN ('orders', 'payments') AND undone_at IS NULL")   # nothing left for an import's Undo to remove
         audit(cur, admin, "data.delete_all", None, {"deleted": {a["label"]: a["count"] for a in areas}, "kept_open_orders": kept})
     removed = _remove_files(object_keys)
     return {"ok": True, "deleted": areas, "kept_orders": kept, "files_removed": removed, "files_total": len(object_keys)}
