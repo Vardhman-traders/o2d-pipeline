@@ -133,6 +133,9 @@ def masters_pending(admin=Depends(ADMIN)):
 @router.get("/masters/{master}")
 def master_rows(master: str, admin=Depends(ADMIN)):
     spec = _spec(master)
+    if master == "att_employee":   # attendance employees follow the portal members
+        from . import attendance
+        attendance.sync_members(force=True)
     cols = ", ".join(f't."{f["name"]}"' for f in spec["fields"])
     reviewed = master in REVIEWED
     review = ", t.review_status, t.created_at, cu.display_name AS created_by" if reviewed else ""

@@ -44,3 +44,23 @@ def test_admin_saves_group_switch_and_template_and_others_cannot(client, db_conn
     client.put("/admin/whatsapp/dispatch_godown", json={**body, "enabled": False}, headers=admin)
     off = whatsapp.send_alert("dispatch_godown", {}, post=lambda *a: (200, "ok"))
     assert off["skipped"] is True and "switched off" in off["reason"]
+
+
+def test_reply_ok_catches_a_200_that_is_really_a_refusal():
+    assert whatsapp.reply_ok(200, "ok") and whatsapp.reply_ok(201, '{"success": true}')
+    assert not whatsapp.reply_ok(200, '{"success": false, "message": "group not found"}')
+    assert not whatsapp.reply_ok(200, '{"status": "error"}') and not whatsapp.reply_ok(200, '{"error": "bad recipient"}')
+    assert not whatsapp.reply_ok(500, "ok")
+
+
+def test_the_test_button_reports_the_providers_refusal_instead_of_saying_sent(client, db_conn, seed, monkeypatch):
+    admin = login(client, db_conn)
+    client.put("/admin/whatsapp/delivery_day_summary", json={"group_id": "123@g.us", "enabled": True, "template": "x {date}"}, headers=admin)
+    monkeypatch.setenv("WHATSAPP_API_KEY", "k")
+    monkeypatch.setattr(whatsapp, "_http_post", lambda url, data, headers: (200, '{"success": false, "message": "group not found"}'))
+    monkeypatch.setattr(whatsapp, "send_text", lambda key, text, post=whatsapp._http_post, ignore_switch=False: {"code": 200, "body": '{"success": false, "message": "group not found"}'})
+    r = client.post("/admin/whatsapp/delivery_day_summary/test", headers=admin).json()
+    assert r["success"] is False and "group not found" in r["message"]
+    monkeypatch.setattr(whatsapp, "send_text", lambda key, text, post=whatsapp._http_post, ignore_switch=False: {"code": 200, "body": '{"success": true}'})
+    r = client.post("/admin/whatsapp/delivery_day_summary/test", headers=admin).json()
+    assert r["success"] is True and "accepted" in r["message"]

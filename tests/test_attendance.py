@@ -175,7 +175,7 @@ def test_salary_sandwich_advances_and_pins(client, db_conn, seed):
     assert len(adv_list) == 1 and adv_list[0]["amount"] == 1500
     assert own(client, boss, "deleteAdvance", adv_list[0]["id"])["status"] == "ok" and own(client, boss, "deleteAdvance", adv_list[0]["id"])["status"] == "error"
 
-    # PINs: stored hashed, never readable, wrong tries lock it, the salary view needs the pass a correct PIN gives
+    # PINs: stored hashed and never readable
     assert own(client, boss, "setEmployeePIN", name, "12")["status"] == "error" and own(client, boss, "setEmployeePIN", name, "12ab")["status"] == "error"
     assert own(client, boss, "setEmployeePIN", name, "4321")["action"] == "set"
     pins = own(client, boss, "getAllPINs")["pins"]
@@ -183,19 +183,9 @@ def test_salary_sandwich_advances_and_pins(client, db_conn, seed):
     with db_conn.cursor() as cur:
         cur.execute("SELECT pin_hash FROM dim_att_employee WHERE employee_name = %s", (name,))
         assert cur.fetchone()[0] not in (None, "4321")
-    assert pub(client, "getEmployeeSalaryView", name, "")["status"] == "locked"
-    for _ in range(4):
-        assert pub(client, "verifyEmployeePIN", name, "0000")["status"] == "wrong_pin"
-    good = pub(client, "verifyEmployeePIN", name, "4321")
-    assert good["status"] == "ok"                                   # a correct PIN resets the count
-    view = pub(client, "getEmployeeSalaryView", name, good["token"])
-    assert view["status"] == "ok" and view["monthlySalary"] == 30000
-    assert pub(client, "getEmployeeSalaryView", name, good["token"] + "x")["status"] == "locked"
-    for _ in range(4):
-        pub(client, "verifyEmployeePIN", name, "0000")
-    assert pub(client, "verifyEmployeePIN", name, "0000")["status"] == "locked"
-    assert pub(client, "verifyEmployeePIN", name, "4321")["status"] == "locked"      # even the right PIN waits out the lock
-    assert pub(client, "verifyEmployeePIN", "Rakesh", "1111")["status"] == "no_pin"
+    # the employee page no longer has a salary section: the PIN endpoints it used are gone
+    assert client.post("/attendance/public/rpc", json={"action": "verifyEmployeePIN", "args": [name, "4321"]}).status_code == 404
+    assert client.post("/attendance/public/rpc", json={"action": "getEmployeeSalaryView", "args": [name, ""]}).status_code == 404
 
 
 def test_reports_streaks_and_employee_list(client, db_conn, seed):
@@ -244,3 +234,29 @@ def test_link_switch_and_setup_lists(client, db_conn, seed):
     assert client.put("/admin/module-settings", json={"key": "att_late_after", "value": "25:00"}, headers=admin).status_code == 422
     assert client.put("/admin/module-settings", json={"key": "att_employee_link_on", "value": 1}, headers=admin).status_code == 200
     assert pub(client, "getEmployees")
+
+
+def test_attendance_employees_follow_the_portal_members(client, db_conn):
+    import uuid
+    from app import auth
+    u = uuid.uuid4().hex[:6]
+    name = f"Member {u}"
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO dim_user (username, password_hash, role, display_name, must_change_password) "
+                    "VALUES (%s, %s, 'shop', %s, false) RETURNING user_key", (f"m_{u}", auth.hash_password("Pw-12345678"), name))
+        key = cur.fetchone()[0]
+        cur.execute("INSERT INTO dim_att_employee (employee_name, role_title) VALUES (%s, 'Floor') ON CONFLICT DO NOTHING", (f"Floor {u}",))
+    db_conn.commit()
+    attendance.sync_members(force=True)
+    names = [e["name"] for e in pub(client, "getEmployees")]
+    assert name in names and f"Floor {u}" in names                     # members and floor staff share one dropdown
+    with db_conn.cursor() as cur:                                       # a rename follows, a disabled member drops out
+        cur.execute("UPDATE dim_user SET display_name = %s WHERE user_key = %s", (name + " Renamed", key))
+    db_conn.commit()
+    attendance.sync_members(force=True)
+    assert name + " Renamed" in [e["name"] for e in pub(client, "getEmployees")]
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE dim_user SET password_hash = %s WHERE user_key = %s", (auth.DISABLED_HASH, key))
+    db_conn.commit()
+    attendance.sync_members(force=True)
+    assert name + " Renamed" not in [e["name"] for e in pub(client, "getEmployees")]

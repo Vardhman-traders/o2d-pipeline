@@ -103,6 +103,24 @@ def _http_post(url: str, body: bytes, headers: dict) -> tuple[int, str]:
         return resp.status, resp.read().decode("utf-8", "replace")
 
 
+def reply_ok(code, body: str) -> bool:
+    """Did the provider really accept the message? An HTTP 2xx is not enough: some providers answer 200 with an error in the body."""
+    if not 200 <= (code or 0) < 300:
+        return False
+    try:
+        j = json.loads(body)
+    except (ValueError, TypeError):
+        return True
+    if isinstance(j, dict):
+        if j.get("success") is False or j.get("error") or str(j.get("status", "")).lower() in ("error", "failed", "false", "fail"):
+            return False
+    return True
+
+
+def _snippet(body: str) -> str:
+    return " ".join(str(body or "").split())[:300]
+
+
 def credentials_set() -> bool:
     return bool(auth_headers())
 
@@ -200,6 +218,12 @@ def send_test(key: str, admin=Depends(ADMIN)):
         return {"ok": True, "success": False, "message": f"The provider did not accept the message ({exc.__class__.__name__})."}
     if out.get("skipped"):
         return {"ok": True, "success": False, "message": out["reason"]}
+    shown = _snippet(out.get("body"))
+    ok = reply_ok(out.get("code"), out.get("body", ""))
     with db.cursor() as cur:
-        audit(cur, admin, "whatsapp.test", key)
-    return {"ok": True, "success": True, "message": "Test message sent. Check the group."}
+        audit(cur, admin, "whatsapp.test", key, {"ok": ok, "code": out.get("code")})
+    if not ok:   # the provider answered, but did not take the message: say so and show what it said
+        return {"ok": True, "success": False, "message": f"The provider did not accept the message (HTTP {out.get('code')}): {shown or 'no reply'}"}
+    return {"ok": True, "success": True,
+            "message": "The provider accepted the test message. Check the group" + (f" (provider reply: {shown})." if shown else ".") +
+                       " If nothing arrives there, the group ID is not the one the provider knows - copy it again from the provider's group list."}
