@@ -58,25 +58,34 @@ def can_access(user, allowed_roles) -> bool:
 # st = dim_submission_type. %s is the user's user_key (repeated where needed).
 _OPEN = "(o.material_delivery_datetime IS NULL OR o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL)"
 _STATUS = "lower(btrim(ds.status_name))"
-# fully closed orders stay listed only until the 11 PM IST clean-up: closed (updated) after the most recent 11 PM
-_SINCE_CLEANUP = ("o.last_updated_at > ((date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') + interval '23 hours' - "
-                  "CASE WHEN (now() AT TIME ZONE 'Asia/Kolkata')::time >= time '23:00' THEN interval '0 hours' "
-                  "ELSE interval '1 day' END) AT TIME ZONE 'Asia/Kolkata')")
+# With the 11 PM clean-up switched on (Setup > Module settings, off by default) fully closed orders stay listed only until it: closed (updated)
+# after the most recent 11 PM IST. Switched off, they stay on the dashboards until they are archived.
+_CLEANUP_SQL = ("o.last_updated_at > ((date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') + interval '23 hours' - "
+                "CASE WHEN (now() AT TIME ZONE 'Asia/Kolkata')::time >= time '23:00' THEN interval '0 hours' "
+                "ELSE interval '1 day' END) AT TIME ZONE 'Asia/Kolkata')")
+
+
+def since_cleanup_sql() -> str:
+    return _CLEANUP_SQL if config.cleanup_enabled() else "TRUE"
+
+
 _CLOSED = "(o.material_delivery_datetime IS NOT NULL AND o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL)"
 # Which orders a SCREEN lists. This is about the screen, never about who is looking: anyone who holds the page sees every order the
 # screen's rule picks, whoever logged it or touched it last. (A screen's lists are cut down further by the order rules in o2d_screens.)
-SCREEN_FILTERS = {
-    # waiting for godown work (no delivery status yet) or sent on by the godown and still waiting to be dispatched ("under processing")
-    "godown": ("((o.delivery_status_key IS NULL AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled')"
-               " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL))"),
-    # Shop Dispatch & Receiving: statuses that "go to" the shop side, not fully closed, plus the ones closed since the last 11 PM
-    "shop_dispatch": f"(ds.dispatch_route = 'shop' AND ({_OPEN} OR {_SINCE_CLEANUP}))",
-    # Godown Dispatch: statuses that "go to" the godown side, not fully closed
-    "godown_dispatch": f"(ds.dispatch_route = 'godown' AND {_OPEN})",
-    # Godown Receiving: delivered godown-side orders still missing receiving details, or received since the last 11 PM
-    "receiving": ("(o.material_delivery_datetime IS NOT NULL AND ds.dispatch_route IS DISTINCT FROM 'shop'"
-                  f" AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL OR {_SINCE_CLEANUP}))"),
-}
+def screen_filter(screen: str) -> str:
+    since = since_cleanup_sql()
+    return {
+        # waiting for godown work (no delivery status yet) or sent on by the godown and still waiting to be dispatched ("under processing")
+        "godown": ("((o.delivery_status_key IS NULL AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled')"
+                   " OR (o.delivery_status_key IS NOT NULL AND o.material_delivery_datetime IS NULL))"),
+        # Shop Dispatch & Receiving: statuses that "go to" the shop side, not fully closed (and the closed ones, until the clean-up if it is on)
+        "shop_dispatch": f"(ds.dispatch_route = 'shop' AND ({_OPEN} OR {since}))",
+        # Godown Dispatch: statuses that "go to" the godown side, not fully closed
+        "godown_dispatch": f"(ds.dispatch_route = 'godown' AND {_OPEN})",
+        # Godown Receiving: delivered godown-side orders still missing receiving details, plus the received ones (until the clean-up if it is on)
+        "receiving": ("(o.material_delivery_datetime IS NOT NULL AND ds.dispatch_route IS DISTINCT FROM 'shop'"
+                      f" AND (o.date_of_receiving_key IS NULL OR o.payment_status_key IS NULL OR {since}))"),
+    }[screen]
 
 
 # TEMPORARY test guard (remove before go-live): accounts named test_* only ever see, and may only

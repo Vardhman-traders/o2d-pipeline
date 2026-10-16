@@ -184,11 +184,11 @@ def _with_photos(*lists: list[dict]) -> None:
 
 
 def _screen_orders(user, screen: str) -> list[dict]:
-    """The orders one screen lists (roles.SCREEN_FILTERS), chosen in the database so a long history can never push an open order out."""
+    """The orders one screen lists (roles.screen_filter), chosen in the database so a long history can never push an open order out."""
     from . import main
     vis_sql, vis_params = roles.visibility(user)
     with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.SCREEN_FILTERS[screen]} "
+        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.screen_filter(screen)} "
                     "ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s", vis_params + [500])
         return [map_order(r) for r in cur.fetchall()]
 
@@ -284,8 +284,11 @@ CLEANUP_AT = time(23, 0)
 
 
 def cleanup_cutoff(now: datetime | None = None) -> datetime:
-    """The most recent 11 PM IST. Fully closed orders closed before it are no longer listed: the dashboards start each day with only
-    what is still open (the data itself stays in the database and on the Overview / All orders pages)."""
+    """The most recent 11 PM IST, when the clean-up is switched on (Setup > Module settings; off by default). Fully closed orders closed
+    before it are then no longer listed: the dashboards start each day with only what is still open (the data itself stays in the database
+    and on the Overview / All orders pages). Switched off, closed orders stay on the dashboards until they are archived."""
+    if not config.cleanup_enabled():   # switched off: nothing is ever cleaned up, so every closed order still counts
+        return datetime(2000, 1, 1, tzinfo=IST)
     now = now or datetime.now(IST)
     cut = datetime.combine(now.date(), CLEANUP_AT, tzinfo=IST)
     return cut if now >= cut else cut - timedelta(days=1)
@@ -307,7 +310,7 @@ def _shop_box_orders(user) -> list[dict]:
     of closed orders can never push an old open one out of the list."""
     from . import main
     vis_sql, vis_params = roles.visibility(user)
-    open_or_recent = (f"((NOT {roles._CLOSED} AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled') OR {roles._SINCE_CLEANUP})")
+    open_or_recent = (f"((NOT {roles._CLOSED} AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled') OR {roles.since_cleanup_sql()})")
     with db.cursor() as cur:
         cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {open_or_recent} ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s",
                     vis_params + [500])

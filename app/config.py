@@ -187,6 +187,14 @@ def editable_fields_for_user(user) -> set:
     return out
 
 
+def cleanup_enabled() -> bool:
+    """The 11 PM clean-up (fully closed orders drop off the dashboards each night). Off unless an admin switches it on under Setup > Module settings."""
+    try:
+        return int(float(get("o2d_cleanup_enabled") or 0)) == 1
+    except (TypeError, ValueError):
+        return False
+
+
 def all_field_permissions() -> list:
     """Every (role, field_name, editable) row, for the admin Permissions screen."""
     with db.cursor() as cur:

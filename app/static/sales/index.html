@@ -875,7 +875,7 @@
             <thead><tr><th>DC No</th><th>Address</th><th>Payment</th><th>Amount</th><th>Confirmed At</th><th>Confirmed By</th><th>Note</th><th>Payments</th><th></th></tr></thead>
             <tbody id="cashier_confirmedBody"></tbody>
           </table>
-          <div class="empty" id="cashier_confirmedEmpty" style="display:none;">Nothing confirmed since the last 11 PM clean-up.</div>
+          <div class="empty" id="cashier_confirmedEmpty" style="display:none;">Nothing confirmed yet.</div>
         </div>
       </div>
     </div>
@@ -1706,7 +1706,7 @@
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
         fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
         shopRenderOrders(data.recentOrders);
-        document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders tracks every order that is not fully closed, with its Godown status and Delivered by updating as it moves on. Orders that were fully closed stay until 11 PM, then drop off. Use Search for older records.';
+        document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders tracks every order that is not fully closed, with its Godown status and Delivered by updating as it moves on. Orders that were fully closed stay listed until they are archived. Use Search for older records.';
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getShopData(CURRENT_TOKEN);
@@ -2032,7 +2032,7 @@
         dispatchRenderPending(data.pending);
         var noteEl = document.getElementById('dispatch_dateWindowNote');
         if (noteEl) noteEl.textContent = shopSide
-          ? '📅 Ready for Dispatch lists every order that is not fully closed. Once the receiving details are filled in it moves to Received, which clears at 11 PM.'
+          ? '📅 Ready for Dispatch lists every order that is not fully closed. Once the receiving details are filled in it moves to Received.'
           : '📅 Poori list dikhti hai — jab tak deliver/receive na ho, yahan dikhta rahega.';
         dispatchRenderCompleted(data.completed);
       })

@@ -102,15 +102,15 @@ def test_cashier_edit_and_visibility_rules(client, db_conn, days, seed):
     assert client.get("/payments/transactions", headers=cash).json()["rows"][0]["Amount"] == 2000
 
 
-def test_parties_are_scoped_by_company_and_type_and_added_on_first_use(client, db_conn, days, seed):
+def test_parties_are_one_list_added_on_first_use(client, db_conn, days, seed):
+    """There is one party list: a company / type no longer narrows it, and a name typed on an entry joins it."""
     acct, _ = user(client, db_conn, "accounts")
     assert client.post("/payments/parties", json={"name": "Zed Traders", "company": "IRIS", "txnType": "Expense"}, headers=acct).json()["success"]
-    assert not client.post("/payments/parties", json={"name": "zed traders", "company": "IRIS", "txnType": "Expense"}, headers=acct).json()["success"]
+    assert not client.post("/payments/parties", json={"name": "zed traders"}, headers=acct).json()["success"]
     assert client.post("/payments/transactions", json=txn(party="Fresh Party", type="Sales"), headers=acct).json()["success"]
-    assert "Zed Traders" in client.get("/payments/parties?company=IRIS&txn_type=Expense", headers=acct).json()
-    assert "Zed Traders" not in client.get("/payments/parties?company=IRIS&txn_type=Sales", headers=acct).json()
-    assert "Fresh Party" in client.get("/payments/parties?company=IRIS&txn_type=Sales", headers=acct).json()
-    assert "Zed Traders" in client.get("/payments/parties?company=IRIS", headers=acct).json()           # no type: all of the company's
+    for url in ("/payments/parties?company=IRIS&txn_type=Expense", "/payments/parties?company=VT&txn_type=Sales", "/payments/parties"):
+        listed = client.get(url, headers=acct).json()
+        assert "Zed Traders" in listed and "Fresh Party" in listed, url
 
 
 def test_payments_view_only_cannot_save(client, db_conn, days, seed):

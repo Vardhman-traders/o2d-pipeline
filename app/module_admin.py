@@ -292,6 +292,8 @@ SETTINGS = [
     {"key": "deleg_extend_penalty", "group": "Delegation", "label": "Points taken each time a missed deadline is moved", "default": -5, "min": -1000, "max": 0},
     {"key": "deleg_week_start_dow", "group": "Delegation", "label": "First day of the working week (0 = Sunday ... 6 = Saturday)", "default": 6, "min": 0, "max": 6},
     {"key": "att_late_after", "group": "Attendance", "type": "time", "default": "10:30", "label": "Check-in at or after this time counts as Late"},
+    {"key": "o2d_cleanup_enabled", "group": "O2D dashboards", "default": 0, "min": 0, "max": 1,
+     "label": "Hide fully closed orders from the dashboards after 11 PM (1 = on, 0 = off: they stay until archived)"},
     {"key": "att_half_day_checkin", "group": "Attendance", "type": "time", "default": "14:00", "label": "Check-in at or after this time counts as Half Day"},
     {"key": "att_absent_before", "group": "Attendance", "type": "time", "default": "14:00", "label": "Check-out before this time makes the day Absent"},
     {"key": "att_half_day_before", "group": "Attendance", "type": "time", "default": "17:00", "label": "Check-out before this time (but after the one above) makes it a Half Day"},
