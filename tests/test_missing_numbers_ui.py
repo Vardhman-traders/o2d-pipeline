@@ -34,7 +34,7 @@ def test_missing_numbers_panel_lists_clicks_and_clears(base_url):
             page.click("#shop_saveBtn")
             expect(page.locator("#shop_statusMsg")).to_contain_text("Order saved", timeout=8000)
 
-        sel = "#shop_missingContainer .gap-pill[onclick*=\"'" + day.isoformat() + "'\"]"
+        sel = "#shop_missingContainer a.gap-num[onclick*=\"'" + day.isoformat() + "'\"]"
         pills = page.locator(sel)   # that day's pills only
         expect(pills).to_have_text(["2", "3", "4", "5", "6", "7"], timeout=8000)
         

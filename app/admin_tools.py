@@ -253,6 +253,15 @@ def order_events(q: str | None = Query(default=None, max_length=100), screen: st
                         "changes": timeline._shown_changes(r["changes"] or [])} for r in rows[:limit]]}
 
 
+@router.get("/number-check")
+def number_check(admin=Depends(ADMIN)):
+    """Orders whose DC / Inv number looks like it belongs to the other bill series (an invoice number typed as a challan, or the reverse).
+    Read-only; fix one with the order's admin edit (it leaves an entry in the change log)."""
+    from . import doc_numbers
+    with db.cursor() as cur:
+        return {"items": doc_numbers.suspected_mismatches(cur)}
+
+
 EXPORT_CAP = 20000
 
 

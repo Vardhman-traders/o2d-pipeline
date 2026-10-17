@@ -3,7 +3,8 @@
 Challan  - a daily bill; the number restarts at 1 every day.
 Invoice  - the BUSY bill; one running series per financial year (1 April to 31 March).
 Sales Return Challan / Sales Return Invoice - the same two formats and reset rules (daily / financial year), each its own series, so
-a return challan 5 never clashes with challan 5. A type can be tagged to exactly one of the four (or "Both" = Challan or Invoice).
+a return challan 5 never clashes with challan 5. A type can be tagged to exactly one of the four, or to "Both" (the form asks Challan or Invoice) or "Goods Return" (the form asks Challan
+or Invoice, and the order goes to Sales Return Challan or Sales Return Invoice).
 The submission type of an order says which series it belongs to - an admin setting on each type (Setup > Dropdown values >
 Submission type > "Bill number series", column dim_submission_type.bill_series). Orders of any other type are free-form.
 An order is always tagged to ONE series. A type set to "Both" means "either": the order form asks Challan or Invoice and the
@@ -17,9 +18,15 @@ from fastapi import HTTPException
 from . import roles
 
 SERIES = {"challan": "Challan", "invoice": "Invoice", "both": "Both",
-          "sales_return_challan": "Sales Return Challan", "sales_return_invoice": "Sales Return Invoice"}
+          "sales_return_challan": "Sales Return Challan", "sales_return_invoice": "Sales Return Invoice",
+          "goods_return": "Goods Return"}
 DAILY = {"Challan", "Sales Return Challan"}       # numbers restart every day; every other series restarts each financial year
 RETURN_SERIES = {"Sales Return Challan", "Sales Return Invoice"}
+
+
+def tag_of(doc_type: str) -> str:
+    """The Challan / Invoice pick an order carries (fact_orders.bill_series) that puts it in this series: 'challan' or 'invoice'."""
+    return "challan" if doc_type.endswith("Challan") else "invoice"
 
 
 def slug(doc_type: str) -> str:
@@ -41,6 +48,8 @@ def number_in(doc_type: str, bill_series: str, dc: str | None, chosen: str | Non
     if the order was tagged to this series, nothing if it was tagged to the other; an order saved before the choice existed
     (no tag) may still hold "challan/invoice" in one field."""
     dc = (dc or "").strip()
+    if bill_series == "goods_return":        # tagged by the form's Challan / Invoice pick, counted in the matching sales-return series
+        return int(dc) if chosen == tag_of(doc_type) and doc_type in RETURN_SERIES and dc.isdigit() else None
     if bill_series == "both":
         if chosen:
             return int(dc) if chosen == doc_type.lower() and dc.isdigit() else None
@@ -69,7 +78,8 @@ def types_by_series(cur) -> dict[str, list[str]]:
                 "ORDER BY (bill_series = 'both'), sort_order, lower(type_name)")
     out: dict[str, list[str]] = {"Challan": [], "Invoice": [], "Sales Return Challan": [], "Sales Return Invoice": []}
     for r in cur.fetchall():
-        for label in (("Challan", "Invoice") if r["bill_series"] == "both" else (SERIES[r["bill_series"]],)):
+        for label in (("Challan", "Invoice") if r["bill_series"] == "both" else
+                      ("Sales Return Challan", "Sales Return Invoice") if r["bill_series"] == "goods_return" else (SERIES[r["bill_series"]],)):
             out[label].append(r["type_name"])
     return out
 
@@ -102,13 +112,18 @@ def validate(cur, user, *, dc_no: str | None, type_name: str | None, order_date:
     dc = (dc_no or "").strip()
     if not doc_type or not dc or order_date is None or roles.is_test_user(user):
         return
-    if doc_type == "Both":
+    if doc_type in ("Both", "Goods Return"):
         if chosen not in ("challan", "invoice"):
             raise HTTPException(400, f"This submission type can be a Challan or an Invoice: {CHOOSE_HELP}.")
-        doc_type = SERIES[chosen]
+        doc_type = SERIES[chosen] if doc_type == "Both" else ("Sales Return Challan" if chosen == "challan" else "Sales Return Invoice")
     if not dc.isdigit():
         raise HTTPException(400, f"A {doc_type} number must be digits only (got \"{dc}\").")
     _check_unused(cur, doc_type, dc, order_date, own_order_key)
+    if user.get("role") != "admin":       # admins may deliberately enter an unusual number (and fix a wrong one)
+        lo, hi = _window(doc_type, order_date)
+        why = suspect_reason(doc_type, int(dc), set(_present(cur, doc_type, lo, hi)))
+        if why:
+            raise HTTPException(422, why)
 
 
 def _check_unused(cur, doc_type: str, dc: str, order_date: date, own_order_key=None):
@@ -119,15 +134,74 @@ def _check_unused(cur, doc_type: str, dc: str, order_date: date, own_order_key=N
     cur.execute("SELECT o.sl_no, d.full_date FROM fact_orders o JOIN dim_date d ON d.date_key = o.order_received_date_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
                 "WHERE (st.bill_series = %s OR (%s AND st.bill_series = 'both' AND (o.bill_series = %s "
-                "OR (o.bill_series IS NULL AND o.dc_inv_no LIKE '%%/%%')))) "
+                "OR (o.bill_series IS NULL AND o.dc_inv_no LIKE '%%/%%'))) "
+                "OR (%s AND st.bill_series = 'goods_return' AND o.bill_series = %s)) "
                 "AND ltrim(CASE WHEN st.bill_series = 'both' AND o.bill_series IS NULL THEN btrim(split_part(o.dc_inv_no, '/', %s)) "
                 "ELSE btrim(o.dc_inv_no) END, '0') = ltrim(%s, '0') "
                 "AND d.full_date BETWEEN %s AND %s AND (%s::int IS NULL OR o.order_key <> %s::int) LIMIT 1",
-                (series, doc_type not in RETURN_SERIES, series, 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
+                (series, doc_type not in RETURN_SERIES, series, doc_type in RETURN_SERIES, tag_of(doc_type),
+                 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
     dup = cur.fetchone()
     if dup:
         where = f"on {dup['full_date']:%d-%m-%Y}" if doc_type in DAILY else f"in FY {fy_label(order_date)}"
         raise HTTPException(409, f"{doc_type} {dc} is already used {where} (Sl {dup['sl_no']}).")
+
+
+# ------------------------------------------------------------------ the wrong series (an invoice number in the challan field, or the reverse)
+# Both are plain digit strings, so nothing in the number says which series it is; only its SIZE can. A Challan restarts at 1 every day, so
+# a day's numbers are small and close together; an Invoice runs through a whole financial year, so its numbers are large. These rules catch
+# the clear cases: a challan far above that day's highest (an invoice number typed in the challan field) and an invoice far below the
+# year's usual size (a challan number typed in the invoice field). Anything in between cannot be told apart by a computer.
+SUSPECT_JUMP = 100          # a daily-series number this far above the day's highest is not a challan
+SUSPECT_RATIO = 10          # a yearly-series number this many times smaller than the year's median is not an invoice
+SUSPECT_MIN_MEDIAN = 50     # ...once the year has numbers that large (a new series has nothing to compare with)
+
+
+def suspect_reason(doc_type: str, number: int, others: set[int]) -> str | None:
+    """Why `number` looks like it belongs to the other bill series, or None when it looks fine. `others` = the numbers already in this
+    series' window (the day for a daily series, the financial year otherwise)."""
+    if doc_type in DAILY:
+        top = max(others) if others else 0
+        if others and number > top + SUSPECT_JUMP and number > top * SUSPECT_RATIO:      # needs a number already entered that day to compare with
+            return (f"{number} is far above the highest {doc_type} number of that day ({top}). {doc_type} numbers restart at 1 every "
+                    "day, so this looks like an Invoice number typed in the wrong place. Check the number and the submission type, "
+                    "or ask an admin if it is right.")
+        return None
+    if others:
+        median = sorted(others)[len(others) // 2]
+        if median >= SUSPECT_MIN_MEDIAN and number * SUSPECT_RATIO < median:
+            return (f"{number} is far below the usual {doc_type} numbers this financial year (around {median}). Small numbers are Challan "
+                    "numbers, so this looks like a Challan number typed in the wrong place. Check the number and the submission type, "
+                    "or ask an admin if it is right.")
+    return None
+
+
+def suspected_mismatches(cur, limit: int = 300) -> list[dict]:
+    """Orders whose bill number looks like the other series' (see suspect_reason), for Setup > Order changes: each daily window's
+    outliers (a number far above the rest) and each year's tiny numbers. Detectable only when the number is clearly out of scale; an
+    invoice 12 typed as a challan 12 is invisible."""
+    cur.execute("SELECT v.sl_no, v.dc_inv_no, v.order_date, v.submission_type, st.bill_series, o.bill_series AS chosen "
+                "FROM v_orders_archive v JOIN fact_orders o ON o.order_key = v.order_key "
+                "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
+                "WHERE st.bill_series IS NOT NULL AND v.dc_inv_no ~ '^[0-9]+$' ORDER BY v.order_date, v.sl_no")
+    rows = cur.fetchall()
+    out: list[dict] = []
+    for doc_type in ("Challan", "Invoice", "Sales Return Challan", "Sales Return Invoice"):
+        groups: dict[str, list[tuple[int, dict]]] = {}
+        for r in rows:
+            bs = r["bill_series"]
+            if not (bs == slug(doc_type) or (bs == "both" and doc_type not in RETURN_SERIES) or (bs == "goods_return" and doc_type in RETURN_SERIES)):
+                continue
+            n = number_in(doc_type, bs, r["dc_inv_no"], r["chosen"])
+            if n is not None:
+                groups.setdefault(series_key(doc_type, r["order_date"]), []).append((n, r))
+        for key, members in groups.items():
+            for n, r in members:
+                why = suspect_reason(doc_type, n, {m for m, _ in members if m != n})
+                if why:
+                    out.append({"slNo": r["sl_no"], "dcNo": r["dc_inv_no"], "date": r["order_date"].isoformat(), "series": doc_type,
+                                "type": r["submission_type"], "reason": why})
+    return out[:limit]
 
 
 # ------------------------------------------------------------------ finding gaps
@@ -135,8 +209,9 @@ def _present(cur, doc_type: str, lo: date, hi: date) -> dict[int, date]:
     cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
                 "JOIN fact_orders o ON o.order_key = v.order_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE st.bill_series IN (%s, %s) AND v.order_date BETWEEN %s AND %s",
-                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), lo, hi))
+                "WHERE (st.bill_series IN (%s, %s) OR (%s AND st.bill_series = 'goods_return' AND o.bill_series = %s)) "
+                "AND v.order_date BETWEEN %s AND %s",
+                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), doc_type in RETURN_SERIES, tag_of(doc_type), lo, hi))
     out: dict[int, date] = {}
     for r in cur.fetchall():
         n = number_in(doc_type, r["bill_series"], r["dc_inv_no"], r.get("chosen"))
@@ -229,8 +304,9 @@ def _present_by_day(cur, lo: date | None, hi: date, doc_type: str = "Challan") -
     cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
                 "JOIN fact_orders o ON o.order_key = v.order_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE st.bill_series IN (%s, %s) AND v.order_date >= COALESCE(%s::date, DATE '1900-01-01') AND v.order_date <= %s",
-                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), lo, hi))
+                "WHERE (st.bill_series IN (%s, %s) OR (%s AND st.bill_series = 'goods_return' AND o.bill_series = %s)) "
+                "AND v.order_date >= COALESCE(%s::date, DATE '1900-01-01') AND v.order_date <= %s",
+                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), doc_type in RETURN_SERIES, tag_of(doc_type), lo, hi))
     out: dict[date, dict[int, date]] = {}
     for r in cur.fetchall():
         n = number_in(doc_type, r["bill_series"], r["dc_inv_no"], r.get("chosen"))

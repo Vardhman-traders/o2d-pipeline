@@ -135,43 +135,6 @@ async def upload_photo(sl_no: int, request: Request, kind: str = Query(pattern="
     return {"ok": True, "success": True, **res}
 
 
-@router.post("/bulk/photos")
-async def upload_bulk_photo(request: Request, kind: str = Query(pattern="^(dispatch|receiving)$"),
-                            sl_nos: str = Query(max_length=1000), user=Depends(ANY_VIEWER)):
-    """The bulk "Mark done": one raw image body saved on every listed order (`sl_nos` = 12,15,31) - one attachment row (and one stored object)
-    per order, exactly as if it had been added on each order's own screen. Orders that cannot take it (not visible, already 5 photos) are
-    listed in `failed`; the others are saved."""
-    if not configured():
-        raise HTTPException(503, "Photo storage is not set up yet. Ask the administrator.")
-    if not _may_upload(user, kind):
-        raise HTTPException(403, access.NO_ACCESS_MESSAGE)
-    access.require_edit(user, *UPLOAD_PAGES[kind])
-    try:
-        slots = list(dict.fromkeys(int(x) for x in sl_nos.split(",") if x.strip()))
-    except ValueError:
-        raise HTTPException(422, "sl_nos must be order numbers separated by commas.")
-    if not slots or len(slots) > 100:
-        raise HTTPException(422, "Choose between 1 and 100 orders.")
-    ctype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if ctype not in EXT:
-        raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image.")
-    data = await request.body()
-    if not data or len(data) > MAX_BYTES:
-        raise HTTPException(413 if data else 422, "Photo is too large (8 MB maximum)." if data else "Empty photo.")
-
-    def run():
-        failed = []
-        for sl in slots:
-            try:
-                save_photo(user, sl, kind, data, ctype)
-            except HTTPException as e:
-                failed.append({"slNo": sl, "message": str(e.detail)})
-        return failed
-    failed = await run_in_threadpool(run)
-    msg = "; ".join(f"Sl {f['slNo']}: {f['message']}" for f in failed[:5])
-    return {"ok": True, "success": not failed, "saved": len(slots) - len(failed), "failed": failed, "message": msg}
-
-
 @router.get("/orders/{sl_no}/photos")
 def order_photos(sl_no: int, user=Depends(ANY_VIEWER)):
     if not configured():

@@ -1,6 +1,9 @@
 -- 039: two more bill number series for submission types: "Sales Return Challan" (daily, like Challan) and "Sales Return Invoice"
 -- (one per financial year, like Invoice). Each is its own series; see app/doc_numbers.py. Safe to run twice.
 
+-- the column was varchar(10): 'sales_return_challan' does not fit
+ALTER TABLE dim_submission_type ALTER COLUMN bill_series TYPE varchar(30);
+
 DO $$
 DECLARE c text;
 BEGIN
@@ -12,7 +15,7 @@ BEGIN
 END $$;
 
 ALTER TABLE dim_submission_type ADD CONSTRAINT dim_submission_type_bill_series_check
-    CHECK (bill_series IN ('challan', 'invoice', 'both', 'sales_return_challan', 'sales_return_invoice'));
+    CHECK (bill_series IN ('challan', 'invoice', 'both', 'sales_return_challan', 'sales_return_invoice', 'goods_return'));
 
 -- "closed as no bill / voided" notes are kept per series, so they need the two new series names too
 ALTER TABLE doc_gap_void ALTER COLUMN doc_type TYPE varchar(30);

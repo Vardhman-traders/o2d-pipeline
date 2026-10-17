@@ -140,7 +140,7 @@ def _key_by_name(rows, name) -> int | None:
 def _either_types() -> list[str]:
     """Submission types whose order can be tagged to Challan or Invoice: the form asks which one."""
     with db.cursor() as cur:
-        cur.execute("SELECT type_name FROM dim_submission_type WHERE bill_series = 'both' ORDER BY sort_order, lower(type_name)")
+        cur.execute("SELECT type_name FROM dim_submission_type WHERE bill_series IN ('both', 'goods_return') ORDER BY sort_order, lower(type_name)")
         return [r["type_name"] for r in cur.fetchall()]
 
 
@@ -652,7 +652,7 @@ def _chosen_series(form: Form) -> str | None:
     if choice not in ("challan", "invoice") or not form.typeOfSubmission:
         return None
     with db.cursor() as cur:
-        return choice if doc_numbers.series_of(cur, form.typeOfSubmission) == "Both" else None
+        return choice if doc_numbers.series_of(cur, form.typeOfSubmission) in ("Both", "Goods Return") else None
 
 
 def _shop_payload(form: Form, channels, types) -> dict:
@@ -770,27 +770,39 @@ def _alert_if_first_dispatch(user, sl_no: int, before: dict | None, updated: dic
         _record_alert(updated["orderKey"], outcome, user)
 
 
-class BulkIn(BaseModel):
+class BulkItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    slNos: list[int] = Field(min_length=1, max_length=MAX_BULK)
+    slNo: int
     form: Form
 
 
-def _bulk_save(user, sl_nos: list[int], payload: dict) -> dict:
-    """Save the same fields on every selected order in ONE transaction: each order goes through main.apply_order_update (the single-order
-    rules and its own order_event row), and if any order is refused nothing at all is saved. Returns ({before, after} per order) or an error."""
+class BulkIn(BaseModel):
+    """One entry per ticked order, each with its OWN form values (the bulk modal has one section per order)."""
+    model_config = ConfigDict(extra="ignore")
+    items: list[BulkItem] = Field(min_length=1, max_length=MAX_BULK)
+
+
+class _BulkRefused(Exception):
+    pass
+
+
+def _bulk_save(user, items: list[tuple[int, dict]]) -> dict:
+    """Save each order's own fields in ONE transaction: every order goes through main.apply_order_update (the single-order rules and its own
+    order_event row), and if any order is refused nothing at all is saved. Returns {"done": [(sl, before, after)]} or {"error": message}
+    naming the order that was refused."""
     from . import main
-    if any(k.endswith("_key") and v is None for k, v in payload.items()):
-        return {"error": UNKNOWN_VALUE}
-    try:
-        patch = main.OrderPatch(**payload)
-    except ValueError as e:
-        return {"error": str(e)}
-    seen: list[int] = list(dict.fromkeys(sl_nos))
+    patches = []
+    for sl, payload in items:
+        if any(k.endswith("_key") and v is None for k, v in payload.items()):
+            return {"error": f"Sl {sl}: {UNKNOWN_VALUE} - nothing was saved."}
+        try:
+            patches.append((sl, main.OrderPatch(**payload)))
+        except ValueError as e:
+            return {"error": f"Sl {sl}: {e} - nothing was saved."}
     done: list[tuple] = []
     try:
         with db.cursor() as cur:
-            for sl in seen:
+            for sl, patch in patches:
                 try:
                     done.append((sl, *main.apply_order_update(cur, sl, patch, None, user)))
                 except HTTPException as e:
@@ -804,39 +816,49 @@ def _bulk_save(user, sl_nos: list[int], payload: dict) -> dict:
     return {"done": done}
 
 
-class _BulkRefused(Exception):
-    pass
+def _unique_items(body: BulkIn) -> list[BulkItem]:
+    seen: dict[int, BulkItem] = {}
+    for it in body.items:
+        seen[it.slNo] = it            # an order listed twice: the last entry wins
+    return list(seen.values())
 
 
 @router.put("/bulk/dispatch")
 def bulk_dispatch(body: BulkIn, user=Depends(ANY_VIEWER)):
-    """Godown Dispatch / Shop Dispatch & Receiving: the same dispatch (and, on the shop screen, receiving) details for many orders at once."""
+    """Godown Dispatch / Shop Dispatch & Receiving: dispatch (and, on the shop screen, receiving) details for many orders, each with its own values."""
     _need_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
-    form = body.form
-    screen = form.viewAs if form.viewAs in DISPATCH_SCOPES else user["role"]
-    missing = [label for label, v in (("Material delivery date & time", form.materialDeliveryDateTime), ("Delivered by", form.deliveredByWhom)) if not v]
-    if missing:
-        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
-    p, err = _dispatch_payload(form, screen)
-    if err:
-        return {"ok": True, "success": False, "message": err}
-    out = _bulk_save(user, body.slNos, p)
+    work, screens = [], {}
+    for it in _unique_items(body):
+        form = it.form
+        screen = form.viewAs if form.viewAs in DISPATCH_SCOPES else user["role"]
+        screens[it.slNo] = screen
+        missing = [label for label, v in (("Material delivery date & time", form.materialDeliveryDateTime), ("Delivered by", form.deliveredByWhom)) if not v]
+        if missing:
+            return {"ok": True, "success": False, "message": f"Sl {it.slNo}: missing required field(s): " + ", ".join(missing) + " - nothing was saved."}
+        p, err = _dispatch_payload(form, screen)
+        if err:
+            return {"ok": True, "success": False, "message": f"Sl {it.slNo}: {err} - nothing was saved."}
+        work.append((it.slNo, p))
+    out = _bulk_save(user, work)
     if "error" in out:
         return {"ok": True, "success": False, "message": out["error"]}
     for sl, before, after in out["done"]:
-        _alert_if_first_dispatch(user, sl, map_order(before), map_order(after), screen)
+        _alert_if_first_dispatch(user, sl, map_order(before), map_order(after), screens[sl])
     return {"ok": True, "success": True, "count": len(out["done"])}
 
 
 @router.put("/bulk/receiving")
 def bulk_receiving(body: BulkIn, user=Depends(ANY_VIEWER)):
-    """Godown Receiving: the same receiving details for many orders at once."""
+    """Godown Receiving: receiving details for many orders, each with its own values."""
     _need_edit(user, "o2d_receiving")
-    form = body.form
-    missing = [label for label, v in (("Date of receiving", form.dateOfReceiving), ("Payment status", form.paymentStatus)) if not v]
-    if missing:
-        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
-    out = _bulk_save(user, body.slNos, _receiving_fields(form, _lookup_rows("payment-statuses")))
+    work = []
+    for it in _unique_items(body):
+        form = it.form
+        missing = [label for label, v in (("Date of receiving", form.dateOfReceiving), ("Payment status", form.paymentStatus)) if not v]
+        if missing:
+            return {"ok": True, "success": False, "message": f"Sl {it.slNo}: missing required field(s): " + ", ".join(missing) + " - nothing was saved."}
+        work.append((it.slNo, _receiving_fields(form, _lookup_rows("payment-statuses"))))
+    out = _bulk_save(user, work)
     if "error" in out:
         return {"ok": True, "success": False, "message": out["error"]}
     return {"ok": True, "success": True, "count": len(out["done"])}
@@ -1004,11 +1026,11 @@ def doc_check(type_name: str, date_: date = Query(alias="date"), number: str = Q
         series = doc_numbers.series_of(cur, type_name)
         if not series:
             return {"ok": True, "series": None, "duplicate": False, "skipped": []}
-        if series == "Both":   # the order is tagged to one series: the one the shop picked
+        if series in ("Both", "Goods Return"):   # the order is tagged to one series: the one the shop picked
             pick = (bill or "").strip().lower()
             if pick not in ("challan", "invoice"):
                 return {"ok": True, "series": series, "needsChoice": True, "help": doc_numbers.CHOOSE_HELP, "duplicate": False, "skipped": []}
-            series = doc_numbers.SERIES[pick]
+            series = doc_numbers.SERIES[pick] if series == "Both" else ("Sales Return Challan" if pick == "challan" else "Sales Return Invoice")
         if not number.strip().isdigit():
             return {"ok": True, "series": series, "notDigits": True, "duplicate": False, "skipped": []}
         return {"ok": True, "series": series, **doc_numbers.check_entry(cur, series, date_, int(number))}

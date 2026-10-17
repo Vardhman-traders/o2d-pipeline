@@ -104,6 +104,7 @@
   .card.accent-dispatch { border-left: 4px solid var(--dispatch-color); }
   .card.accent-receiving{ border-left: 4px solid var(--receiving-color); }
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+  .gap-num { white-space: nowrap; } a.gap-num { color: var(--red); text-decoration: underline; cursor: pointer; }
   .bulk-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
   .bulk-cb { width: 17px; height: 17px; cursor: pointer; }
   .bulk-modal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
@@ -1097,28 +1098,34 @@
      an order with it is punched, or someone closes it with a reason (e.g. the bill was voided in BUSY). */
   function gapRangeLabel_(r) { return r.from === r.to ? String(r.from) : r.from + '–' + r.to; }
 
-  function gapRowHtml_(docType, seriesKey, r, data, prefix) {
-    var MAXPILLS = 30, pills = '';
-    for (var n = r.from; n <= r.to && n < r.from + MAXPILLS; n++) {
-      pills += data.canPunch
-        ? '<button type="button" class="gap-pill" title="Click to enter this number" onclick="openMissingEntry_(\'' + docType + '\',\'' + seriesKey + '\',' + n + ')">' + n + '</button> '
-        : '<span style="background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;">' + n + '</span> ';
-    }
-    if (r.count > MAXPILLS) pills += '<span style="font-size:12px;color:var(--muted);">+ ' + (r.count - MAXPILLS) + ' more (' + (r.from + MAXPILLS) + '–' + r.to + ')</span>';
-    var btns = '';
-    var args = "'" + docType + "','" + seriesKey + "'," + r.from + ',' + r.to;
-    if (data.canResolve) btns += '<button type="button" class="small" style="background:var(--muted);" onclick="voidMissing_(' + args + ')">' + (r.count > 1 ? 'None of these need a bill' : 'No bill / voided') + '</button>';
-    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0;">' + pills +
-      (r.afterDate ? '<span style="font-size:12px;color:var(--muted);">after ' + (r.from - 1) + ' · ' + formatDateDisplay(r.afterDate) + '</span>' : '') +
-      btns + '</div>';
+  // The missing numbers of one block as ONE flowing line (1, 2, 5-9, 14 ...) that wraps naturally; a click on a number opens the entry form.
+  function gapNumbersHtml_(docType, seriesKey, g, data) {
+    var MAXNUMS = 30, tokens = [];
+    g.ranges.forEach(function (r) {
+      for (var n = r.from; n <= r.to && n < r.from + MAXNUMS; n++) {
+        tokens.push(data.canPunch
+          ? '<a href="#" class="gap-num" title="Click to enter this number" onclick="openMissingEntry_(\'' + docType + '\',\'' + seriesKey + '\',' + n + '); return false;">' + n + '</a>'
+          : '<span class="gap-num">' + n + '</span>');
+      }
+      if (r.count > MAXNUMS) tokens.push('<span class="gap-num">' + (r.from + MAXNUMS) + '&ndash;' + r.to + ' (' + (r.count - MAXNUMS) + ' more)</span>');
+    });
+    return '<div style="line-height:1.9;font-size:13px;font-weight:700;color:var(--red);">' + tokens.join('<span style="color:var(--muted);font-weight:400;">, </span>') + '</div>';
   }
 
   function gapBlockHtml_(title, docType, seriesKey, g, data, prefix) {
+    var closers = '';
+    if (data.canResolve) {
+      closers = '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' + g.ranges.map(function (r) {
+        var args = "'" + docType + "','" + seriesKey + "'," + r.from + ',' + r.to;
+        return '<button type="button" class="small" style="background:var(--muted);" onclick="voidMissing_(' + args + ')">' +
+          (r.count > 1 ? 'None of ' + gapRangeLabel_(r) + ' need a bill' : 'No bill / voided: ' + r.from) + '</button>';
+      }).join('') + '</div>';
+    }
     return '<div style="margin-bottom:14px;"><div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px;">' + title +
-      ' <span style="font-weight:400;color:var(--muted);">· highest entered ' + g.highest + '</span></div>' +
+      ' <span style="font-weight:400;color:var(--muted);">· highest entered ' + g.highest + ' · ' + g.total + ' missing</span></div>' +
       '<div style="background:rgba(216,67,63,0.06);border:1px solid rgba(216,67,63,0.3);border-radius:10px;padding:10px 14px;">' +
-      g.ranges.map(function (r) { return gapRowHtml_(docType, seriesKey, r, data, prefix); }).join('') +
-      (g.truncated ? '<div style="font-size:12px;color:var(--muted);">Showing the latest 200 of ' + g.total + ' missing numbers. A very large gap usually means a mistyped number or records that were never entered.</div>' : '') +
+      gapNumbersHtml_(docType, seriesKey, g, data) + closers +
+      (g.truncated ? '<div style="font-size:12px;color:var(--muted);margin-top:6px;">Showing the latest 200 of ' + g.total + ' missing numbers. A very large gap usually means a mistyped number or records that were never entered.</div>' : '') +
       '</div></div>';
   }
 
@@ -1539,9 +1546,9 @@
   var REPORT_CHOICES = [
     ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
     ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
-    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown received & payments - cash'],
-    ['shop-received-cash', 'Shop received & payments - cash'], ['received-other-all', 'All other transactions - godown + shop'],
-    ['godown-received-other', 'Godown received & payments - not cash'], ['shop-received-other', 'Shop received & payments - not cash'],
+    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown - cash'], ['shop-received-cash', 'Shop - cash'],
+    ['received-other-all', 'Godown + Shop - all other transactions (neither cash nor bank)'],
+    ['godown-received-other', 'Godown - not cash (bank + other)'], ['shop-received-other', 'Shop - not cash (bank + other)'],
     ['cartage-detail', 'Cartage history (one delivery boy)'], ['cartage-by-employee', 'Cartage - paid to each person']];
   var REPORT_SEL = new Set();
 
@@ -2082,11 +2089,10 @@
       return chain.then(function () {
         return shrinkPhoto_(f).then(function (blob) {
           return new Promise(function (resolve) {
-            var run = VT.run
+            VT.run
               .withSuccessHandler(function (r) { if (!r || !r.success) problems.push((r && (r.message || r.error)) || 'no response'); resolve(); })
-              .withFailureHandler(function (err) { problems.push(err.message); resolve(); });
-            if (Array.isArray(slNo)) run.uploadBulkPhoto(CURRENT_TOKEN, slNo, kind, blob);   // bulk "Mark done": the same photo on every order
-            else run.uploadOrderPhoto(CURRENT_TOKEN, slNo, kind, blob);
+              .withFailureHandler(function (err) { problems.push(err.message); resolve(); })
+              .uploadOrderPhoto(CURRENT_TOKEN, slNo, kind, blob);
           });
         });
       });
@@ -2691,36 +2697,40 @@
     if (all) { all.checked = boxes.length > 0 && n === boxes.length; all.indeterminate = n > 0 && n < boxes.length; }
   }
 
+  // One section per ticked order, each with its OWN fields and photos. "Fill all" copies the shared row into every section as a starting
+  // point (anything typed in a section can still be changed); what is saved is whatever each section holds.
   function bulkOpen_(kind) {
     var slNos = Object.keys(BULK_SEL[kind]).map(Number);
     if (!slNos.length) return;
     var dd = BULK_DD[kind] || {};
     var shopDispatch = kind === 'dispatch' && CURRENT_ROLE === 'shop_dispatch';
+    var store = kind === 'dispatch' ? DISPATCH_ORDERS : RECEIVING_ORDERS;
     var F = [];   // [id, label, type, required, options]
     if (kind === 'dispatch') {
-      F.push(['materialDeliveryDateTime', 'Material Delivery Date & Time', 'datetime-local', true]);
-      F.push(['deliveryStatus', 'Delivery Status (leave as is if blank)', 'select', false, dd.deliveryStatus]);
-      F.push(['deliveredByWhom', 'Delivered By Whom', 'select', true, dd.deliveredByWhom]);
+      F.push(['materialDeliveryDateTime', 'Delivery Date & Time', 'datetime-local', true]);
+      F.push(['deliveryStatus', 'Delivery Status', 'select', false, dd.deliveryStatus]);
+      F.push(['deliveredByWhom', 'Delivered By', 'select', true, dd.deliveredByWhom]);
       F.push(['deliveredByDetail', 'Porter / Company / Transport details', 'text', false]);
-      F.push(['cartage', 'Cartage (In Rupees)', 'number', false]);
+      F.push(['cartage', 'Cartage (Rs)', 'number', false]);
     }
     if (shopDispatch || kind === 'receiving') {
       F.push(['dateOfReceiving', 'Date of Receiving', 'date', kind === 'receiving']);
       F.push(['paymentStatus', 'Mat. Payment Status', 'select', kind === 'receiving', dd.paymentStatus]);
-      F.push(['amountReceived', 'Amount Received (same for every ticked order; blank keeps each order\'s own)', 'number', false]);
+      F.push(['amountReceived', 'Amount Received (Rs)', 'number', false]);
     }
-    var back = el_('div', { class: 'ov-modal', style: 'z-index:2500;' });
-    var box = el_('div', { class: 'ov-modal-box', role: 'dialog', 'aria-modal': 'true' });
+    var photoDefs = [];
+    if (PHOTOS_ENABLED) {
+      if (kind === 'dispatch') photoDefs.push(['Photo', 'Dispatch photo', 'dispatch']);
+      if (shopDispatch || kind === 'receiving') photoDefs.push(['RecvPhoto', 'Receiving photo', 'receiving']);
+    }
+    var back = el_('div', { class: 'ov-modal', style: 'z-index:2500;align-items:flex-start;overflow:auto;' });
+    var box = el_('div', { class: 'ov-modal-box', role: 'dialog', 'aria-modal': 'true', style: 'width:900px;margin:20px auto;' });
     var head = el_('div', { class: 'ov-modal-head' });
-    head.appendChild(el_('strong', null, 'Mark done - ' + slNos.length + ' order' + (slNos.length === 1 ? '' : 's')));
+    head.appendChild(el_('strong', null, 'Mark done - ' + slNos.length + ' order' + (slNos.length === 1 ? '' : 's') + ' (each has its own details and photos)'));
     var x = el_('button', { type: 'button', class: 'ov-x', 'aria-label': 'Close' }, '\u2715'); head.appendChild(x);
     box.appendChild(head);
-    var orders = slNos.map(function (sl) { var o = (kind === 'dispatch' ? DISPATCH_ORDERS : RECEIVING_ORDERS)[sl] || {}; return (o.dcNo || ('Sl ' + sl)); });
-    box.appendChild(el_('p', { style: 'font-size:12px;color:var(--muted);margin:0 0 6px;' }, 'DC / Inv no: ' + orders.join(', ')));
-    var grid = el_('div', { class: 'bulk-modal-grid' }), inputs = {}, wraps = {};
-    F.forEach(function (f) {
-      var wrap = el_('div', { class: 'field' });
-      wrap.appendChild(el_('label', null, f[1] + (f[3] ? ' *' : '')));
+
+    function makeInput(f) {
       var inp;
       if (f[2] === 'select') {
         inp = el_('select');
@@ -2731,63 +2741,120 @@
         if (f[2] === 'number') { inp.min = '0'; inp.step = '1'; }
         if (f[2] === 'text') inp.maxLength = 200;
       }
-      inputs[f[0]] = inp; wraps[f[0]] = wrap; wrap.appendChild(inp); grid.appendChild(wrap);
+      return inp;
+    }
+    function toggleDetail(sec) {
+      if (!sec.inputs.deliveredByDetail) return;
+      var on = needsDeliveredByDetail_(sec.inputs.deliveredByWhom.value);
+      sec.wraps.deliveredByDetail.style.display = on ? '' : 'none';
+      if (!on) sec.inputs.deliveredByDetail.value = '';
+    }
+
+    // shared row: convenience only
+    var shared = { inputs: {}, wraps: {} };
+    var sharedBox = el_('div', { style: 'background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;' });
+    sharedBox.appendChild(el_('div', { style: 'font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px;' }, 'Same value for every order (optional) - fills the boxes below, which you can still change one by one'));
+    var sharedGrid = el_('div', { class: 'bulk-modal-grid' });
+    F.forEach(function (f) {
+      var wrap = el_('div', { class: 'field' }); wrap.appendChild(el_('label', null, f[1]));
+      var inp = makeInput(f); shared.inputs[f[0]] = inp; shared.wraps[f[0]] = wrap; wrap.appendChild(inp); sharedGrid.appendChild(wrap);
     });
-    if (inputs.materialDeliveryDateTime) inputs.materialDeliveryDateTime.value = isoNowDateTime_();
-    if (inputs.dateOfReceiving) inputs.dateOfReceiving.value = isoToday_();
-    if (inputs.deliveredByDetail) {
-      wraps.deliveredByDetail.style.display = 'none';
-      inputs.deliveredByWhom.onchange = function () {
-        var on = needsDeliveredByDetail_(inputs.deliveredByWhom.value);
-        wraps.deliveredByDetail.style.display = on ? '' : 'none';
-        if (!on) inputs.deliveredByDetail.value = '';
-      };
+    if (shared.inputs.deliveredByDetail) {
+      shared.wraps.deliveredByDetail.style.display = 'none';
+      shared.inputs.deliveredByWhom.onchange = function () { toggleDetail(shared); };
     }
-    box.appendChild(grid);
-    // photos: chosen once, saved on every ticked order (one attachment per order)
-    var photoSlots = [];
-    if (PHOTOS_ENABLED) {
-      if (kind === 'dispatch') photoSlots.push(['bulkPhoto', 'Dispatch photo (added to every ticked order)', 'dispatch']);
-      if (shopDispatch || kind === 'receiving') photoSlots.push(['bulkRecvPhoto', 'Receiving photo (added to every ticked order)', 'receiving']);
-      photoSlots.forEach(function (ps) { box.appendChild(el_('div', { class: 'photo-box', id: ps[0] + '_box', style: 'margin-top:8px;' })); });
-    }
+    sharedBox.appendChild(sharedGrid);
+    var fillAll = el_('button', { type: 'button', class: 'small' }, 'Fill all orders with these');
+    sharedBox.appendChild(fillAll);
+    box.appendChild(sharedBox);
+
+    var sections = slNos.map(function (sl) {
+      var o = store[sl] || {};
+      var sec = { sl: sl, inputs: {}, wraps: {} };
+      var card = el_('div', { style: 'border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;' });
+      card.appendChild(el_('div', { style: 'font-weight:700;color:var(--navy);margin-bottom:8px;' },
+        'Sl ' + sl + '  \u00B7  DC / Inv ' + (o.dcNo || '-') + (o.shippingLocation ? '  \u00B7  ' + o.shippingLocation : '')));
+      var grid = el_('div', { class: 'bulk-modal-grid' });
+      F.forEach(function (f) {
+        var wrap = el_('div', { class: 'field' }); wrap.appendChild(el_('label', null, f[1] + (f[3] ? ' *' : '')));
+        var inp = makeInput(f); sec.inputs[f[0]] = inp; sec.wraps[f[0]] = wrap; wrap.appendChild(inp); grid.appendChild(wrap);
+      });
+      card.appendChild(grid);
+      // start from what the order already holds
+      if (sec.inputs.materialDeliveryDateTime) sec.inputs.materialDeliveryDateTime.value = (o.materialDeliveryDateTime || isoNowDateTime_()).slice(0, 16);
+      if (sec.inputs.deliveredByWhom) sec.inputs.deliveredByWhom.value = o.deliveredByWhom || '';
+      if (sec.inputs.deliveredByDetail) sec.inputs.deliveredByDetail.value = o.deliveredByDetail || '';
+      if (sec.inputs.cartage) sec.inputs.cartage.value = o.cartage || '';
+      if (sec.inputs.dateOfReceiving) sec.inputs.dateOfReceiving.value = o.dateOfReceiving || isoToday_();
+      if (sec.inputs.paymentStatus) sec.inputs.paymentStatus.value = o.paymentStatus || '';
+      if (sec.inputs.amountReceived) sec.inputs.amountReceived.value = o.amountReceivedRaw || '';
+      if (sec.inputs.deliveredByDetail) {
+        sec.inputs.deliveredByWhom.onchange = function () { toggleDetail(sec); };
+        sec.wraps.deliveredByDetail.style.display = needsDeliveredByDetail_(sec.inputs.deliveredByWhom.value) ? '' : 'none';
+      }
+      sec.photos = photoDefs.map(function (pd) {
+        var prefix = 'bulk' + pd[0] + '_' + sl;
+        card.appendChild(el_('div', { class: 'photo-box', id: prefix + '_box', style: 'margin-top:8px;' }));
+        return { prefix: prefix, label: pd[1], kind: pd[2] };
+      });
+      box.appendChild(card);
+      return sec;
+    });
+
+    fillAll.onclick = function () {
+      F.forEach(function (f) {
+        var v = shared.inputs[f[0]].value;
+        if (v === '') return;
+        sections.forEach(function (sec) { sec.inputs[f[0]].value = v; });
+      });
+      sections.forEach(toggleDetail);
+    };
+
     var msg = el_('span', { class: 'status-msg' });
     var go = el_('button', { type: 'button', class: 'primary' }, 'Mark done');
     var cancel = el_('button', { type: 'button', class: 'ghost', style: 'margin-left:8px;' }, 'Cancel');
     var bar = el_('div', { class: 'actions' }); bar.appendChild(go); bar.appendChild(cancel); bar.appendChild(msg);
     box.appendChild(bar); back.appendChild(box); document.body.appendChild(back);
-    photoSlots.forEach(function (ps) { CAM_SHOTS[ps[0]] = []; photoBoxInit_(ps[0], ps[1]); });
+    sections.forEach(function (sec) { sec.photos.forEach(function (ph) { CAM_SHOTS[ph.prefix] = []; photoBoxInit_(ph.prefix, ph.label); }); });
     function shut() { if (back.parentNode) back.parentNode.removeChild(back); document.removeEventListener('keydown', onKey); }
     function onKey(e) { if (e.key === 'Escape') shut(); }
     document.addEventListener('keydown', onKey);
     x.onclick = shut; cancel.onclick = shut;
+
     go.onclick = function () {
-      var form = { viewAs: CURRENT_ROLE };
-      for (var i = 0; i < F.length; i++) {
-        var f = F[i], v = (inputs[f[0]].value || '').trim();
-        if (f[3] && !v) { msg.className = 'status-msg error'; msg.textContent = 'Please fill in: ' + f[1]; inputs[f[0]].focus(); return; }
-        form[f[0]] = v;
+      var items = [];
+      for (var s = 0; s < sections.length; s++) {
+        var sec = sections[s], form = { viewAs: CURRENT_ROLE }, tag = 'Sl ' + sec.sl;
+        for (var i = 0; i < F.length; i++) {
+          var f = F[i], v = (sec.inputs[f[0]].value || '').trim();
+          if (f[3] && !v) { msg.className = 'status-msg error'; msg.textContent = tag + ': please fill in ' + f[1]; sec.inputs[f[0]].focus(); return; }
+          form[f[0]] = v;
+        }
+        if (form.deliveredByWhom && needsDeliveredByDetail_(form.deliveredByWhom) && !form.deliveredByDetail) {
+          msg.className = 'status-msg error'; msg.textContent = tag + ': please fill in the details for "' + form.deliveredByWhom + '".'; return;
+        }
+        if (form.materialDeliveryDateTime) form.materialDeliveryDateTime = form.materialDeliveryDateTime.slice(0, 16);
+        items.push({ slNo: sec.sl, form: form });
       }
-      if (form.deliveredByWhom && needsDeliveredByDetail_(form.deliveredByWhom) && !form.deliveredByDetail) {
-        msg.className = 'status-msg error'; msg.textContent = 'Please fill in the details for "' + form.deliveredByWhom + '".'; return;
-      }
-      if (form.materialDeliveryDateTime) form.materialDeliveryDateTime = form.materialDeliveryDateTime.slice(0, 16);
-      if (kind === 'dispatch' && !shopDispatch) { delete form.dateOfReceiving; }
-      if (!confirm('Save these details on ' + slNos.length + ' order' + (slNos.length === 1 ? '' : 's') + '? They are all saved together, or none if any one is refused.')) return;
+      if (!confirm('Save these details on ' + items.length + ' order' + (items.length === 1 ? '' : 's') + '? They are all saved together, or none if any one is refused.')) return;
       go.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
       VT.run.withSuccessHandler(function (res) {
         go.disabled = false;
         if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; return; }
-        msg.textContent = photoSlots.length ? 'Saved. Adding photos...' : 'Saved.';
-        photoSlots.reduce(function (chain, ps) {
-          return chain.then(function (acc) { return photoUploadAll_(ps[0], slNos, ps[2]).then(function (p) { return acc.concat(p); }); });
+        var uploads = [];
+        sections.forEach(function (sec) { sec.photos.forEach(function (ph) { uploads.push([sec.sl, ph]); }); });
+        msg.textContent = uploads.length ? 'Saved. Adding photos...' : 'Saved.';
+        uploads.reduce(function (chain, u) {
+          return chain.then(function (acc) {
+            return photoUploadAll_(u[1].prefix, u[0], u[1].kind).then(function (p) { return acc.concat(p.map(function (m) { return 'Sl ' + u[0] + ': ' + m; })); });
+          });
         }, Promise.resolve([])).then(function (problems) {
           if (kind === 'dispatch') initDispatch(); else initReceiving();
-          if (problems.length) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Orders saved, but some photos did not upload: ' + problems[0]; return; }
+          if (problems.length) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Orders saved, but some photos did not upload - ' + problems[0]; return; }
           shut();
         });
       }).withFailureHandler(function (err) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
-        [kind === 'dispatch' ? 'bulkDispatch' : 'bulkReceiving'](CURRENT_TOKEN, slNos, form);
+        [kind === 'dispatch' ? 'bulkDispatch' : 'bulkReceiving'](CURRENT_TOKEN, items);
     };
   }
 

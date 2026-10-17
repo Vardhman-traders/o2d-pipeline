@@ -389,7 +389,27 @@ async function renderOrderChanges(panel) {
   };
   [q, screen, from, to].forEach((el) => el.addEventListener('change', load));
   q.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') load(); });
+  // wrong-series check: an invoice number typed in the challan field, or the reverse (judged by the size of the number)
+  const checkOut = h('div', { id: 'numCheckOut' });
+  const runCheck = async () => {
+    checkOut.replaceChildren(h('p', { class: 'note', text: 'Checking…' }));
+    let d;
+    try { d = await api('/admin/number-check'); } catch (ex) { return checkOut.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+    if (!d.items.length) return checkOut.replaceChildren(h('p', { class: 'note', text: '✅ No bill number looks out of place.' }));
+    const fix = (it) => formDialog({ title: `Fix the number on Sl ${it.slNo}`, submitLabel: 'Save', fields: [
+      { name: 'dcNo', label: `DC / Inv No (now ${it.dcNo}, ${it.series})`, value: it.dcNo, hint: 'The change is saved on the order and shown in the change log with your name. To move it to the other series, change its Submission type in All orders > Edit.' }],
+      onSubmit: async (v) => { await api(`/o2d/orders/${it.slNo}/admin`, { method: 'PUT', body: { dcNo: v.dcNo } }); runCheck(); } });
+    checkOut.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { id: 'numCheckTable' },
+      h('thead', {}, h('tr', {}, ['Sl', 'Order date', 'Number', 'Series', 'Submission type', 'Why it looks wrong', ''].map((t) => h('th', { text: t })))),
+      h('tbody', {}, d.items.map((it) => h('tr', {}, h('td', { text: it.slNo }), h('td', { text: it.date }), h('td', { text: it.dcNo }), h('td', { text: it.series }),
+        h('td', { text: it.type || '' }), h('td', { text: it.reason, style: 'max-width:420px' }),
+        h('td', {}, h('button', { class: 'btn small', text: 'Fix number', onclick: () => fix(it) }))))))));
+  };
   panel.replaceChildren(
+    h('div', { class: 'card', style: 'margin-bottom:16px' },
+      h('h3', { style: 'font-size:15px;margin-bottom:6px', text: 'Wrong bill series check' }),
+      h('p', { class: 'note', text: 'Looks for a number that is out of scale for its series: a Challan far above that day’s others (probably an Invoice number), or an Invoice far below the year’s usual size (probably a Challan number). Equal-sized numbers typed in the wrong field cannot be detected.' }),
+      h('div', { class: 'row', style: 'margin:8px 0' }, h('button', { class: 'btn primary', id: 'numCheckBtn', text: 'Check now', onclick: runCheck })), checkOut),
     h('p', { class: 'note', text: 'Read-only. Every change made on an order, in time order: when, who, what, and the IP address it came from. Changes made before IP tracking show “–”.' }),
     h('div', { class: 'row', style: 'margin:12px 0;gap:10px;flex-wrap:wrap' }, q, screen, h('label', { class: 'note', text: 'From ' }, from), h('label', { class: 'note', text: 'To ' }, to),
       h('button', { class: 'btn primary', text: 'Show', onclick: load })), out);
@@ -542,9 +562,9 @@ async function renderAccessRequests(panel) {
 // what the picker shows: one chip per module, its uploads underneath
 const IMPORT_GROUPS = [
   { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
-  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries'], ['parties', 'Parties']] },
+  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payments dashboard import'], ['parties', 'Parties']] },
   { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks'], ['checklists', 'Checklists']] },
-  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries'], ['purchases_pf', 'Purchase (Payments layout)']] },
+  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase dashboard import']] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses']] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
 ].map((g) => ({ ...g, items: g.items.map(([id, label]) => ({ id, label })) }));
@@ -555,10 +575,10 @@ const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment en
 const IMPORT_TEMPLATE_NOTE = {
   orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
-  payments: 'The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  payments: 'Payments entry format: Date, Type, Company, Party, Mode, Amount, Account Name, Invoice No, Remarks. The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   parties: 'One column: the party name. This is the list the Payments entry form suggests from; names already in it are rejected as duplicates. Rows marked EXAMPLE are ignored.',
   tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
-  purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  purchases: 'Purchase format: Site, Vendor, Material Received Date, Invoice Date, Invoice No, Invoice Amount, Remarks. The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   purchases_pf: 'The same columns as the Payments upload, plus Site (Godown or Shop). Party is the vendor; Type, Company, Mode and Account Name are ignored. Amount is the invoice amount in rupees as typed. Rows marked EXAMPLE are ignored.',
   decor_clients: 'The Excel template has dropdowns for Product Type and Status. Amounts are real rupees (not divided by 100). Upload clients first: payments and expenses refer to the client code (C001 ...). Rows marked EXAMPLE are ignored.',
   decor_payments: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',

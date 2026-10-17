@@ -2493,9 +2493,11 @@ function expExportExcel(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expLedgerRows()), 'Statement');
   XLSX.writeFile(wb, 'VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.xlsx');
 }
-// PDF of the whole page for the chosen dates: the scorecards, both summaries and the full statement, in the same way the VT Decor
-// statements are made (jsPDF + html2canvas, both in /static/vendor). The page's own HTML is copied, so it always matches the screen.
-function expExportPdf(){
+// PDF of the whole page for the chosen dates: the scorecards, both summaries and the full statement.
+// The page's own HTML is copied into a white sheet at the top-left of the document, drawn with html2canvas, and the picture is cut into A4
+// pages (at the bottom of a table row where possible) with jsPDF. (The first version parked the copy far off-screen at left:-20000px and let
+// jsPDF.html() draw it: html2canvas only paints what falls inside the page, so that produced blank pages.)
+async function expExportPdf(){
   if (!expLast) return;
   if (!(window.jspdf && window.jspdf.jsPDF && window.html2canvas)) { alert('The PDF tools did not load. Please refresh the page and try again.'); return; }
   const btn = document.getElementById('expPdfBtn'), label = btn.innerHTML;
@@ -2504,7 +2506,7 @@ function expExportPdf(){
   const filters = [sel('expCatFilter') && sel('expCatFilter') !== 'All categories' ? 'Category: ' + sel('expCatFilter') : '', document.getElementById('expKindFilter').value ? sel('expKindFilter') : '']
     .filter(Boolean).join(' · ');
   const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-20000px;top:0;width:1000px;background:#fff;padding:16px;';
+  host.style.cssText = 'position:absolute;left:0;top:0;width:1000px;background:#fff;color:#111;padding:16px;z-index:99999;box-sizing:border-box;';
   host.innerHTML = '<h2 style="margin:0 0 4px;font-size:20px">Vardhman Traders - Regular expenses</h2>' +
     '<div style="font-size:13px;color:#555;margin-bottom:14px">' + esc(expLast.summary.account) + ' · ' + esc(p.from) + ' to ' + esc(p.to) +
     (filters ? ' · ' + esc(filters) : '') + ' · generated ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST</div>';
@@ -2514,17 +2516,54 @@ function expExportPdf(){
   });
   host.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
   host.querySelectorAll('.action-link').forEach(e => e.remove());                         // Excel / CSV / Cancel links are not part of the report
-  host.querySelectorAll('#expTable thead tr, table thead tr').forEach(tr => { const last = tr.lastElementChild; if (last && !last.textContent.trim()) last.remove(); });
-  host.querySelectorAll('tbody tr').forEach(tr => { const last = tr.lastElementChild; if (last && tr.children.length === 10 && !last.textContent.trim()) last.remove(); });
-  host.querySelectorAll('.table-wrap').forEach(e => { e.style.overflow = 'visible'; e.style.maxHeight = 'none'; });
-  host.querySelectorAll('.cards').forEach(e => { e.style.flexWrap = 'wrap'; });
+  host.querySelectorAll('table').forEach(t => {
+    const head = t.querySelector('thead tr');
+    if (head && head.children.length === 10 && !head.lastElementChild.textContent.trim()) {        // the statement's empty "Cancel" column
+      t.querySelectorAll('tr').forEach(tr => { if (tr.children.length === 10) tr.lastElementChild.remove(); });
+    }
+  });
+  host.querySelectorAll('.table-wrap').forEach(e => { e.style.overflow = 'visible'; e.style.maxHeight = 'none'; e.style.height = 'auto'; });
   document.body.appendChild(host);
-  const done = () => { host.remove(); btn.disabled = false; btn.innerHTML = label; };
+  const scrollY = window.scrollY;
+  window.scrollTo(0, 0);
+  const done = () => { host.remove(); window.scrollTo(0, scrollY); btn.disabled = false; btn.innerHTML = label; };
   try {
-    const doc = new window.jspdf.jsPDF('p', 'pt', 'a4');
-    doc.html(host, { x: 16, y: 16, width: 563, windowWidth: 1000, autoPaging: 'text', html2canvas: { scale: 0.56, useCORS: true },
-      callback: function(d){ d.save('VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.pdf'); done(); } });
-  } catch (e) { done(); alert('Could not make the PDF: ' + e.message); }
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await new Promise(r => setTimeout(r, 60));                                           // let the browser lay the copy out
+    const W = host.offsetWidth, H = host.scrollHeight;
+    const hostTop = host.getBoundingClientRect().top;
+    // places where a page may end without cutting through a line of text: the bottom of each table row and each block
+    const stops = [];
+    host.querySelectorAll('tr, .card, .list-panel, h2, h3').forEach(e => { stops.push(e.getBoundingClientRect().bottom - hostTop); });
+    stops.sort((a, b) => a - b);
+    const scale = Math.max(0.5, Math.min(2, 30000 / H));                                // browsers cap a canvas at roughly 32,000 px
+    const canvas = await window.html2canvas(host, { scale: scale, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      width: W, height: H, windowWidth: W, windowHeight: H, scrollX: 0, scrollY: 0, x: 0, y: 0 });
+    if (!canvas.width || !canvas.height) throw new Error('nothing was drawn');
+    const pdf = new window.jspdf.jsPDF('p', 'pt', 'a4');
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 20;
+    const k = (pw - 2 * m) / W;                                                         // page points per page pixel
+    const pageCss = (ph - 2 * m) / k;                                                   // page height in page pixels
+    let y = 0, first = true;
+    while (y < H - 1) {
+      let end = Math.min(H, y + pageCss);
+      if (end < H) {
+        const fit = stops.filter(v => v > y + pageCss * 0.4 && v <= end);
+        if (fit.length) end = fit[fit.length - 1];
+      }
+      const sy = Math.round(y * scale), sh = Math.max(1, Math.round((end - y) * scale));
+      const part = document.createElement('canvas');
+      part.width = canvas.width; part.height = sh;
+      const ctx = part.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, part.width, part.height);
+      ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+      if (!first) pdf.addPage();
+      pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', m, m, pw - 2 * m, (end - y) * k);
+      first = false; y = end;
+    }
+    pdf.save('VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.pdf');
+  } catch (e) { alert('Could not make the PDF: ' + (e && e.message ? e.message : e)); }
+  done();
 }
 function expExportCsv(){
   if (!expLast) return;

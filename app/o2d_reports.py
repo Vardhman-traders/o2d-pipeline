@@ -55,8 +55,8 @@ _RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No"
 _DISPATCH_COLS = ORDER_COLS + [("Ready by", "ready_by", 24, "L"), ("Delivery status", "delivery_status", 24, "L")]
 def _received_report(side: str, label: str, mode: str, color: str) -> dict:
     side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_SIDE), (_CASH if mode == "cash" else f"NOT ({_CASH})")
-    what = "paid in cash" if mode == "cash" else "paid by other modes (not cash)"
-    return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Other modes'})",
+    what = "paid in cash" if mode == "cash" else "paid by any mode except cash (bank + other)"
+    return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Not cash - bank + other'})",
             "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED,
             "sections": [(f"{label} orders received, {what}", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {cash_sql}",
                           _RECEIVED_COLS, True)]}
