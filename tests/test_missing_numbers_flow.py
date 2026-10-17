@@ -90,8 +90,10 @@ def test_an_either_type_is_tagged_to_one_series_chosen_on_the_form(client, db_co
     assert dup1["success"] is False and "already used" in dup1["message"]
     dup2 = client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "challan"}, headers=shop).json()
     assert dup2["success"] is False and "already used" in dup2["message"]
-    # ... but the same digits in the OTHER series are a different number
-    assert client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "invoice"}, headers=shop).json()["success"] is True
+    # ... but the same digits in the OTHER series are a different number (an admin enters it: a small invoice number among 7000s is
+    # otherwise refused as "looks like a challan number")
+    admin = login(client, db_conn, "admin")
+    assert client.post("/o2d/orders", json={**body, "dcNo": "4", "billSeries": "invoice"}, headers=admin).json()["success"] is True
     # the form hint follows the pick
     q = {"type_name": "Challan+Invoice", "date": today.isoformat(), "number": "5"}
     assert client.get("/o2d/doc-check", params=q, headers=shop).json()["needsChoice"] is True
