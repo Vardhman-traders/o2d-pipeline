@@ -311,6 +311,50 @@ def insert_purchases(cur, normalised: list[dict], batch_id: int, admin: dict) ->
                      n["amount"], n["remarks"], admin["user_key"], batch_id))
 
 
+# ------------------------------------------------------------------ purchase, in the Payments sheet layout
+# The same column layout as the Payments upload (Date, Type, Company, Party, Mode, Amount, Account Name, Invoice No, Remarks) plus Site, so one
+# sheet format serves both dashboards. Party is the vendor; Type / Company / Mode / Account Name have no home on a purchase entry and are ignored.
+PURCHASE_PF_COLUMNS = ["Date", "Type", "Company", "Party", "Mode", "Amount", "Account Name", "Invoice No", "Remarks", "Site"]
+PURCHASE_PF_REQUIRED = ["Date", "Site", "Party", "Amount"]
+PURCHASE_PF_EXAMPLES = [
+    ["EXAMPLE 15-09-2026", "", "", "Asian Paints Ltd", "", "86500", "", "AP-4471", "Primer, 40 drums", "Godown"],
+    ["EXAMPLE 16-09-2026", "", "", "Sharma Hardware", "", "12400", "", "SH-221", "", "Shop"]]
+PURCHASE_PF_HELP = ("Purchase entries in the same layout as the Payments upload, plus a Site column. Date, Site (Godown or Shop), Party "
+                    "(the vendor) and Amount are required. Date: dd-mm-yyyy; it is saved as both the material-received date and the invoice date. "
+                    "Amount is the invoice amount in rupees as typed (NOT divided by 100, unlike a Payments upload). Type, Company, Mode and Account Name "
+                    "are not part of a purchase entry and are ignored. A Party that is new is added to the vendor list, waiting for an admin to review it. "
+                    "An entry with the same site, vendor, invoice no and date as an existing one is rejected as a duplicate. Rows marked EXAMPLE are ignored.")
+_PF_NAMES = (("Vendor", "Party"), ("Invoice Amount", "Amount"), ("Material Received Date", "Date"), ("Invoice Date", "Date"))
+
+
+def purchase_pf_lists() -> dict:
+    return {"Site": _list_names("dim_purchase_site", "site_key", "site_name"),
+            "Party": _list_names("dim_party", "party_key", "party_name", "WHERE party_kind = 'vendor'")}
+
+
+def validate_purchases_pf(rows: list[dict]) -> dict:
+    translated = []
+    for r in rows:
+        g = _row_getter(r)
+        translated.append({"_row": r.get("_row"), "Site": g("Site"), "Vendor": g("Party"), "Material Received Date": g("Date"),
+                           "Invoice Date": g("Date"), "Invoice No": g("Invoice No"), "Invoice Amount": g("Amount"), "Remarks": g("Remarks")})
+    inner = validate_purchases(translated)
+    bad = {e["row"]: e["error"] for e in inner["errors"]}
+    good = {t.get("_row"): n for t, n in zip(inner["rows"], inner["_normalised"])}
+    results = []
+    for r in rows:
+        g = _row_getter(r)
+        err = bad.get(r.get("_row"))
+        if err:
+            for old, new_name in _PF_NAMES:
+                err = err.replace(old, new_name)
+        missing = [f"{c} is required" for c in ("Date", "Amount") if not g(c)]
+        if missing and not err:
+            err = "; ".join(missing)
+        results.append((r, err, None if err else good.get(r.get("_row"))))
+    return _report(rows, results)
+
+
 # table each entity writes to (used by undo) and the screen label
 ENTITIES = {
     "payments": {"label": "payment entries", "columns": PAYMENT_COLUMNS, "required": PAYMENT_REQUIRED, "examples": PAYMENT_EXAMPLES,
@@ -322,6 +366,9 @@ ENTITIES = {
     "purchases": {"label": "purchase entries", "columns": PURCHASE_COLUMNS, "required": PURCHASE_REQUIRED, "examples": PURCHASE_EXAMPLES,
                   "help": PURCHASE_HELP, "validate": validate_purchases, "insert": insert_purchases, "lists": purchase_lists,
                   "table": "fact_purchase_entry", "edited": "updated_at IS NOT NULL"},
+    "purchases_pf": {"label": "purchase entries (Payments layout)", "columns": PURCHASE_PF_COLUMNS, "required": PURCHASE_PF_REQUIRED,
+                     "examples": PURCHASE_PF_EXAMPLES, "help": PURCHASE_PF_HELP, "validate": validate_purchases_pf,
+                     "insert": insert_purchases, "lists": purchase_pf_lists, "table": "fact_purchase_entry", "edited": "updated_at IS NOT NULL"},
 }
 
 

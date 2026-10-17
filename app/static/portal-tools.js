@@ -337,7 +337,7 @@ async function openOrderDetail(slNo) {
       h('div', { class: 'tl-body' },
         h('div', { class: 'tl-head' }, h('strong', { text: e.title }), e.reconstructed ? h('span', { class: 'pill warn', text: 'rebuilt' }) : null),
         h('div', { class: 'tl-when', text: e.at ? fmtExact(e.at) + ' IST' : 'Time not recorded' }),
-        h('div', { class: 'tl-by', text: e.by ? 'By ' + e.by + (e.role ? ' (' + roleLabel(e.role) + ')' : '') : 'Person not recorded' }),
+        h('div', { class: 'tl-by', text: (e.by ? 'By ' + e.by + (e.role ? ' (' + roleLabel(e.role) + ')' : '') : 'Person not recorded') + (e.ip ? '  ·  IP ' + e.ip : '') }),
         e.changes.length ? h('ul', { class: 'tl-changes' }, e.changes.map((c) => h('li', {},
           h('span', { class: 'tl-field', text: c.field + ': ' }), c.from ? h('span', { class: 'tl-from', text: c.from }) : h('span', { class: 'tl-none', text: 'empty' }),
           ' → ', h('strong', { text: c.to == null ? 'cleared' : c.to })))) : null)));
@@ -350,6 +350,50 @@ async function openOrderDetail(slNo) {
       h('ol', { class: 'timeline', id: 'orderTimeline' }, events));
     showOrderPhotos(slNo, body);
   } catch (ex) { body.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+}
+
+// ------------------------------------------------------------------ Setup > Order changes (read-only change log)
+// Every recorded change on an order, oldest first inside each order: when (IST), who, what changed, from which IP. Admin only.
+async function renderOrderChanges(panel) {
+  const q = h('input', { type: 'search', id: 'chgQuery', placeholder: 'Order (S) number or DC / invoice no', 'aria-label': 'Order number', value: S.chgQ || '' });
+  const screen = h('select', { id: 'chgScreen', 'aria-label': 'Dashboard / screen' }, h('option', { value: '', text: 'All dashboards' }));
+  const from = h('input', { type: 'date', id: 'chgFrom', 'aria-label': 'From date' }), to = h('input', { type: 'date', id: 'chgTo', 'aria-label': 'To date' });
+  const out = h('div', { id: 'chgResults' });
+  let loaded = false;
+  const load = async () => {
+    S.chgQ = q.value;
+    out.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
+    const qs = new URLSearchParams();
+    if (q.value.trim()) qs.set('q', q.value.trim());
+    if (screen.value) qs.set('screen', screen.value);
+    if (from.value) qs.set('date_from', from.value);
+    if (to.value) qs.set('date_to', to.value);
+    let d;
+    try { d = await api('/admin/order-events?' + qs); } catch (ex) { return out.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+    if (!loaded) { d.screens.forEach((x) => screen.append(h('option', { value: x.id, text: x.label }))); loaded = true; }
+    if (!d.events.length) return out.replaceChildren(h('div', { class: 'card empty', text: 'No recorded changes match.' }));
+    const groups = new Map();
+    d.events.forEach((e) => { if (!groups.has(e.slNo)) groups.set(e.slNo, []); groups.get(e.slNo).push(e); });
+    const what = (e) => (e.changes.length ? h('ul', { class: 'tl-changes' }, e.changes.map((c) => h('li', {},
+      h('span', { class: 'tl-field', text: c.field + ': ' }), c.from ? h('span', { class: 'tl-from', text: c.from }) : h('span', { class: 'tl-none', text: 'empty' }),
+      ' → ', h('strong', { text: c.to == null ? 'cleared' : c.to })))) : null);
+    out.replaceChildren(...[...groups].map(([sl, evs]) => h('div', { class: 'card', style: 'margin-bottom:14px' },
+      h('h3', { style: 'font-size:15px;margin-bottom:8px', text: `Order ${evs[0].dcNo || sl}  ·  Sl ${sl}` }),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'change-log' },
+        h('thead', {}, h('tr', {}, ['Date & time (IST)', 'Dashboard', 'Changed by', 'What changed', 'IP address'].map((t) => h('th', { text: t })))),
+        h('tbody', {}, evs.map((e) => h('tr', {},
+          h('td', { text: fmtExact(e.at) }), h('td', { text: (d.screens.find((x) => x.id === e.type) || {}).label || e.type }),
+          h('td', { text: (e.by || '–') + (e.role ? ' (' + roleLabel(e.role) + ')' : '') }),
+          h('td', {}, h('strong', { text: e.title }), what(e)), h('td', { text: e.ip || '–' })))))))),
+      d.truncated ? h('p', { class: 'note', text: 'Showing the first changes only - narrow the order number, dashboard or dates.' }) : null);
+  };
+  [q, screen, from, to].forEach((el) => el.addEventListener('change', load));
+  q.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') load(); });
+  panel.replaceChildren(
+    h('p', { class: 'note', text: 'Read-only. Every change made on an order, in time order: when, who, what, and the IP address it came from. Changes made before IP tracking show “–”.' }),
+    h('div', { class: 'row', style: 'margin:12px 0;gap:10px;flex-wrap:wrap' }, q, screen, h('label', { class: 'note', text: 'From ' }, from), h('label', { class: 'note', text: 'To ' }, to),
+      h('button', { class: 'btn primary', text: 'Show', onclick: load })), out);
+  load();
 }
 
 // The dispatch and receiving photos taken on the O2D screens, shown on the order's details.
@@ -500,12 +544,12 @@ const IMPORT_GROUPS = [
   { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
   { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payment entries'], ['parties', 'Parties']] },
   { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks'], ['checklists', 'Checklists']] },
-  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries']] },
+  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase entries'], ['purchases_pf', 'Purchase (Payments layout)']] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses']] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
 ].map((g) => ({ ...g, items: g.items.map(([id, label]) => ({ id, label })) }));
 const IMPORT_KINDS = IMPORT_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label]));
-const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', parties: 'payment parties', tasks: 'tasks', purchases: 'purchase entries',
+const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', parties: 'payment parties', tasks: 'tasks', purchases: 'purchase entries', purchases_pf: 'purchase entries (Payments layout)',
   decor_clients: 'VT Decor clients', decor_payments: 'VT Decor payments', decor_expenses: 'VT Decor expenses',
   att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances', checklists: 'checklists' };
 const IMPORT_TEMPLATE_NOTE = {
@@ -515,6 +559,7 @@ const IMPORT_TEMPLATE_NOTE = {
   parties: 'One column: the party name. This is the list the Payments entry form suggests from; names already in it are rejected as duplicates. Rows marked EXAMPLE are ignored.',
   tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
   purchases: 'The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
+  purchases_pf: 'The same columns as the Payments upload, plus Site (Godown or Shop). Party is the vendor; Type, Company, Mode and Account Name are ignored. Amount is the invoice amount in rupees as typed. Rows marked EXAMPLE are ignored.',
   decor_clients: 'The Excel template has dropdowns for Product Type and Status. Amounts are real rupees (not divided by 100). Upload clients first: payments and expenses refer to the client code (C001 ...). Rows marked EXAMPLE are ignored.',
   decor_payments: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',
   decor_expenses: 'Needs the client code (C001 ...) of a client that already exists. Amounts are real rupees (not divided by 100). Rows marked EXAMPLE are ignored.',

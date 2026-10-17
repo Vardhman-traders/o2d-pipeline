@@ -12,7 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import access, attachments, auth, config, db, doc_numbers, roles, timeline, whatsapp
 
@@ -33,6 +33,7 @@ def _need_edit(user, *pages: str):
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 ADMIN_ONLY = auth.require_roles("admin")
 MAX_ROWS = 200
+MAX_BULK = 100       # most orders one "Mark done" may save at once
 UNKNOWN_VALUE = "Unknown dropdown value selected. Please refresh and try again."
 
 # ------------------------------------------------------------------ helpers
@@ -80,7 +81,7 @@ def map_order(o: dict) -> dict:
         "materialDeliveryDateTime": _iso_datetime(o["material_delivery_datetime"]),
         "dateOfReceiving": _iso_date(o["date_of_receiving"]), "paymentStatus": o["payment_status"] or "",
         "amountReceived": _num(config.shown_amount(o["amount_received"], o.get("amount_effect"))),   # shown value (entered / 100, minus for a sales return)
-        "dispatchRoute": o.get("dispatch_route") or "",
+        "dispatchRoute": o.get("dispatch_route") or "", "amountEffect": o.get("amount_effect") or "",
         "amountReceivedRaw": _num(o["amount_received"]),                      # exactly as entered: what the edit forms start from
         "lastUpdatedAt": o["last_updated_at"].isoformat() if o.get("last_updated_at") else "",
         "deliveredByWhom": o["delivered_by"] or "",
@@ -187,9 +188,13 @@ def _screen_orders(user, screen: str) -> list[dict]:
     """The orders one screen lists (roles.screen_filter), chosen in the database so a long history can never push an open order out."""
     from . import main
     vis_sql, vis_params = roles.visibility(user)
+    # Open orders first (newest logged first), then closed ones, most recently closed first. With the 11 PM clean-up off (the default) the
+    # screens' SQL also matches every closed order ever, so ordering by creation date alone let the 500-row cap push an OLD order out of the
+    # list the moment it was completed: it left "Ready" but never showed in the Completed box.
+    order = (f"ORDER BY CASE WHEN {roles._CLOSED} THEN 1 ELSE 0 END, "
+             f"CASE WHEN {roles._CLOSED} THEN o.last_updated_at ELSE o.timestamp_created END DESC, o.order_key DESC LIMIT %s")
     with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.screen_filter(screen)} "
-                    "ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s", vis_params + [500])
+        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.screen_filter(screen)} " + order, vis_params + [500])
         return [map_order(r) for r in cur.fetchall()]
 
 
@@ -250,7 +255,11 @@ def awaiting_godown(o: dict) -> bool:
 
 
 def under_processing(o: dict) -> bool:
-    return _side(o) is not None and not _delivered(o)
+    """The Godown dashboard's "Under Processing": the godown has set a status that keeps the order with the godown (route "stays": Processing,
+    Delivery for NextDay ...) and it is not dispatched. A status that sends the order on - to Godown Dispatch (Godown to Dispatch, Sent to the
+    Company), to the shop (Dispatch for Shop, Cancelled) or a sales return (amount subtracted) - means it has left the godown's work, so it
+    is removed from this box (it shows on the screen it was sent to)."""
+    return _side(o) == "stay" and o.get("amountEffect") != "subtract" and not _delivered(o)
 
 
 def is_closed(o: dict) -> bool:
@@ -312,7 +321,8 @@ def _shop_box_orders(user) -> list[dict]:
     vis_sql, vis_params = roles.visibility(user)
     open_or_recent = (f"((NOT {roles._CLOSED} AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled') OR {roles.since_cleanup_sql()})")
     with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {open_or_recent} ORDER BY o.timestamp_created DESC, o.order_key DESC LIMIT %s",
+        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {open_or_recent} "
+                    f"ORDER BY CASE WHEN {roles._CLOSED} THEN 1 ELSE 0 END, o.timestamp_created DESC, o.order_key DESC LIMIT %s",
                     vis_params + [500])
         return [map_order(r) for r in cur.fetchall()]
 
@@ -383,14 +393,17 @@ def admin_orders(date_from: date | None = None, date_to: date | None = None,
 
 STAGES = ("Awaiting godown", "Awaiting dispatch", "Awaiting receiving", "Closed", "Cancelled")
 UNDER_PROCESSING = "Under processing (godown)"   # not a stage: the Godown dashboard's Under Processing, selectable like one
-CARD_COLUMNS = ("sl_no, dc_inv_no, order_date, stage, created_by, amount_received, submission_type, channel, "
+# same rule as under_processing() above, in SQL on v_orders_archive (alias v): a status that keeps the order with the godown, not yet dispatched
+UNDER_PROCESSING_SQL = ("(v.material_delivery_datetime IS NULL AND EXISTS (SELECT 1 FROM dim_delivery_status uds "
+                        "WHERE uds.status_name = v.delivery_status AND uds.dispatch_route = 'none' AND uds.amount_effect IS NULL))")
+CARD_COLUMNS = ("order_key, sl_no, dc_inv_no, order_date, stage, created_by, amount_received, submission_type, channel, "
                 "shipping_location, detailed_remarks, delivery_status, payment_status, ready_by, colour_making_by, "
                 "delivered_by, cartage, material_delivery_datetime, date_of_receiving")
 
 
 def _card(r: dict) -> dict:
     iso = lambda v: v.isoformat() if v is not None else ""  # noqa: E731
-    return {"slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "orderDate": iso(r["order_date"]), "stage": r["stage"],
+    return {"slNo": r["sl_no"], "orderKey": r["order_key"], "dcNo": r["dc_inv_no"] or "", "orderDate": iso(r["order_date"]), "stage": r["stage"],
             "createdBy": r["created_by"] or "", "amount": float(r["amount_received"]) if r["amount_received"] is not None else None,
             "submissionType": r["submission_type"] or "", "channel": r["channel"] or "",
             "shippingLocation": r["shipping_location"] or "", "remarks": r["detailed_remarks"] or "",
@@ -410,13 +423,17 @@ def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=5
     f = admin_tools.filter_from_query(request)
     chosen = f.pop("stage", None)
     where, params = admin_tools.build_where(f)  # active orders only: archived ones live on the All orders page
+    find = (request.query_params.get("find") or "").strip()[:50]
+    if find:   # the board's search box: an S number (exact) or part of an invoice / DC number
+        where += " AND (v.sl_no::text = %s OR v.dc_inv_no ILIKE %s)"
+        params = params + [find, f"%{find}%"]
     cols = ", ".join("v." + c.strip() for c in CARD_COLUMNS.split(","))
     with db.cursor() as cur:
         cur.execute(f"SELECT v.stage, count(*) AS n {admin_tools.ORDERS_FROM} WHERE {where} GROUP BY v.stage", params)
         counts = {row["stage"]: row["n"] for row in cur.fetchall()}
         # the Godown dashboard's "Under Processing": a delivery status is set and the order has not been dispatched yet
         cur.execute(f"SELECT count(*) AS n {admin_tools.ORDERS_FROM} WHERE {where} "
-                    "AND v.delivery_status IS NOT NULL AND v.material_delivery_datetime IS NULL", params)
+                    f"AND {UNDER_PROCESSING_SQL}", params)
         under_processing_count = cur.fetchone()["n"]
         columns = {}
         for stage in STAGES:
@@ -426,9 +443,13 @@ def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=5
                         f"ORDER BY v.timestamp_created DESC LIMIT %s", params + [stage, per_stage])
             columns[stage] = [_card(r) for r in cur.fetchall()]
         if chosen and UNDER_PROCESSING in chosen:       # the Under processing scorecard was clicked: its own column
-            cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND v.delivery_status IS NOT NULL "
-                        "AND v.material_delivery_datetime IS NULL ORDER BY v.timestamp_created DESC LIMIT %s", params + [per_stage])
+            cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND {UNDER_PROCESSING_SQL} "
+                        "ORDER BY v.timestamp_created DESC LIMIT %s", params + [per_stage])
             columns[UNDER_PROCESSING] = [_card(r) for r in cur.fetchall()]
+    shown = [o for lst in columns.values() for o in lst]
+    photos = attachments.photo_counts(sorted({o["orderKey"] for o in shown}))   # the cards carry a camera badge
+    for o in shown:
+        o["photoCount"] = photos.get(o["orderKey"], 0)
     stages = [{"name": s, "count": counts.get(s, 0), "orders": columns.get(s, [])} for s in STAGES]
     if chosen and UNDER_PROCESSING in chosen:
         stages.append({"name": UNDER_PROCESSING, "count": under_processing_count, "orders": columns.get(UNDER_PROCESSING, [])})
@@ -716,6 +737,111 @@ def _delivered_by(p: dict, form: Form, scopes: tuple | None) -> str | None:
     return None
 
 
+def _dispatch_payload(form: Form, screen: str) -> tuple[dict, str | None]:
+    """The order fields a dispatch save sets (shared by the single save and the bulk "Mark done"). Returns (fields, error message or None)."""
+    p: dict = {}
+    if form.deliveryStatus:
+        p["delivery_status_key"] = _key_by_name(_lookup_rows("delivery-statuses"), form.deliveryStatus)
+    if form.materialDeliveryDateTime:
+        p["material_delivery_datetime"] = form.materialDeliveryDateTime
+    if form.deliveredByWhom:
+        err = _delivered_by(p, form, DISPATCH_SCOPES.get(screen))
+        if err:
+            return p, err
+    if _has(form.cartage):
+        p["cartage"] = float(form.cartage)
+    if form.paymentStatus is not None:  # payment inputs are only sent when this role is allowed them
+        p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
+    return p, None
+
+
+def _alert_if_first_dispatch(user, sl_no: int, before: dict | None, updated: dict, screen: str) -> None:
+    """Godown Dispatch: the first time delivery date/time and Delivered by are both filled, the WhatsApp group is told (once)."""
+    if screen != "godown_dispatch" or before is None:
+        return
+    was_empty = not before["materialDeliveryDateTime"] and not before["deliveredByWhom"]
+    now_filled = bool(updated["materialDeliveryDateTime"]) and bool(updated["deliveredByWhom"])
+    if was_empty and now_filled:
+        outcome = "failed"
+        try:
+            outcome = alert_outcome(send_dispatch_alert(updated))
+        except Exception:  # the order is saved; a failed alert must never undo or fail that
+            log.exception("WhatsApp dispatch alert failed (order %s saved fine)", sl_no)
+        _record_alert(updated["orderKey"], outcome, user)
+
+
+class BulkIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    slNos: list[int] = Field(min_length=1, max_length=MAX_BULK)
+    form: Form
+
+
+def _bulk_save(user, sl_nos: list[int], payload: dict) -> dict:
+    """Save the same fields on every selected order in ONE transaction: each order goes through main.apply_order_update (the single-order
+    rules and its own order_event row), and if any order is refused nothing at all is saved. Returns ({before, after} per order) or an error."""
+    from . import main
+    if any(k.endswith("_key") and v is None for k, v in payload.items()):
+        return {"error": UNKNOWN_VALUE}
+    try:
+        patch = main.OrderPatch(**payload)
+    except ValueError as e:
+        return {"error": str(e)}
+    seen: list[int] = list(dict.fromkeys(sl_nos))
+    done: list[tuple] = []
+    try:
+        with db.cursor() as cur:
+            for sl in seen:
+                try:
+                    done.append((sl, *main.apply_order_update(cur, sl, patch, None, user)))
+                except HTTPException as e:
+                    raise _BulkRefused(f"Sl {sl}: {e.detail}")
+    except _BulkRefused as e:
+        return {"error": f"{e} - nothing was saved."}
+    except Exception as e:   # database refusals (bad reference ...): the whole batch rolled back
+        if e.__class__.__module__.startswith("psycopg2"):
+            return {"error": "An order could not be saved (invalid value) - nothing was saved."}
+        raise
+    return {"done": done}
+
+
+class _BulkRefused(Exception):
+    pass
+
+
+@router.put("/bulk/dispatch")
+def bulk_dispatch(body: BulkIn, user=Depends(ANY_VIEWER)):
+    """Godown Dispatch / Shop Dispatch & Receiving: the same dispatch (and, on the shop screen, receiving) details for many orders at once."""
+    _need_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
+    form = body.form
+    screen = form.viewAs if form.viewAs in DISPATCH_SCOPES else user["role"]
+    missing = [label for label, v in (("Material delivery date & time", form.materialDeliveryDateTime), ("Delivered by", form.deliveredByWhom)) if not v]
+    if missing:
+        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
+    p, err = _dispatch_payload(form, screen)
+    if err:
+        return {"ok": True, "success": False, "message": err}
+    out = _bulk_save(user, body.slNos, p)
+    if "error" in out:
+        return {"ok": True, "success": False, "message": out["error"]}
+    for sl, before, after in out["done"]:
+        _alert_if_first_dispatch(user, sl, map_order(before), map_order(after), screen)
+    return {"ok": True, "success": True, "count": len(out["done"])}
+
+
+@router.put("/bulk/receiving")
+def bulk_receiving(body: BulkIn, user=Depends(ANY_VIEWER)):
+    """Godown Receiving: the same receiving details for many orders at once."""
+    _need_edit(user, "o2d_receiving")
+    form = body.form
+    missing = [label for label, v in (("Date of receiving", form.dateOfReceiving), ("Payment status", form.paymentStatus)) if not v]
+    if missing:
+        return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
+    out = _bulk_save(user, body.slNos, _receiving_fields(form, _lookup_rows("payment-statuses")))
+    if "error" in out:
+        return {"ok": True, "success": False, "message": out["error"]}
+    return {"ok": True, "success": True, "count": len(out["done"])}
+
+
 @router.put("/orders/{sl_no}/dispatch")
 def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     _need_edit(user, "o2d_shop_dispatch", "o2d_godown_dispatch")
@@ -853,8 +979,8 @@ def void_gap(body: GapVoid, user=Depends(ANY_VIEWER)):
     if not _can_resolve(user):
         raise HTTPException(403, "Only admin or the shop can close a missing number.")
     reason = body.reason.strip()
-    if body.doc_type not in ("Challan", "Invoice"):
-        raise HTTPException(422, "doc_type must be Challan or Invoice")
+    if body.doc_type not in ("Challan", "Invoice", "Sales Return Challan", "Sales Return Invoice"):
+        raise HTTPException(422, "doc_type must be Challan, Invoice, Sales Return Challan or Sales Return Invoice")
     if len(reason) < 3:
         raise HTTPException(422, "Please give a reason.")
     if not 0 < body.number_from <= body.number_to or body.number_to - body.number_from >= doc_numbers.MAX_LISTED:

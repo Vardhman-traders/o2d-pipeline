@@ -99,6 +99,16 @@
         });
       });
     },
+    // one photo, saved on every order in slNos (the bulk "Mark done")
+    uploadBulkPhoto: function (token, slNos, kind, blob) {
+      return fetch('/o2d/bulk/photos?kind=' + encodeURIComponent(kind) + '&sl_nos=' + encodeURIComponent(slNos.join(',')), {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': blob.type || 'image/jpeg' }, body: blob
+      }).then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (d) {
+          return res.ok ? d : { ok: true, success: false, message: detail({ data: d, status: res.status }) };
+        });
+      });
+    },
     // downloads a PDF report: needs the login header, so fetch it as a blob and hand that to the browser
     getCartageData: function (token, from, to, person) {
       var qs = [];
@@ -110,6 +120,15 @@
     },
     updateCartage: write('PUT', function (sl, form) { return { path: '/o2d/cartage/' + sl, body: form }; }),
     getCashierData: read('/o2d/cashier'),
+    // admin: who can open the Cashier / Cartage dashboard (no userKey), or the orders one person sees there (kind = 'cashier' | 'cartage')
+    getVisibleTo: function (token, kind, userKey, from, to) {
+      var qs = [];
+      if (userKey) qs.push('user_key=' + encodeURIComponent(userKey));
+      if (from) qs.push('date_from=' + encodeURIComponent(from));
+      if (to) qs.push('date_to=' + encodeURIComponent(to));
+      return ask('GET', '/o2d/' + encodeURIComponent(kind) + '/visible-to' + (qs.length ? '?' + qs.join('&') : ''), token)
+        .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
     confirmCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/confirm', body: form }; }),
     downloadReport: function (token, kind, from, to, person) {
       var qs = [];
@@ -144,6 +163,9 @@
     },
     resendDispatchAlert: write('POST', function (sl) { return { path: '/o2d/orders/' + sl + '/whatsapp-resend' }; }),
     updateDispatchFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/dispatch', body: form }; }),
+    // many orders, one transaction: all are saved or none (see /o2d/bulk/* in o2d_screens.py)
+    bulkDispatch: write('PUT', function (slNos, form) { return { path: '/o2d/bulk/dispatch', body: { slNos: slNos, form: form } }; }),
+    bulkReceiving: write('PUT', function (slNos, form) { return { path: '/o2d/bulk/receiving', body: { slNos: slNos, form: form } }; }),
     updateReceivingFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/receiving', body: form }; }),
     debugInfo: function (token) {
       return Promise.all([ask('GET', '/health'), token ? ask('GET', '/auth/me', token) : Promise.resolve(null)])

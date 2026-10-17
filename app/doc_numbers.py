@@ -2,6 +2,8 @@
 
 Challan  - a daily bill; the number restarts at 1 every day.
 Invoice  - the BUSY bill; one running series per financial year (1 April to 31 March).
+Sales Return Challan / Sales Return Invoice - the same two formats and reset rules (daily / financial year), each its own series, so
+a return challan 5 never clashes with challan 5. A type can be tagged to exactly one of the four (or "Both" = Challan or Invoice).
 The submission type of an order says which series it belongs to - an admin setting on each type (Setup > Dropdown values >
 Submission type > "Bill number series", column dim_submission_type.bill_series). Orders of any other type are free-form.
 An order is always tagged to ONE series. A type set to "Both" means "either": the order form asks Challan or Invoice and the
@@ -14,7 +16,16 @@ from fastapi import HTTPException
 
 from . import roles
 
-SERIES = {"challan": "Challan", "invoice": "Invoice", "both": "Both"}
+SERIES = {"challan": "Challan", "invoice": "Invoice", "both": "Both",
+          "sales_return_challan": "Sales Return Challan", "sales_return_invoice": "Sales Return Invoice"}
+DAILY = {"Challan", "Sales Return Challan"}       # numbers restart every day; every other series restarts each financial year
+RETURN_SERIES = {"Sales Return Challan", "Sales Return Invoice"}
+
+
+def slug(doc_type: str) -> str:
+    """'Sales Return Challan' -> 'sales_return_challan' (the value stored in dim_submission_type.bill_series)."""
+    return doc_type.lower().replace(" ", "_")
+
 BOTH_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)\s*$")
 CHOOSE_HELP = "choose whether this order is a Challan or an Invoice"
 
@@ -56,7 +67,7 @@ def types_by_series(cur) -> dict[str, list[str]]:
     A 'both' type is listed under each, after the single-series types (it needs two numbers, so it is a poorer default)."""
     cur.execute("SELECT type_name, bill_series FROM dim_submission_type WHERE bill_series IS NOT NULL "
                 "ORDER BY (bill_series = 'both'), sort_order, lower(type_name)")
-    out: dict[str, list[str]] = {"Challan": [], "Invoice": []}
+    out: dict[str, list[str]] = {"Challan": [], "Invoice": [], "Sales Return Challan": [], "Sales Return Invoice": []}
     for r in cur.fetchall():
         for label in (("Challan", "Invoice") if r["bill_series"] == "both" else (SERIES[r["bill_series"]],)):
             out[label].append(r["type_name"])
@@ -74,11 +85,11 @@ def fy_bounds(d: date) -> tuple[date, date]:
 
 
 def series_key(doc_type: str, d: date) -> str:
-    return d.isoformat() if doc_type == "Challan" else fy_label(d)
+    return d.isoformat() if doc_type in DAILY else fy_label(d)
 
 
 def _window(doc_type: str, d: date) -> tuple[date, date]:
-    return (d, d) if doc_type == "Challan" else fy_bounds(d)
+    return (d, d) if doc_type in DAILY else fy_bounds(d)
 
 
 # ------------------------------------------------------------------ rules when an order is saved
@@ -103,18 +114,19 @@ def validate(cur, user, *, dc_no: str | None, type_name: str | None, order_date:
 def _check_unused(cur, doc_type: str, dc: str, order_date: date, own_order_key=None):
     """No other order already carries this number in this series (an order saved as "12/345" counts in each of its two)."""
     lo, hi = _window(doc_type, order_date)
-    series = doc_type.lower()
+    series = slug(doc_type)
+    # "Both" types only ever hold Challan / Invoice numbers; a sales-return series is never shared with them
     cur.execute("SELECT o.sl_no, d.full_date FROM fact_orders o JOIN dim_date d ON d.date_key = o.order_received_date_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE (st.bill_series = %s OR (st.bill_series = 'both' AND (o.bill_series = %s "
+                "WHERE (st.bill_series = %s OR (%s AND st.bill_series = 'both' AND (o.bill_series = %s "
                 "OR (o.bill_series IS NULL AND o.dc_inv_no LIKE '%%/%%')))) "
                 "AND ltrim(CASE WHEN st.bill_series = 'both' AND o.bill_series IS NULL THEN btrim(split_part(o.dc_inv_no, '/', %s)) "
                 "ELSE btrim(o.dc_inv_no) END, '0') = ltrim(%s, '0') "
                 "AND d.full_date BETWEEN %s AND %s AND (%s::int IS NULL OR o.order_key <> %s::int) LIMIT 1",
-                (series, series, 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
+                (series, doc_type not in RETURN_SERIES, series, 1 if doc_type == "Challan" else 2, dc, lo, hi, own_order_key, own_order_key))
     dup = cur.fetchone()
     if dup:
-        where = f"on {dup['full_date']:%d-%m-%Y}" if doc_type == "Challan" else f"in FY {fy_label(order_date)}"
+        where = f"on {dup['full_date']:%d-%m-%Y}" if doc_type in DAILY else f"in FY {fy_label(order_date)}"
         raise HTTPException(409, f"{doc_type} {dc} is already used {where} (Sl {dup['sl_no']}).")
 
 
@@ -123,7 +135,8 @@ def _present(cur, doc_type: str, lo: date, hi: date) -> dict[int, date]:
     cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
                 "JOIN fact_orders o ON o.order_key = v.order_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE st.bill_series IN (%s, 'both') AND v.order_date BETWEEN %s AND %s", (doc_type.lower(), lo, hi))
+                "WHERE st.bill_series IN (%s, %s) AND v.order_date BETWEEN %s AND %s",
+                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), lo, hi))
     out: dict[int, date] = {}
     for r in cur.fetchall():
         n = number_in(doc_type, r["bill_series"], r["dc_inv_no"], r.get("chosen"))
@@ -173,16 +186,21 @@ def open_gaps(cur, today: date, days: int | None = None) -> dict:
     """Challan: every day that still has an open gap, newest first, each counted from 1 - a day drops off once its numbers are entered
     or closed ("No bill / voided"), however old it is (`days` limits how far back, default: all). Invoice: this financial year (last
     year's too during April), counted from 1, since BUSY restarts the series every 1 April."""
-    challan = []
-    rows = _present_by_day(cur, today - timedelta(days=days - 1) if days else None, today)
-    cur.execute("SELECT series_key, doc_no FROM doc_gap_void WHERE doc_type = 'Challan'")
-    voids: dict[str, set[int]] = {}
-    for r in cur.fetchall():
-        voids.setdefault(r["series_key"], set()).add(r["doc_no"])
-    for d in sorted(rows, reverse=True):
-        g = _gaps_in(cur, "Challan", d.isoformat(), rows[d], 1, voids.get(d.isoformat(), set()))
-        if g:
-            challan.append({"date": d.isoformat(), **g})
+    since = today - timedelta(days=days - 1) if days else None
+
+    def daily(doc_type: str) -> list[dict]:
+        found = []
+        rows = _present_by_day(cur, since, today, doc_type)
+        cur.execute("SELECT series_key, doc_no FROM doc_gap_void WHERE doc_type = %s", (doc_type,))
+        voids: dict[str, set[int]] = {}
+        for r in cur.fetchall():
+            voids.setdefault(r["series_key"], set()).add(r["doc_no"])
+        for d in sorted(rows, reverse=True):
+            g = _gaps_in(cur, doc_type, d.isoformat(), rows[d], 1, voids.get(d.isoformat(), set()))
+            if g:
+                found.append({"date": d.isoformat(), **g})
+        return found
+    challan = daily("Challan")
     older_days = max(0, len(challan) - MAX_DAYS_LISTED)
     all_challan_total = sum(g["total"] for g in challan)
     challan = challan[:MAX_DAYS_LISTED]
@@ -194,18 +212,28 @@ def open_gaps(cur, today: date, days: int | None = None) -> dict:
         g = _gaps_in(cur, "Invoice", fy_label(ref), present, 1)
         if g:
             invoice.append({"fy": fy_label(ref), **g})
-    return {"challan": challan, "invoice": invoice, "olderChallanDays": older_days,
-            "total": all_challan_total + sum(g["total"] for g in invoice)}
+    # the two sales-return series follow the same rules; each is listed only when it has an open gap (today / this financial year)
+    sr_challan = daily("Sales Return Challan")[:MAX_DAYS_LISTED]
+    sr_invoice = []
+    for ref in years:
+        lo, hi = fy_bounds(ref)
+        g = _gaps_in(cur, "Sales Return Invoice", fy_label(ref), _present(cur, "Sales Return Invoice", lo, hi), 1)
+        if g:
+            sr_invoice.append({"fy": fy_label(ref), **g})
+    returns = {"salesReturnChallan": sr_challan, "salesReturnInvoice": sr_invoice}
+    return {"challan": challan, "invoice": invoice, "olderChallanDays": older_days, **returns,
+            "total": all_challan_total + sum(g["total"] for g in invoice) + sum(g["total"] for k in returns.values() for g in k)}
 
 
-def _present_by_day(cur, lo: date | None, hi: date) -> dict[date, dict[int, date]]:
+def _present_by_day(cur, lo: date | None, hi: date, doc_type: str = "Challan") -> dict[date, dict[int, date]]:
     cur.execute("SELECT v.dc_inv_no, v.order_date, st.bill_series, o.bill_series AS chosen FROM v_orders_archive v "
                 "JOIN fact_orders o ON o.order_key = v.order_key "
                 "JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                "WHERE st.bill_series IN ('challan', 'both') AND v.order_date >= COALESCE(%s::date, DATE '1900-01-01') AND v.order_date <= %s", (lo, hi))
+                "WHERE st.bill_series IN (%s, %s) AND v.order_date >= COALESCE(%s::date, DATE '1900-01-01') AND v.order_date <= %s",
+                (slug(doc_type), "both" if doc_type not in RETURN_SERIES else slug(doc_type), lo, hi))
     out: dict[date, dict[int, date]] = {}
     for r in cur.fetchall():
-        n = number_in("Challan", r["bill_series"], r["dc_inv_no"], r.get("chosen"))
+        n = number_in(doc_type, r["bill_series"], r["dc_inv_no"], r.get("chosen"))
         if n is not None:
             out.setdefault(r["order_date"], {}).setdefault(n, r["order_date"])
     return out
@@ -220,7 +248,7 @@ def check_entry(cur, doc_type: str, order_date: date, number: int) -> dict:
         voided = _voided(cur, doc_type, series_key(doc_type, order_date))
         out["skipped"] = [n for n in range(max(present) + 1, number) if n not in voided][:20]
         out["last"] = max(present)
-    elif not present and doc_type == "Challan" and number > 1:
+    elif not present and doc_type in DAILY and number > 1:
         out["skipped"] = list(range(1, number))[:20]
         out["last"] = 0
     return out

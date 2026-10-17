@@ -104,6 +104,9 @@
   .card.accent-dispatch { border-left: 4px solid var(--dispatch-color); }
   .card.accent-receiving{ border-left: 4px solid var(--receiving-color); }
   .card h2 { margin: 0 0 16px 0; font-size: 16px; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+  .bulk-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+  .bulk-cb { width: 17px; height: 17px; cursor: pointer; }
+  .bulk-modal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
   .photo-chip { border: 1px solid var(--border); background: var(--surface, #fff); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: var(--navy); }
   .photo-chip:hover { border-color: var(--blue-2); }
   .photo-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -381,7 +384,9 @@
 
     <!-- ================= OVERVIEW SECTION (admin only) ================= -->
     <div id="overviewSection" style="display:none;">
-      <div class="card ov-filters">
+      <div class="card ov-filters cc collapsed" id="overview_filterPanel">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_filterBody" id="overview_filterToggle" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">&#128269; Filters &amp; reports <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="overview_filterBody">
         <div class="ov-row"><span class="ov-label">Period</span>
           <label class="ov-date">From <input type="date" id="ov_from" aria-label="From date"></label>
           <label class="ov-date">To <input type="date" id="ov_to" aria-label="To date"></label>
@@ -391,8 +396,6 @@
           <button type="button" class="ov-btn" onclick="overviewResetFilters()">Clear filters</button>
         </div>
         <div class="ov-row"><span class="ov-label">Filter by</span><span id="overview_filters" class="ov-row" style="margin:0;"></span></div>
-      </div>
-      <div id="overview_summary" class="ov-summary"></div>
       <div class="card accent-godown cc collapsed" id="overview_reportsCard" style="margin-bottom:16px;display:none;">
         <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_reportsBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">📄 Reports (PDF) <span class="cc-hint">click to open</span></h2>
         <div class="cc-body" id="overview_reportsBody">
@@ -419,6 +422,9 @@
         <div id="dr_list" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
         </div>
       </div>
+        </div>
+      </div>
+      <div id="overview_summary" class="ov-summary"></div>
       <div class="card accent-shop" style="margin-bottom:16px;">
         <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
         <div id="overview_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ No missing bill numbers</div>
@@ -430,6 +436,11 @@
             <div id="overview_missingInvoiceContainer"></div>
           </div>
         </div>
+      </div>
+      <div class="ov-row" style="margin:0 0 10px;">
+        <input type="search" id="ov_find" aria-label="Find an order by S number or invoice number" placeholder="Find an order: S number or invoice no." autocomplete="off" style="max-width:320px;">
+        <button type="button" class="ov-btn" onclick="document.getElementById('ov_find').value='';overviewFind_()">Clear</button>
+        <span id="ov_find_msg" class="ov-err" style="color:var(--muted);"></span>
       </div>
       <div id="overview_board" class="ov-board"></div>
     </div>
@@ -701,9 +712,10 @@
 
       <div class="card accent-dispatch">
         <h2>🚛 Ready for Dispatch <span class="count" id="dispatch_pendingCount">0</span></h2>
+        <div class="bulk-bar"><button type="button" class="small" id="dispatch_bulkBtn" onclick="bulkOpen_('dispatch')" disabled>Mark done for selected</button><span id="dispatch_bulkNote">Tick several orders to fill the same details on all of them at once.</span></div>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Order Date</th><th>DC No</th><th>Ready By</th><th>Delivery Status</th><th>Submission Type</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
+            <thead><tr><th><input type="checkbox" class="bulk-cb" id="dispatch_selAll" aria-label="Select all orders" onchange="bulkSelectAll_('dispatch', this.checked)"></th><th>Order Date</th><th>DC No</th><th>Ready By</th><th>Delivery Status</th><th>Submission Type</th><th>Address</th><th>Remarks</th><th></th></tr></thead>
             <tbody id="dispatch_pendingBody"></tbody>
           </table>
           <div class="empty" id="dispatch_pendingEmpty" style="display:none;">Nothing waiting on dispatch right now.</div>
@@ -733,6 +745,7 @@
           <span style="font-size:12px;color:var(--muted);">to</span>
           <input type="date" id="cartage_to" aria-label="Cartage to date" style="width:auto;">
           <select id="cartage_person" aria-label="Delivery boy" style="width:auto;"><option value="">All delivery people</option></select>
+          <select id="cartage_visibleTo" aria-label="Orders visible to" title="Admin: choose a person to see which orders they can see on this dashboard" style="width:auto;display:none;"><option value="">&#128065; Orders visible to&hellip;</option></select>
           <button type="button" class="ov-btn" onclick="initCartage()">Apply</button>
           <button type="button" class="ov-btn" onclick="document.getElementById('cartage_from').value='';document.getElementById('cartage_to').value='';initCartage()">Clear dates</button>
           <span style="flex:1"></span>
@@ -810,9 +823,10 @@
 
       <div class="card accent-receiving">
         <h2>⏳ Awaiting Receiving <span class="count" id="receiving_pendingCount">0</span></h2>
+        <div class="bulk-bar"><button type="button" class="small" id="receiving_bulkBtn" onclick="bulkOpen_('receiving')" disabled>Mark done for selected</button><span id="receiving_bulkNote">Tick several orders to fill the same details on all of them at once.</span></div>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Order Date</th><th>Address</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th></th></tr></thead>
+            <thead><tr><th><input type="checkbox" class="bulk-cb" id="receiving_selAll" aria-label="Select all orders" onchange="bulkSelectAll_('receiving', this.checked)"></th><th>Order Date</th><th>Address</th><th>DC No</th><th>Delivery Time</th><th>Delivered By</th><th></th></tr></thead>
             <tbody id="receiving_pendingBody"></tbody>
           </table>
           <div class="empty" id="receiving_pendingEmpty" style="display:none;">Nothing waiting on receiving right now.</div>
@@ -836,7 +850,7 @@
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">💰 Orders paid by Cash / Bank (as set in Setup &gt; Dropdown values &gt; Payment status) appear here once the payment status is selected on Shop Dispatch &amp; Receiving or Godown Receiving. Confirm each one when the money is received.</div>
 
       <div class="card accent-cashier">
-        <h2>💰 Cashier Summary</h2>
+        <h2>💰 Cashier Summary <select id="cashier_visibleTo" aria-label="Orders visible to" title="Admin: choose a person to see which orders they can see on this dashboard" style="width:auto;display:none;font-size:12px;font-weight:400;margin-left:12px;"><option value="">&#128065; Orders visible to&hellip;</option></select></h2>
         <div id="cashier_summary" class="ov-summary"></div>
         <div id="cashier_modes" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
       </div>
@@ -1124,6 +1138,27 @@
         if (inv) inv.innerHTML = data.invoice.map(function (g) {
           return gapBlockHtml_('Financial year ' + g.fy, 'Invoice', g.fy, g, data, prefix);
         }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing invoice numbers.</div>';
+        // the two sales-return series: same rules as Challan (daily) and Invoice (financial year); their blocks are added under the invoice one
+        var wrap0 = document.getElementById(prefix + '_missingWrapper');
+        function srBox(id, heading) {
+          var box = document.getElementById(prefix + id);
+          if (!box && wrap0) {
+            var holder = document.createElement('div');
+            holder.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid var(--border);';
+            holder.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">' + heading + '</div><div id="' + prefix + id + '"></div>';
+            wrap0.appendChild(holder);
+            box = document.getElementById(prefix + id);
+          }
+          return box;
+        }
+        var src = srBox('_missingSrChallan', 'Sales Return Challan (restarts at 1 each day)');
+        if (src) src.innerHTML = (data.salesReturnChallan || []).map(function (g) {
+          return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Sales Return Challan', g.date, g, data, prefix);
+        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing sales return challan numbers.</div>';
+        var sri = srBox('_missingSrInvoice', 'Sales Return Invoice (yearly series)');
+        if (sri) sri.innerHTML = (data.salesReturnInvoice || []).map(function (g) {
+          return gapBlockHtml_('Financial year ' + g.fy, 'Sales Return Invoice', g.fy, g, data, prefix);
+        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing sales return invoice numbers.</div>';
         var none = data.total === 0;
         var wrapper = document.getElementById(prefix + '_missingWrapper');
         var allClear = document.getElementById(prefix + '_missingAllClear');
@@ -1143,7 +1178,7 @@
     msg.className = 'status-msg'; msg.textContent = '';
     document.getElementById('mm_title').textContent = 'Enter ' + docType + ' ' + number;
     document.getElementById('mm_dcNo').value = String(number);
-    document.getElementById('mm_date').value = docType === 'Challan' ? seriesKey : istToday_();
+    document.getElementById('mm_date').value = /Challan$/.test(docType) ? seriesKey : istToday_();
     document.getElementById('mm_loc').value = '';
     document.getElementById('mm_remarks').value = '';
     function show() {
@@ -1152,7 +1187,7 @@
       EITHER_TYPES = MM_OPTS.eitherTypes || EITHER_TYPES;
       document.getElementById('mm_type').value = (GAP_TYPES[docType] || [])[0] || docType;   // a type set up for this series
       syncBillField_('mm');
-      if (document.getElementById('mm_billField').style.display !== 'none') document.getElementById('mm_billSeries').value = docType.toLowerCase();
+      if (document.getElementById('mm_billField').style.display !== 'none') document.getElementById('mm_billSeries').value = docType === 'Challan' || docType === 'Invoice' ? docType.toLowerCase() : '';
       document.getElementById('mm_backdrop').style.display = 'flex';
       document.getElementById('mm_via').focus();
     }
@@ -1311,6 +1346,8 @@
   function overviewFilterValues() {
     var out = {};
     var from = document.getElementById('ov_from').value, to = document.getElementById('ov_to').value;
+    var find = (document.getElementById('ov_find').value || '').trim();
+    if (find) out.find = [find];
     out.per_stage = [String(OV_LIMIT)];
     if (from) out.date_from = [from];
     if (to) out.date_to = [to];
@@ -1318,8 +1355,23 @@
     return out;
   }
 
+  // the board's search box: waits for a pause in typing, then reloads the board for that S / invoice number
+  var ovFindTimer = null;
+  function overviewFind_() {
+    clearTimeout(ovFindTimer);
+    OV_LIMIT = 25;
+    var f = (document.getElementById('ov_find').value || '').trim();
+    document.getElementById('ov_find_msg').textContent = f ? 'Showing orders matching "' + f + '" (the period below still applies - widen it if nothing shows).' : '';
+    initOverview();
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var box = document.getElementById('ov_find');
+    if (box) box.addEventListener('input', function () { clearTimeout(ovFindTimer); ovFindTimer = setTimeout(overviewFind_, 350); });
+  });
+
   function overviewResetFilters() {
     OVERVIEW_FILTER_FIELDS.forEach(function (f) { if (OV_SEL[f[0]]) OV_SEL[f[0]].clear(); if (OV_WIDGETS[f[0]]) OV_WIDGETS[f[0]].refresh(); });
+    document.getElementById('ov_find').value = ''; document.getElementById('ov_find_msg').textContent = '';
     overviewLast30();
   }
 
@@ -1406,9 +1458,34 @@
       dl.appendChild(el_('dd', null, r[1] === '' || r[1] == null ? '–' : String(r[1])));
     });
     document.getElementById('ovModalBody').replaceChildren(dl);
+    if (o.photoCount) showOrderPhotosIn_(document.getElementById('ovModalBody'), o.slNo);
 
     buildRemindBox(o);
     document.getElementById('ovModal').style.display = 'flex';
+  }
+
+  // The dispatch / receiving photos saved on an order, shown inside the order details.
+  function showOrderPhotosIn_(host, slNo) {
+    var box = el_('div', { id: 'ovPhotos' }, 'Loading photos...');
+    host.appendChild(box);
+    VT.run.withSuccessHandler(function (d) {
+      box.textContent = '';
+      if (!d || !d.ok) { box.textContent = (d && d.error) || 'Could not load the photos.'; return; }
+      if (!d.enabled) { box.textContent = 'Photo storage is not set up on the server, so photos cannot be shown.'; return; }
+      if (!d.photos.length) { box.textContent = 'No photos on this order.'; return; }
+      [['dispatch', 'Dispatch'], ['receiving', 'Receiving']].forEach(function (k) {
+        var list = d.photos.filter(function (p) { return p.kind === k[0]; });
+        if (!list.length) return;
+        box.appendChild(el_('h3', { style: 'font-size:13px;color:var(--muted);margin:12px 0 6px;' }, k[1] + ' photos (' + list.length + ')'));
+        var grid = el_('div', { class: 'photo-grid' });
+        list.forEach(function (p) {
+          var a = el_('a', { href: p.url, target: '_blank', rel: 'noopener', title: 'Added by ' + p.uploadedBy + ' - ' + String(p.uploadedAt).replace('T', ' ').slice(0, 16) });
+          a.appendChild(el_('img', { src: p.url, alt: k[1] + ' photo' }));
+          grid.appendChild(a);
+        });
+        box.appendChild(grid);
+      });
+    }).withFailureHandler(function (err) { box.textContent = 'Could not load the photos: ' + err.message; }).getOrderPhotos(CURRENT_TOKEN, slNo);
   }
 
   var REMIND_WHO = { 'Awaiting godown': 'Godown', 'Awaiting dispatch': 'Dispatch (shop and godown)', 'Awaiting receiving': 'Godown Receiving' };
@@ -1462,8 +1539,9 @@
   var REPORT_CHOICES = [
     ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
     ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
-    ['godown-received-cash', 'Godown received & payments - cash'], ['godown-received-other', 'Godown received & payments - other modes'],
-    ['shop-received-cash', 'Shop received & payments - cash'], ['shop-received-other', 'Shop received & payments - other modes'],
+    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown received & payments - cash'],
+    ['shop-received-cash', 'Shop received & payments - cash'], ['received-other-all', 'All other transactions - godown + shop'],
+    ['godown-received-other', 'Godown received & payments - not cash'], ['shop-received-other', 'Shop received & payments - not cash'],
     ['cartage-detail', 'Cartage history (one delivery boy)'], ['cartage-by-employee', 'Cartage - paid to each person']];
   var REPORT_SEL = new Set();
 
@@ -1669,7 +1747,7 @@
             card.appendChild(top);
             // "Product" is shown as the submission type: the order record has no separate product field.
             card.appendChild(el_('div', { class: 'sub' }, formatDateDisplay(o.orderDate) + (o.submissionType ? ' · ' + o.submissionType : '')));
-            card.appendChild(el_('div', { class: 'sub' }, 'Opened by ' + (o.createdBy || '–')));
+            card.appendChild(el_('div', { class: 'sub' }, 'Opened by ' + (o.createdBy || '–') + (o.photoCount ? '  \uD83D\uDCF7 ' + o.photoCount : '')));
             card.onclick = function () { openOrderModal(o); };
             col.appendChild(card);
           });
@@ -1932,6 +2010,7 @@
 
   /* ---- order photos (Cloudflare R2 through the API) ----
      Optional. The photo box only shows when the server says storage is set up. Photos are shrunk on the phone first. */
+  var CAM_ICON_ = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
   var PHOTOS_ENABLED = false;
   function photoBoxInit_(prefix, label) {
     var box = document.getElementById(prefix + '_box');
@@ -1942,7 +2021,7 @@
     box.innerHTML = '<label>' + label + ' <span style="font-weight:400;">(optional)</span></label>' +
       '<input type="file" accept="image/*" multiple id="' + prefix + '_file" style="padding:6px;">' +
       '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-        '<button type="button" class="btn" id="' + prefix + '_camBtn" style="padding:7px 12px;">&#128247; Take photo with camera</button>' +
+        '<button type="button" class="btn" id="' + prefix + '_camBtn" style="padding:7px 12px;" title="Take photo with camera" aria-label="Take photo with camera">' + CAM_ICON_ + '</button>' +
         '<span id="' + prefix + '_camInfo" style="font-size:12px;color:#64748b;"></span>' +
         '<input type="file" accept="image/*" capture="environment" id="' + prefix + '_cam" style="display:none;">' +
       '</div>' +
@@ -2003,10 +2082,11 @@
       return chain.then(function () {
         return shrinkPhoto_(f).then(function (blob) {
           return new Promise(function (resolve) {
-            VT.run
+            var run = VT.run
               .withSuccessHandler(function (r) { if (!r || !r.success) problems.push((r && (r.message || r.error)) || 'no response'); resolve(); })
-              .withFailureHandler(function (err) { problems.push(err.message); resolve(); })
-              .uploadOrderPhoto(CURRENT_TOKEN, slNo, kind, blob);
+              .withFailureHandler(function (err) { problems.push(err.message); resolve(); });
+            if (Array.isArray(slNo)) run.uploadBulkPhoto(CURRENT_TOKEN, slNo, kind, blob);   // bulk "Mark done": the same photo on every order
+            else run.uploadOrderPhoto(CURRENT_TOKEN, slNo, kind, blob);
           });
         });
       });
@@ -2021,6 +2101,7 @@
         if (!data) { banner.textContent = 'Server se koi jawab nahi mila.'; banner.style.display = 'block'; return; }
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         DISPATCH_TERMS = data.dropdowns.deliveredByCustomTerms || [];
+        BULK_DD.dispatch = data.dropdowns;
         PHOTOS_ENABLED = !!data.photosEnabled;
         fillSelect_('dispatch_deliveryStatus', data.dropdowns.deliveryStatus);
         fillSelect_('dispatch_deliveredByWhom', data.dropdowns.deliveredByWhom);
@@ -2046,10 +2127,11 @@
     var body = document.getElementById('dispatch_pendingBody');
     body.innerHTML = '';
     document.getElementById('dispatch_pendingEmpty').style.display = orders.length ? 'none' : 'block';
+    BULK_SEL.dispatch = {};
     orders.forEach(function(o) {
       DISPATCH_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+      tr.innerHTML = bulkCell_('dispatch', o.slNo) + '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.readyByWhom||'') + '</td>' +
         '<td>' + statusPill(o.deliveryStatus) + stuckBadgeHtml_(o.stuckReason) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
         '<td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
@@ -2057,6 +2139,7 @@
         '<td><button class="small" onclick="dispatchOpenEdit(' + o.slNo + ')">Edit</button></td>';
       body.appendChild(tr);
     });
+    bulkRefresh_('dispatch');
   }
 
   function dispatchRenderCompleted(orders) {
@@ -2173,6 +2256,69 @@
       .updateDispatchFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME, CURRENT_ROLE);
   });
 
+  /* ---- admin: "which orders can this person see?" on the Cashier and Cartage dashboards */
+  function setupVisibleTo_(kind, selId) {
+    var sel = document.getElementById(selId);
+    if (!sel) return;
+    sel.style.display = IS_ADMIN ? '' : 'none';
+    if (!IS_ADMIN || sel.dataset.loaded) return;
+    sel.dataset.loaded = '1';
+    VT.run.withSuccessHandler(function (d) {
+      if (!d || !d.ok) { sel.dataset.loaded = ''; return; }
+      if (!d.users.length) sel.options[0].textContent = 'Nobody has this page yet';
+      d.users.forEach(function (u) { sel.appendChild(el_('option', { value: u.userKey }, u.name + ' (' + u.role + ')')); });
+    }).withFailureHandler(function () { sel.dataset.loaded = ''; }).getVisibleTo(CURRENT_TOKEN, kind, '');
+    sel.onchange = function () {
+      if (!sel.value) return;
+      var label = sel.options[sel.selectedIndex].textContent, key = sel.value;
+      sel.value = '';
+      openVisibleTo_(kind, key, label);
+    };
+  }
+  function openVisibleTo_(kind, userKey, label) {
+    var back = el_('div', { class: 'ov-modal' });
+    var box = el_('div', { class: 'ov-modal-box', style: 'width:980px;', role: 'dialog', 'aria-modal': 'true' });
+    var head = el_('div', { class: 'ov-modal-head' });
+    head.appendChild(el_('strong', null, 'Orders visible to ' + label));
+    var x = el_('button', { type: 'button', class: 'ov-x', 'aria-label': 'Close' }, '\u2715');
+    head.appendChild(x);
+    var body = el_('div', null, 'Loading...');
+    box.appendChild(head); box.appendChild(body); back.appendChild(box); document.body.appendChild(back);
+    function shut() { if (back.parentNode) back.parentNode.removeChild(back); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') shut(); }
+    document.addEventListener('keydown', onKey);
+    x.onclick = shut; back.onclick = function (e) { if (e.target === back) shut(); };
+    function table(rows, cols) {
+      var wrap = el_('div', { class: 'table-scroll' }), t = el_('table'), hr = el_('tr');
+      cols.forEach(function (c) { hr.appendChild(el_('th', null, c[0])); });
+      t.appendChild(el_('thead')).appendChild(hr);
+      var tb = el_('tbody');
+      rows.forEach(function (o) {
+        var tr = el_('tr');
+        cols.forEach(function (c) { var v = o[c[1]]; tr.appendChild(el_('td', null, v == null || v === '' ? '' : c[2] === 'd' ? formatDateDisplay(v) : c[2] === 'n' ? formatAmount_(v) : String(v))); });
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb); wrap.appendChild(t); return wrap;
+    }
+    var cashierCols = [['Sl', 'slNo'], ['Order date', 'orderDate', 'd'], ['DC no', 'dcNo'], ['Address', 'shippingLocation'], ['Payment', 'paymentStatus'], ['Amount', 'amountReceived', 'n'], ['Received on', 'dateOfReceiving', 'd']];
+    var cartageCols = [['Sl', 'slNo'], ['Order date', 'orderDate', 'd'], ['DC no', 'dcNo'], ['Address', 'shippingLocation'], ['Delivered by', 'deliveredBy'], ['Cartage', 'cartage', 'n'], ['Received on', 'dateOfReceiving', 'd']];
+    var from = kind === 'cartage' ? document.getElementById('cartage_from').value : '', to = kind === 'cartage' ? document.getElementById('cartage_to').value : '';
+    VT.run.withSuccessHandler(function (d) {
+      body.textContent = '';
+      if (!d || !d.ok) { body.textContent = (d && d.error) || 'Could not load.'; return; }
+      if (!d.canOpen) { body.textContent = d.name + ' cannot open this dashboard, so sees no orders on it.'; return; }
+      if (kind === 'cashier') {
+        body.appendChild(el_('h3', null, 'Awaiting cashier (' + d.awaiting.length + ')'));
+        body.appendChild(d.awaiting.length ? table(d.awaiting, cashierCols) : el_('p', { class: 'empty' }, 'None.'));
+        body.appendChild(el_('h3', null, 'Confirmed, until the 11 PM clean-up (' + d.confirmed.length + ')'));
+        body.appendChild(d.confirmed.length ? table(d.confirmed, cashierCols) : el_('p', { class: 'empty' }, 'None.'));
+      } else {
+        body.appendChild(el_('p', { style: 'font-size:12px;color:var(--muted)' }, 'Deliveries received ' + formatDateDisplay(d.dateFrom) + ' to ' + formatDateDisplay(d.dateTo) + ' (' + d.orders.length + ')'));
+        body.appendChild(d.orders.length ? table(d.orders, cartageCols) : el_('p', { class: 'empty' }, 'None in this period.'));
+      }
+    }).withFailureHandler(function (err) { body.textContent = 'Error: ' + err.message; }).getVisibleTo(CURRENT_TOKEN, kind, userKey, from, to);
+  }
+
   /* ================= CARTAGE ================= */
   var CARTAGE_ORDERS = {};
   var CARTAGE_CAN_EDIT = false;
@@ -2197,6 +2343,7 @@
   function cartageMoney_(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
   function initCartage() {
+    setupVisibleTo_('cartage', 'cartage_visibleTo');
     var banner = document.getElementById('cartage_errorBanner');
     banner.style.display = 'none';
     var fromEl = document.getElementById('cartage_from'), toEl = document.getElementById('cartage_to'), pEl = document.getElementById('cartage_person');
@@ -2303,6 +2450,7 @@
   var CASHIER_CAN_EDIT = false;
 
   function initCashier() {
+    setupVisibleTo_('cashier', 'cashier_visibleTo');
     var banner = document.getElementById('cashier_errorBanner');
     banner.style.display = 'none';
     VT.run
@@ -2427,6 +2575,7 @@
         if (!data.ok) { banner.textContent = 'Server error: ' + data.error; banner.style.display = 'block'; return; }
         PHOTOS_ENABLED = !!data.photosEnabled;
         fillSelect_('receiving_paymentStatus', data.dropdowns.paymentStatus);
+        BULK_DD.receiving = data.dropdowns;
         receivingRenderPending(data.pending);
         var noteEl = document.getElementById('receiving_dateWindowNote');
         if (noteEl) noteEl.textContent = '📅 Poori list dikhti hai — jab tak receive na ho, yahan dikhta rahega.';
@@ -2441,16 +2590,18 @@
     var body = document.getElementById('receiving_pendingBody');
     body.innerHTML = '';
     document.getElementById('receiving_pendingEmpty').style.display = orders.length ? 'none' : 'block';
+    BULK_SEL.receiving = {};
     orders.forEach(function(o) {
       RECEIVING_ORDERS[o.slNo] = o;
       var tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+      tr.innerHTML = bulkCell_('receiving', o.slNo) + '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + photoBadge_(o) + '</td>' +
         '<td>' + formatDateTimeDisplay(o.materialDeliveryDateTime) + '</td>' +
         '<td>' + (o.deliveredByWhom||'') + '</td>' +
         '<td><button class="small" onclick="receivingOpenEdit(' + o.slNo + ')">Edit</button></td>';
       body.appendChild(tr);
     });
+    bulkRefresh_('receiving');
   }
 
   function receivingRenderCompleted(orders) {
@@ -2515,6 +2666,130 @@
       .withFailureHandler(function(err) { saveBtn.disabled=false; saveBtn.textContent='Save'; msg.className='status-msg error'; msg.textContent='Error: '+err.message; })
       .updateReceivingFields(CURRENT_TOKEN, slNo, form, CURRENT_USER_NAME);
   });
+
+  /* ================= BULK "MARK DONE" (Godown Dispatch, Shop Dispatch & Receiving, Godown Receiving) =================
+     Tick several orders, fill the screen's columns once in a form, and every ticked order is saved in one go (all or none).
+     The server applies the same checks as the single-order Save, and each order keeps its own entry in the order timeline. */
+  var BULK_SEL = { dispatch: {}, receiving: {} };
+  var BULK_DD = { dispatch: {}, receiving: {} };
+
+  function bulkCell_(kind, slNo) {
+    return '<td><input type="checkbox" class="bulk-cb" aria-label="Select order ' + slNo + '" onchange="bulkToggle_(\'' + kind + '\',' + slNo + ',this.checked)"></td>';
+  }
+  function bulkToggle_(kind, slNo, on) {
+    if (on) BULK_SEL[kind][slNo] = true; else delete BULK_SEL[kind][slNo];
+    bulkRefresh_(kind);
+  }
+  function bulkSelectAll_(kind, on) {
+    Array.prototype.forEach.call(document.querySelectorAll('#' + kind + '_pendingBody .bulk-cb'), function (cb) { cb.checked = on; cb.onchange && cb.onchange(); });
+  }
+  function bulkRefresh_(kind) {
+    var n = Object.keys(BULK_SEL[kind]).length;
+    var btn = document.getElementById(kind + '_bulkBtn'), all = document.getElementById(kind + '_selAll');
+    if (btn) { btn.disabled = n === 0; btn.textContent = n ? 'Mark done for ' + n + ' selected' : 'Mark done for selected'; }
+    var boxes = document.querySelectorAll('#' + kind + '_pendingBody .bulk-cb');
+    if (all) { all.checked = boxes.length > 0 && n === boxes.length; all.indeterminate = n > 0 && n < boxes.length; }
+  }
+
+  function bulkOpen_(kind) {
+    var slNos = Object.keys(BULK_SEL[kind]).map(Number);
+    if (!slNos.length) return;
+    var dd = BULK_DD[kind] || {};
+    var shopDispatch = kind === 'dispatch' && CURRENT_ROLE === 'shop_dispatch';
+    var F = [];   // [id, label, type, required, options]
+    if (kind === 'dispatch') {
+      F.push(['materialDeliveryDateTime', 'Material Delivery Date & Time', 'datetime-local', true]);
+      F.push(['deliveryStatus', 'Delivery Status (leave as is if blank)', 'select', false, dd.deliveryStatus]);
+      F.push(['deliveredByWhom', 'Delivered By Whom', 'select', true, dd.deliveredByWhom]);
+      F.push(['deliveredByDetail', 'Porter / Company / Transport details', 'text', false]);
+      F.push(['cartage', 'Cartage (In Rupees)', 'number', false]);
+    }
+    if (shopDispatch || kind === 'receiving') {
+      F.push(['dateOfReceiving', 'Date of Receiving', 'date', kind === 'receiving']);
+      F.push(['paymentStatus', 'Mat. Payment Status', 'select', kind === 'receiving', dd.paymentStatus]);
+      F.push(['amountReceived', 'Amount Received (same for every ticked order; blank keeps each order\'s own)', 'number', false]);
+    }
+    var back = el_('div', { class: 'ov-modal', style: 'z-index:2500;' });
+    var box = el_('div', { class: 'ov-modal-box', role: 'dialog', 'aria-modal': 'true' });
+    var head = el_('div', { class: 'ov-modal-head' });
+    head.appendChild(el_('strong', null, 'Mark done - ' + slNos.length + ' order' + (slNos.length === 1 ? '' : 's')));
+    var x = el_('button', { type: 'button', class: 'ov-x', 'aria-label': 'Close' }, '\u2715'); head.appendChild(x);
+    box.appendChild(head);
+    var orders = slNos.map(function (sl) { var o = (kind === 'dispatch' ? DISPATCH_ORDERS : RECEIVING_ORDERS)[sl] || {}; return (o.dcNo || ('Sl ' + sl)); });
+    box.appendChild(el_('p', { style: 'font-size:12px;color:var(--muted);margin:0 0 6px;' }, 'DC / Inv no: ' + orders.join(', ')));
+    var grid = el_('div', { class: 'bulk-modal-grid' }), inputs = {}, wraps = {};
+    F.forEach(function (f) {
+      var wrap = el_('div', { class: 'field' });
+      wrap.appendChild(el_('label', null, f[1] + (f[3] ? ' *' : '')));
+      var inp;
+      if (f[2] === 'select') {
+        inp = el_('select');
+        inp.appendChild(el_('option', { value: '' }, '-- select --'));
+        (f[4] || []).forEach(function (n) { inp.appendChild(el_('option', { value: n }, n)); });
+      } else {
+        inp = el_('input', { type: f[2] });
+        if (f[2] === 'number') { inp.min = '0'; inp.step = '1'; }
+        if (f[2] === 'text') inp.maxLength = 200;
+      }
+      inputs[f[0]] = inp; wraps[f[0]] = wrap; wrap.appendChild(inp); grid.appendChild(wrap);
+    });
+    if (inputs.materialDeliveryDateTime) inputs.materialDeliveryDateTime.value = isoNowDateTime_();
+    if (inputs.dateOfReceiving) inputs.dateOfReceiving.value = isoToday_();
+    if (inputs.deliveredByDetail) {
+      wraps.deliveredByDetail.style.display = 'none';
+      inputs.deliveredByWhom.onchange = function () {
+        var on = needsDeliveredByDetail_(inputs.deliveredByWhom.value);
+        wraps.deliveredByDetail.style.display = on ? '' : 'none';
+        if (!on) inputs.deliveredByDetail.value = '';
+      };
+    }
+    box.appendChild(grid);
+    // photos: chosen once, saved on every ticked order (one attachment per order)
+    var photoSlots = [];
+    if (PHOTOS_ENABLED) {
+      if (kind === 'dispatch') photoSlots.push(['bulkPhoto', 'Dispatch photo (added to every ticked order)', 'dispatch']);
+      if (shopDispatch || kind === 'receiving') photoSlots.push(['bulkRecvPhoto', 'Receiving photo (added to every ticked order)', 'receiving']);
+      photoSlots.forEach(function (ps) { box.appendChild(el_('div', { class: 'photo-box', id: ps[0] + '_box', style: 'margin-top:8px;' })); });
+    }
+    var msg = el_('span', { class: 'status-msg' });
+    var go = el_('button', { type: 'button', class: 'primary' }, 'Mark done');
+    var cancel = el_('button', { type: 'button', class: 'ghost', style: 'margin-left:8px;' }, 'Cancel');
+    var bar = el_('div', { class: 'actions' }); bar.appendChild(go); bar.appendChild(cancel); bar.appendChild(msg);
+    box.appendChild(bar); back.appendChild(box); document.body.appendChild(back);
+    photoSlots.forEach(function (ps) { CAM_SHOTS[ps[0]] = []; photoBoxInit_(ps[0], ps[1]); });
+    function shut() { if (back.parentNode) back.parentNode.removeChild(back); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') shut(); }
+    document.addEventListener('keydown', onKey);
+    x.onclick = shut; cancel.onclick = shut;
+    go.onclick = function () {
+      var form = { viewAs: CURRENT_ROLE };
+      for (var i = 0; i < F.length; i++) {
+        var f = F[i], v = (inputs[f[0]].value || '').trim();
+        if (f[3] && !v) { msg.className = 'status-msg error'; msg.textContent = 'Please fill in: ' + f[1]; inputs[f[0]].focus(); return; }
+        form[f[0]] = v;
+      }
+      if (form.deliveredByWhom && needsDeliveredByDetail_(form.deliveredByWhom) && !form.deliveredByDetail) {
+        msg.className = 'status-msg error'; msg.textContent = 'Please fill in the details for "' + form.deliveredByWhom + '".'; return;
+      }
+      if (form.materialDeliveryDateTime) form.materialDeliveryDateTime = form.materialDeliveryDateTime.slice(0, 16);
+      if (kind === 'dispatch' && !shopDispatch) { delete form.dateOfReceiving; }
+      if (!confirm('Save these details on ' + slNos.length + ' order' + (slNos.length === 1 ? '' : 's') + '? They are all saved together, or none if any one is refused.')) return;
+      go.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
+      VT.run.withSuccessHandler(function (res) {
+        go.disabled = false;
+        if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; return; }
+        msg.textContent = photoSlots.length ? 'Saved. Adding photos...' : 'Saved.';
+        photoSlots.reduce(function (chain, ps) {
+          return chain.then(function (acc) { return photoUploadAll_(ps[0], slNos, ps[2]).then(function (p) { return acc.concat(p); }); });
+        }, Promise.resolve([])).then(function (problems) {
+          if (kind === 'dispatch') initDispatch(); else initReceiving();
+          if (problems.length) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Orders saved, but some photos did not upload: ' + problems[0]; return; }
+          shut();
+        });
+      }).withFailureHandler(function (err) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+        [kind === 'dispatch' ? 'bulkDispatch' : 'bulkReceiving'](CURRENT_TOKEN, slNos, form);
+    };
+  }
 
   /* ================= TOPBAR SEARCH ================= */
   function topbarSearch() {

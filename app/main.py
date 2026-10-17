@@ -447,6 +447,17 @@ def insert_order(body: OrderIn, user, *, check_fields: bool = True):
 @app.patch("/orders/{sl_no}")
 def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(default=None),
                   user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
+    try:
+        with db.cursor() as cur:
+            return apply_order_update(cur, sl_no, body, archived, user)[1]
+    except pgerr.ForeignKeyViolation as e:
+        raise _fk_error(e)
+
+
+def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user):
+    """The one update path (permission, test-account, visibility and bill-number checks, the write and the order_event row) on a cursor
+    the caller owns - so the bulk "Mark done" can save several orders in one transaction with exactly the single-order rules.
+    Returns (order before, order after)."""
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
     _check_test_dc(fields, user)
@@ -461,30 +472,26 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
         sets.append(f"is_cancelled = {CANCELLED_SQL}")
         params.append(fields["delivery_status_key"])
     vis_sql, vis_params = roles.visibility(user, archived=archived)
-    try:
-        with db.cursor() as cur:
-            # Lock the row only if this user is allowed to see it.
-            cur.execute(
-                "SELECT o.order_key FROM fact_orders o "
-                "LEFT JOIN dim_delivery_status ds ON ds.status_key = o.delivery_status_key "
-                "LEFT JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
-                f"WHERE o.sl_no = %s AND {vis_sql} FOR UPDATE OF o", [sl_no] + vis_params)
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(404, "Order not found")
-            cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
-            before = cur.fetchone()
-            _check_doc_number(cur, user, fields, before)
-            cur.execute(
-                f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
-                f"last_updated_at = now() WHERE order_key = %s",
-                params + [user["user_key"], row["order_key"]])
-            cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
-            after = cur.fetchone()
-            timeline.record_update(cur, row["order_key"], user, before, after)
-            return after
-    except pgerr.ForeignKeyViolation as e:
-        raise _fk_error(e)
+    # Lock the row only if this user is allowed to see it.
+    cur.execute(
+        "SELECT o.order_key FROM fact_orders o "
+        "LEFT JOIN dim_delivery_status ds ON ds.status_key = o.delivery_status_key "
+        "LEFT JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
+        f"WHERE o.sl_no = %s AND {vis_sql} FOR UPDATE OF o", [sl_no] + vis_params)
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Order not found")
+    cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
+    before = cur.fetchone()
+    _check_doc_number(cur, user, fields, before)
+    cur.execute(
+        f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
+        f"last_updated_at = now() WHERE order_key = %s",
+        params + [user["user_key"], row["order_key"]])
+    cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
+    after = cur.fetchone()
+    timeline.record_update(cur, row["order_key"], user, before, after)
+    return before, after
 
 
 ADMIN_ONLY = auth.require_roles("admin")

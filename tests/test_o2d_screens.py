@@ -130,7 +130,7 @@ def test_order_lifecycle_across_role_screens(client, db_conn, seed, monkeypatch)
                    json={"readyByWhom": "Ravi", "colourMakingBy": "Sonu", "deliveryStatus": "Delivered"}).json()
     assert r["success"] is True
     g = client.get("/o2d/godown", headers=godown).json()
-    assert dc in [o["dcNo"] for o in g["completed"]]
+    assert dc not in [o["dcNo"] for o in g["completed"]]     # a status that sends the order on leaves Under Processing
 
     gd = login(client, db_conn, "godown_dispatch")
     d = client.get("/o2d/dispatch", headers=gd).json()

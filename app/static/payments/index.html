@@ -10,6 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="../vendor/xlsx.full.min.js"></script>
+  <script src="../vendor/jspdf.umd.min.js"></script>
+  <script src="../vendor/html2canvas.min.js"></script>
   <style>
     :root{
       --navy:#0f2d52;
@@ -880,7 +882,7 @@
           <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
             <div class="field"><label for="chFile">Photo or PDF of the challan</label><input type="file" id="chFile" accept="image/*,application/pdf">
               <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <button type="button" class="btn btn-sm" style="background:#546E7A;color:#fff;" onclick="document.getElementById('chCam').click()">📷 Take photo with camera</button>
+                <button type="button" class="btn btn-sm" style="background:#546E7A;color:#fff;" title="Take photo with camera" aria-label="Take photo with camera" onclick="document.getElementById('chCam').click()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
                 <span id="chCamInfo" style="font-size:12px;color:var(--muted);"></span>
                 <input type="file" id="chCam" accept="image/*" capture="environment" style="display:none" onchange="chCamTaken(this)">
               </div></div>
@@ -923,6 +925,7 @@
             <option value="">Everything</option><option value="Expense">Expenses only</option><option value="Topup">Money added only</option>
           </select>
         </div>
+        <button class="btn btn-sm" id="expPdfBtn" style="background:#fff;border:1px solid var(--line);" title="Download this whole page for the chosen dates as a PDF" onclick="expExportPdf()">&#11015; PDF (whole page)</button>
         <button class="btn btn-sm" id="expAddBtn" style="background:var(--teal);color:#fff;" onclick="expOpenAdd('Expense')">+ Add Expense</button>
         <button class="btn btn-sm" id="expTopupBtn" style="display:none;background:var(--navy);color:#fff;" onclick="expOpenAdd('Topup')">+ Add Money to Account</button>
       </div>
@@ -934,7 +937,7 @@
         <div class="list-panel" style="margin:0;"><div class="list-header"><h3>Who spent it</h3></div><div id="expByPerson"></div></div>
       </div>
 
-      <div class="list-panel">
+      <div class="list-panel" id="expStatementPanel">
         <div class="list-header">
           <h3 id="expListTitle">Account statement</h3>
           <span class="action-link" onclick="expExportExcel()">⬇ Excel</span>
@@ -2489,6 +2492,39 @@ function expExportExcel(){
     ...s.byCategory.map(c => [c.category, c.amount]), [], ['Spent by person'], ...s.byPerson.map(x => [x.name, x.amount])]), 'Summary');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expLedgerRows()), 'Statement');
   XLSX.writeFile(wb, 'VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.xlsx');
+}
+// PDF of the whole page for the chosen dates: the scorecards, both summaries and the full statement, in the same way the VT Decor
+// statements are made (jsPDF + html2canvas, both in /static/vendor). The page's own HTML is copied, so it always matches the screen.
+function expExportPdf(){
+  if (!expLast) return;
+  if (!(window.jspdf && window.jspdf.jsPDF && window.html2canvas)) { alert('The PDF tools did not load. Please refresh the page and try again.'); return; }
+  const btn = document.getElementById('expPdfBtn'), label = btn.innerHTML;
+  btn.disabled = true; btn.textContent = 'Preparing PDF…';
+  const p = expLast.summary.period, sel = id => { const e = document.getElementById(id); return e && e.value ? e.options[e.selectedIndex].text : ''; };
+  const filters = [sel('expCatFilter') && sel('expCatFilter') !== 'All categories' ? 'Category: ' + sel('expCatFilter') : '', document.getElementById('expKindFilter').value ? sel('expKindFilter') : '']
+    .filter(Boolean).join(' · ');
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:-20000px;top:0;width:1000px;background:#fff;padding:16px;';
+  host.innerHTML = '<h2 style="margin:0 0 4px;font-size:20px">Vardhman Traders - Regular expenses</h2>' +
+    '<div style="font-size:13px;color:#555;margin-bottom:14px">' + esc(expLast.summary.account) + ' · ' + esc(p.from) + ' to ' + esc(p.to) +
+    (filters ? ' · ' + esc(filters) : '') + ' · generated ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST</div>';
+  ['expCards', null, 'expStatementPanel'].forEach(function(id){
+    const src = id ? document.getElementById(id) : document.getElementById('expByCategory').closest('div[style*="grid"]');
+    if (src) host.appendChild(src.cloneNode(true));
+  });
+  host.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  host.querySelectorAll('.action-link').forEach(e => e.remove());                         // Excel / CSV / Cancel links are not part of the report
+  host.querySelectorAll('#expTable thead tr, table thead tr').forEach(tr => { const last = tr.lastElementChild; if (last && !last.textContent.trim()) last.remove(); });
+  host.querySelectorAll('tbody tr').forEach(tr => { const last = tr.lastElementChild; if (last && tr.children.length === 10 && !last.textContent.trim()) last.remove(); });
+  host.querySelectorAll('.table-wrap').forEach(e => { e.style.overflow = 'visible'; e.style.maxHeight = 'none'; });
+  host.querySelectorAll('.cards').forEach(e => { e.style.flexWrap = 'wrap'; });
+  document.body.appendChild(host);
+  const done = () => { host.remove(); btn.disabled = false; btn.innerHTML = label; };
+  try {
+    const doc = new window.jspdf.jsPDF('p', 'pt', 'a4');
+    doc.html(host, { x: 16, y: 16, width: 563, windowWidth: 1000, autoPaging: 'text', html2canvas: { scale: 0.56, useCORS: true },
+      callback: function(d){ d.save('VT-Regular-Expenses-' + p.from + '-to-' + p.to + '.pdf'); done(); } });
+  } catch (e) { done(); alert('Could not make the PDF: ' + e.message); }
 }
 function expExportCsv(){
   if (!expLast) return;

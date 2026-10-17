@@ -127,6 +127,26 @@ def users_with_page(page_key: str) -> set[int]:
         return {r["user_key"] for r in cur.fetchall()}
 
 
+def holders(page_key: str) -> list[dict]:
+    """The people who can open a page (name, role), for the admin "who sees which orders" pickers."""
+    keys = users_with_page(page_key)
+    if not keys:
+        return []
+    with db.cursor() as cur:
+        cur.execute("SELECT user_key, username, display_name, role FROM dim_user WHERE user_key = ANY(%s) ORDER BY lower(display_name)",
+                    (sorted(keys),))
+        return cur.fetchall()
+
+
+def user_by_key(user_key: int) -> dict:
+    with db.cursor() as cur:
+        cur.execute("SELECT user_key, username, display_name, role, must_change_password FROM dim_user WHERE user_key = %s", (user_key,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "User not found")
+    return row
+
+
 def modules_for(user) -> list[dict]:
     """The business modules this person may open (admin: all of them)."""
     held = effective_access(user)

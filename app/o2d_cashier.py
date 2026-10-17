@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import access, config, db, payment_merge, roles, timeline
+from . import access, auth, config, db, payment_merge, roles, timeline
 from .o2d_screens import cleanup_cutoff
 
 router = APIRouter(prefix="/o2d/cashier", tags=["o2d-cashier"])
@@ -127,6 +127,20 @@ def cashier_screen(user=Depends(access.require_page(PAGE))):
     pend, done = [_row(r) for r in awaiting], [_row(r) for r in confirmed]
     return {"ok": True, "awaiting": pend, "confirmed": done, "canEdit": not access.is_view_only(user, PAGE),
             "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": False}
+
+
+@router.get("/visible-to")
+def visible_to(user_key: int | None = None, admin=Depends(auth.require_roles("admin"))):
+    """Admin only. Without `user_key`: the people who can open the Cashier dashboard. With it: the orders that person sees on it right now
+    (the same lists the dashboard builds for them), so an admin can check which orders are visible to which user."""
+    if user_key is None:
+        return {"ok": True, "users": [{"userKey": u["user_key"], "name": u["display_name"], "role": u["role"]} for u in access.holders(PAGE)]}
+    target = access.user_by_key(user_key)
+    if PAGE not in access.effective_access(target):
+        return {"ok": True, "canOpen": False, "name": target["display_name"], "awaiting": [], "confirmed": []}
+    awaiting, confirmed = fetch_cashier(target)
+    return {"ok": True, "canOpen": True, "name": target["display_name"],
+            "awaiting": [_row(r) for r in awaiting], "confirmed": [_row(r) for r in confirmed]}
 
 
 class ConfirmIn(BaseModel):

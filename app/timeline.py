@@ -114,10 +114,10 @@ def _shown(v):
 
 def timeline_for(cur, order_key: int, row: dict) -> dict:
     """Events oldest first. `row` is the order's v_orders_archive row."""
-    cur.execute("SELECT at, event_type, title, by_name, by_role, changes FROM order_event "
+    cur.execute("SELECT at, event_type, title, by_name, by_role, changes, by_ip FROM order_event "
                 "WHERE order_key = %s ORDER BY at, event_key", (order_key,))
     events = [{"at": _iso(e["at"]), "type": e["event_type"], "title": e["title"], "by": e["by_name"],
-               "role": e["by_role"], "changes": _shown_changes(e["changes"] or []), "reconstructed": False} for e in cur.fetchall()]
+               "role": e["by_role"], "ip": e["by_ip"], "changes": _shown_changes(e["changes"] or []), "reconstructed": False} for e in cur.fetchall()]
     note = None
     if not any(e["type"] == "created" for e in events):
         events.insert(0, {"at": _iso(row["timestamp_created"]), "type": "created", "title": "Order logged",

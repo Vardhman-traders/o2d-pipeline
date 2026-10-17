@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from . import access, config, db, timeline
+from . import access, auth, config, db, roles, timeline
 
 router = APIRouter(prefix="/o2d/cartage", tags=["o2d-cartage"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -128,6 +128,24 @@ def cartage_screen(date_from: date | None = Query(default=None), date_to: date |
                         "total": float(sum((r["cartage"] for r in paid), Decimal(0)))},
             "byEmployee": [{"employee": a["employee"], "deliveries": a["deliveries"], "withCartage": a["with_cartage"],
                             "total": float(a["total"]), "average": float(a["average"])} for a in emp]}
+
+
+@router.get("/visible-to")
+def visible_to(user_key: int | None = None, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None),
+               admin=Depends(auth.require_roles("admin"))):
+    """Admin only. Without `user_key`: the people who can open the Cartage dashboard. With it: the deliveries that person sees on it for the
+    period (test accounts only ever see TEST- orders, as everywhere), so an admin can check which orders are visible to which user."""
+    if user_key is None:
+        return {"ok": True, "users": [{"userKey": u["user_key"], "name": u["display_name"], "role": u["role"]} for u in access.holders(PAGE)]}
+    target = access.user_by_key(user_key)
+    if PAGE not in access.effective_access(target):
+        return {"ok": True, "canOpen": False, "name": target["display_name"], "orders": []}
+    df, dt = window(date_from, date_to)
+    rows = fetch_cartage(df, dt)
+    if roles.is_test_user(target):
+        rows = [r for r in rows if (r.get("dc_inv_no") or "").upper().startswith(roles.TEST_DC_PREFIX)]
+    return {"ok": True, "canOpen": True, "name": target["display_name"], "dateFrom": df.isoformat(), "dateTo": dt.isoformat(),
+            "orders": [_row(r) for r in rows]}
 
 
 class CartageIn(BaseModel):

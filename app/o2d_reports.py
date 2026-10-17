@@ -29,7 +29,10 @@ MAX_ROWS = 5000
 _LIVE = "NOT o.is_cancelled AND lower(btrim(COALESCE(st.type_name, ''))) <> 'cancelled'"
 _DELIVERED = "o.material_delivery_datetime IS NOT NULL"
 _RECEIVED = "o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL"
-_CASH = "lower(btrim(COALESCE(ps.status_name, ''))) = 'cash'"   # payment mode "Cash"; everything else is "other modes"
+# The payment mode of an order is its payment status (Setup > Dropdown values > Payment status). Cash = the status "Cash" (or one whose
+# "Cash / bank split" is set to Cash); Bank = the status "Bank" (or split set to Bank); Other = everything else, including "Cash + Bank".
+_CASH = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'cash' OR ps.payments_split = 'cash')"
+_BANK = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'bank' OR ps.payments_split = 'bank')"
 # Highest doc (DC / Inv) number first; numbers are compared as numbers (so 100 comes before 99), blanks last.
 _BY_DOC_NO = "NULLIF(regexp_replace(o.dc_inv_no, '[^0-9]', '', 'g'), '')::numeric DESC NULLS LAST, o.dc_inv_no DESC, o.sl_no DESC"
 _NEWEST_ORDERED = _NEWEST_DELIVERED = _NEWEST_RECEIVED = _BY_DOC_NO
@@ -57,6 +60,18 @@ def _received_report(side: str, label: str, mode: str, color: str) -> dict:
             "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED,
             "sections": [(f"{label} orders received, {what}", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {cash_sql}",
                           _RECEIVED_COLS, True)]}
+
+
+_COMBINED_COLS = [("Order date", "order_received_date", 20, "L"), ("DC / Inv No", "dc_inv_no", 20, "L"), ("Side", "side", 16, "L"),
+                  ("Address", "shipping_location", 46, "L"), ("Delivered by", "delivered_by_full", 38, "L"), ("Date received", "date_of_receiving", 22, "L"),
+                  ("Payment mode / status", "payment_status", 30, "L"), ("Cartage (Rs)", "cartage", 20, "R"),
+                  ("Amount received (Rs)", "amount_received", 30, "R")]
+
+
+def _combined_report(key: str, title: str, heading: str, cond: str, color: str) -> dict:
+    """Godown and shop together (the Side column says which)."""
+    return {"title": title, "file": key.replace("-", "_"), "color": color, "order": _NEWEST_RECEIVED,
+            "sections": [(heading, f"{_LIVE} AND {_DELIVERED} AND {_RECEIVED} AND {cond}", _COMBINED_COLS, True)]}
 
 
 # One report per part. color = the column-heading band, so printed reports are easy to tell apart.
@@ -95,6 +110,10 @@ REPORTS = {
     "godown-received-other": _received_report("godown", "Godown", "other", "#1d4ed8"),
     "shop-received-cash": _received_report("shop", "Shop", "cash", "#0f766e"),
     "shop-received-other": _received_report("shop", "Shop", "other", "#115e59"),
+    "received-bank": _combined_report("received-bank", "Godown + Shop - Received & Payments (Bank)", "Godown and shop orders received, paid by bank",
+                                      _BANK, "#4338ca"),
+    "received-other-all": _combined_report("received-other-all", "Godown + Shop - Received & Payments (All other transactions)",
+                                           "Godown and shop orders received, paid by neither cash nor bank", f"NOT ({_CASH}) AND NOT ({_BANK})", "#9d174d"),
 }
 
 
@@ -115,6 +134,7 @@ def _fmt(field: str, v) -> str:
 def _prepare(row: dict) -> dict:
     r = dict(row)
     r["amount_received"] = config.shown_amount(row.get("amount_received"), row.get("amount_effect"))   # entered / 100, minus for a sales return
+    r["side"] = "Shop" if row.get("dispatch_route") == "shop" else "Godown"
     r["delivered_by_full"] = " - ".join(x for x in (row.get("delivered_by"), row.get("delivered_by_detail")) if x)
     return r
 

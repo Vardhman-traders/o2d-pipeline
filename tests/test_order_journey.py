@@ -88,7 +88,7 @@ def test_godown_to_dispatch_journey(client, people, db_conn):
     assert r["success"] and _where(client, h, dc) == {"shop:recentOrders", "godown:pending"}
 
     _status(client, h, sl, "Godown to Dispatch")
-    assert _where(client, h, dc) == {"shop:recentOrders", "godown:completed", "godown_dispatch:pending"}   # Under Processing + Godown Dispatch ready
+    assert _where(client, h, dc) == {"shop:recentOrders", "godown_dispatch:pending"}   # left the godown: only Godown Dispatch ready (not Under Processing)
 
     _dispatch(client, h, "godown_dispatch", sl)
     assert _where(client, h, dc) == {"shop:recentOrders", "godown_dispatch:completed", "receiving:pending"}   # Awaiting receiving on both
@@ -106,7 +106,7 @@ def test_sent_to_the_company_behaves_like_godown_to_dispatch(client, people):
     dc = _dc()
     sl = add(client, h["shop"], today, dc)["slNo"]
     _status(client, h, sl, "Sent to the Company")
-    assert _where(client, h, dc) == {"shop:recentOrders", "godown:completed", "godown_dispatch:pending"}
+    assert _where(client, h, dc) == {"shop:recentOrders", "godown_dispatch:pending"}
 
 
 @pytest.mark.parametrize("status", ["Processing", "Delivery for NextDay"])
@@ -124,7 +124,7 @@ def test_dispatch_for_shop_journey_uses_the_new_label_and_closes_on_the_shop_scr
     sl = add(client, h["shop"], today, dc)["slNo"]
     assert "Dispatch for Shop" in client.get("/o2d/godown", headers=h["godown"]).json()["dropdowns"]["deliveryStatus"]
     _status(client, h, sl, "Dispatch for Shop")
-    assert _where(client, h, dc) == {"shop:recentOrders", "godown:completed", "shop_dispatch:pending"}
+    assert _where(client, h, dc) == {"shop:recentOrders", "shop_dispatch:pending"}
 
     _dispatch(client, h, "shop_dispatch", sl)                                                      # dispatched, receiving not filled yet
     assert _where(client, h, dc) == {"shop:recentOrders", "shop_dispatch:pending"}                 # stays in Ready, tagged "Receiving pending"
@@ -144,7 +144,7 @@ def test_cancelled_goes_straight_to_shop_dispatch_ready_and_never_to_godown_rece
     dc = _dc()
     sl = add(client, h["shop"], today, dc)["slNo"]
     _status(client, h, sl, "Cancelled")
-    assert _where(client, h, dc) == {"shop:recentOrders", "godown:completed", "shop_dispatch:pending"}
+    assert _where(client, h, dc) == {"shop:recentOrders", "shop_dispatch:pending"}
     _dispatch(client, h, "shop_dispatch", sl)
     assert _where(client, h, dc) == {"shop:recentOrders", "shop_dispatch:pending"}                 # not on Godown Receiving
 
