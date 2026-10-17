@@ -55,6 +55,7 @@ CSP_INLINE = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    timeline.set_client_ip(request)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

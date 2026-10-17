@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import access, config, db, payment_merge, roles
+from . import access, config, db, payment_merge, roles, timeline
 from .o2d_screens import cleanup_cutoff
 
 router = APIRouter(prefix="/o2d/cashier", tags=["o2d-cashier"])
@@ -136,9 +136,9 @@ class ConfirmIn(BaseModel):
 
 
 def _event(cur, order_key: int, user: dict, title: str):
-    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
-                "VALUES (%s, 'cashier', %s, %s, %s, %s)",
-                (order_key, title[:120], user["user_key"], user["display_name"], user["role"]))
+    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, by_ip) "
+                "VALUES (%s, 'cashier', %s, %s, %s, %s, %s)",
+                (order_key, title[:120], user["user_key"], user["display_name"], user["role"], timeline.client_ip()))
 
 
 def _refuse(message: str) -> dict:

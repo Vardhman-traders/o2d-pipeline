@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, config, db, doc_numbers, roles, whatsapp
+from . import access, attachments, auth, config, db, doc_numbers, roles, timeline, whatsapp
 
 log = logging.getLogger("o2d")
 router = APIRouter(prefix="/o2d", tags=["o2d"])
@@ -914,9 +914,9 @@ def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False
     """Note on the order's timeline when the dispatch alert went out (or why it did not). Never blocks the save."""
     try:
         with db.cursor() as cur:
-            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
-                        "VALUES (%s, 'whatsapp', %s, %s, %s, %s)",
-                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome], user["user_key"], user["display_name"], user["role"]))
+            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, by_ip) "
+                        "VALUES (%s, 'whatsapp', %s, %s, %s, %s, %s)",
+                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome], user["user_key"], user["display_name"], user["role"], timeline.client_ip()))
     except Exception:
         log.exception("Could not note the WhatsApp alert on order %s", order_key)
 
