@@ -211,6 +211,48 @@ def order_detail(sl_no: int, viewer=Depends(access.require_page(*access.DASHBOAR
     return {"order": order, "timeline": tl["events"], "timeline_note": tl["note"]}
 
 
+# ------------------------------------------------------------------ change log (Setup > Order changes)
+EVENT_SCREENS = {"created": "Order logged (Shop)", "edited": "Order details edited", "godown": "Godown dashboard",
+                 "dispatch": "Dispatch (godown / shop)", "receiving": "Receiving", "cashier": "Cashier",
+                 "cancelled": "Cancelled", "whatsapp": "WhatsApp alert"}
+EVENT_CAP = 1000
+
+
+@router.get("/order-events")
+def order_events(q: str | None = Query(default=None, max_length=100), screen: str | None = Query(default=None, max_length=20),
+                 date_from: date | None = None, date_to: date | None = None,
+                 limit: int = Query(default=300, ge=1, le=EVENT_CAP), admin=Depends(ADMIN)):
+    """Every recorded change on orders, read-only: when (IST), who, what changed and from which IP. `q` is an order (S) number or part of a
+    DC / invoice number. `screen` is one of EVENT_SCREENS (the kind of change = which dashboard made it). Newest orders first, each order's
+    changes oldest first."""
+    where, params = ["TRUE"], []
+    if q and q.strip():
+        term = q.strip()
+        where.append("(o.sl_no::text = %s OR o.dc_inv_no ILIKE %s)")
+        params += [term, f"%{term}%"]
+    if screen:
+        if screen not in EVENT_SCREENS:
+            raise HTTPException(422, "Unknown screen")
+        where.append("e.event_type = %s")
+        params.append(screen)
+    if date_from:
+        where.append("(e.at AT TIME ZONE 'Asia/Kolkata')::date >= %s")
+        params.append(date_from)
+    if date_to:
+        where.append("(e.at AT TIME ZONE 'Asia/Kolkata')::date <= %s")
+        params.append(date_to)
+    with db.cursor() as cur:
+        cur.execute("SELECT o.sl_no, o.dc_inv_no, e.at, e.event_type, e.title, e.by_name, e.by_role, e.changes, e.by_ip "
+                    "FROM order_event e JOIN fact_orders o ON o.order_key = e.order_key "
+                    f"WHERE {' AND '.join(where)} ORDER BY o.sl_no DESC, e.at, e.event_key LIMIT %s", params + [limit + 1])
+        rows = cur.fetchall()
+    truncated = len(rows) > limit
+    return {"screens": [{"id": k, "label": v} for k, v in EVENT_SCREENS.items()], "truncated": truncated,
+            "events": [{"slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "at": timeline._iso(r["at"]), "type": r["event_type"],
+                        "title": r["title"], "by": r["by_name"], "role": r["by_role"], "ip": r["by_ip"],
+                        "changes": timeline._shown_changes(r["changes"] or [])} for r in rows[:limit]]}
+
+
 EXPORT_CAP = 20000
 
 

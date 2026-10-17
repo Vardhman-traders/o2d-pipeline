@@ -11,7 +11,7 @@ from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import access, auth, config, dashboard, db, roles
+from . import access, auth, config, dashboard, db, roles, timeline
 
 ADMIN = auth.require_roles("admin")
 ANY_LOGGED_IN = auth.require_roles(*roles.ALL_ROLES)
@@ -165,9 +165,9 @@ def delete_user(user_key: int, admin=Depends(ADMIN)):
         who = target["display_name"] or target["username"]
         title = f"Owner changed to {admin['display_name']}: {who} was removed from the portal"
         for ok in order_keys:
-            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
-                        "VALUES (%s, 'reassigned', %s, %s, %s, %s)",
-                        (ok, title[:120], admin["user_key"], admin["display_name"], admin["role"]))
+            cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, by_ip) "
+                        "VALUES (%s, 'reassigned', %s, %s, %s, %s, %s)",
+                        (ok, title[:120], admin["user_key"], admin["display_name"], admin["role"], timeline.client_ip()))
         cur.execute("UPDATE fact_orders SET created_by_user_key = %s WHERE created_by_user_key = %s",
                     (admin["user_key"], user_key))
         cur.execute("UPDATE fact_orders SET last_updated_by_user_key = %s WHERE last_updated_by_user_key = %s",

@@ -1,6 +1,7 @@
 """Order timeline: one event per change to an order (when, who, what changed), plus the reader that builds the
 timeline shown in the order-details popup. Orders that predate event tracking get a reconstructed timeline from
 the timestamps on the order itself, clearly marked as reconstructed."""
+from contextvars import ContextVar
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -9,6 +10,21 @@ from psycopg2.extras import Json
 from . import config
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# IP of the request being handled, set once per request by main.security_headers. Anything that writes an order_event
+# row reads it through client_ip(), so no caller has to pass it along. None outside a request (scripts, background threads).
+_request_ip: ContextVar = ContextVar("request_ip", default=None)
+
+
+def set_client_ip(request) -> None:
+    """Behind Render's proxy request.client is the proxy, so prefer the first X-Forwarded-For entry (same as attendance throttling)."""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else None)
+    _request_ip.set(ip[:64] if ip else None)
+
+
+def client_ip():
+    return _request_ip.get()
 
 # order row (main.ORDER_SELECT names) -> label shown to people
 FIELD_LABELS = {
@@ -58,9 +74,9 @@ def _classify(changes: list[dict], new: dict) -> tuple[str, str]:
 
 
 def record_created(cur, order_key: int, user: dict):
-    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role) "
-                "VALUES (%s, 'created', 'Order logged', %s, %s, %s)",
-                (order_key, user["user_key"], user["display_name"], user["role"]))
+    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, by_ip) "
+                "VALUES (%s, 'created', 'Order logged', %s, %s, %s, %s)",
+                (order_key, user["user_key"], user["display_name"], user["role"], client_ip()))
 
 
 def record_update(cur, order_key: int, user: dict, old: dict, new: dict):
@@ -70,9 +86,9 @@ def record_update(cur, order_key: int, user: dict, old: dict, new: dict):
         return
     kind, title = _classify(changes, new)
     clean = [{k: v for k, v in c.items() if k != "_key"} for c in changes]
-    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, changes) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (order_key, kind, title, user["user_key"], user["display_name"], user["role"], Json(clean)))
+    cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, changes, by_ip) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (order_key, kind, title, user["user_key"], user["display_name"], user["role"], Json(clean), client_ip()))
 
 
 def _iso(dt):
@@ -98,10 +114,10 @@ def _shown(v):
 
 def timeline_for(cur, order_key: int, row: dict) -> dict:
     """Events oldest first. `row` is the order's v_orders_archive row."""
-    cur.execute("SELECT at, event_type, title, by_name, by_role, changes FROM order_event "
+    cur.execute("SELECT at, event_type, title, by_name, by_role, changes, by_ip FROM order_event "
                 "WHERE order_key = %s ORDER BY at, event_key", (order_key,))
     events = [{"at": _iso(e["at"]), "type": e["event_type"], "title": e["title"], "by": e["by_name"],
-               "role": e["by_role"], "changes": _shown_changes(e["changes"] or []), "reconstructed": False} for e in cur.fetchall()]
+               "role": e["by_role"], "ip": e["by_ip"], "changes": _shown_changes(e["changes"] or []), "reconstructed": False} for e in cur.fetchall()]
     note = None
     if not any(e["type"] == "created" for e in events):
         events.insert(0, {"at": _iso(row["timestamp_created"]), "type": "created", "title": "Order logged",

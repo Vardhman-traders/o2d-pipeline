@@ -44,6 +44,8 @@ LOOKUP_FIELDS = {
     "submission-types": [("bill_series", "Bill number series", [
         ("", "Not a numbered bill"), ("challan", "Challan - numbers restart every day"),
         ("invoice", "Invoice - one running series per financial year"),
+        ("sales_return_challan", "Sales Return Challan - numbers restart every day (its own series)"),
+        ("sales_return_invoice", "Sales Return Invoice - one running series per financial year (its own series)"),
         ("both", "Either - the order form asks Challan or Invoice, and the order is tagged to the one picked")])],
 }
 
