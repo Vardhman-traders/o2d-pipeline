@@ -4,7 +4,8 @@
 
 const FILTER_GROUPS = [['stage', 'Stage'], ['channel', 'Order via'], ['submission_type', 'Submission type'],
   ['delivery_status', 'Delivery status'], ['payment_status', 'Payment status'], ['ready_by', 'Ready by'],
-  ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by']];
+  ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by'],
+  ['bill_kind', 'Challan / Invoice'], ['sale_kind', 'Sales / Sales return']];
 // Each pair is [min key, max key]; rendered as one "from – to" field instead of two separate boxes.
 const RANGE_FILTERS = [['min_amount', 'max_amount', 'Amount (Rs)'], ['min_cartage', 'max_cartage', 'Cartage (Rs)']];
 const ORDER_COLS = [['sl_no', 'Sl'], ['order_date', 'Order date'], ['dc_inv_no', 'DC/Inv'], ['stage', 'Stage'], ['channel', 'Via'],
@@ -16,6 +17,7 @@ function openOrderEdit(row, options, onSaved) {
   const sel = (key) => [['', '-- no change --'], ...(options[key] || []).map((v) => [v, v])];
   formDialog({
     title: `Edit order ${row.dc_inv_no || row.sl_no}`, submitLabel: 'Save',
+    extraButtons: [{ text: 'Delete order', danger: true, onClick: (dlg) => deleteOrder(row, (n) => { dlg.close(); onSaved(n); }) }],
     fields: [
       { name: 'orderRcvdDate', label: 'Order date', type: 'date', value: row.order_date },
       { name: 'dcNo', label: 'DC / Inv No', value: row.dc_inv_no || '' },

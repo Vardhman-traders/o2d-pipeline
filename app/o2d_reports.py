@@ -31,10 +31,14 @@ _DELIVERED = "o.material_delivery_datetime IS NOT NULL"
 _RECEIVED = "o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT NULL"
 # The payment mode of an order is its payment status (Setup > Dropdown values > Payment status). Cash = the status "Cash" (or one whose
 # "Cash / bank split" is set to Cash); Bank = the status "Bank" (or split set to Bank); Other = everything else, including "Cash + Bank".
-_CASH = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'cash' OR ps.payments_split = 'cash')"
-_BANK = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'bank' OR ps.payments_split = 'bank')"
+# COALESCE matters: a status with no split set has payments_split NULL, and "NOT (false OR NULL)" is NULL - those orders (every plain
+# non-cash status) would silently drop out of every "not cash" / "all other" report.
+_CASH = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'cash' OR COALESCE(ps.payments_split, '') = 'cash')"
+_BANK = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'bank' OR COALESCE(ps.payments_split, '') = 'bank')"
 # Highest doc (DC / Inv) number first; numbers are compared as numbers (so 100 comes before 99), blanks last.
 _BY_DOC_NO = "NULLIF(regexp_replace(o.dc_inv_no, '[^0-9]', '', 'g'), '')::numeric DESC NULLS LAST, o.dc_inv_no DESC, o.sl_no DESC"
+_ORDERED_ON = "d.full_date"                       # what the From / To dates mean for the pending reports: the order date ...
+_RECEIVED_ON = "rd.full_date"                     # ... and for the received & payments reports: the date of receiving
 _NEWEST_ORDERED = _NEWEST_DELIVERED = _NEWEST_RECEIVED = _BY_DOC_NO
 
 
@@ -57,7 +61,7 @@ def _received_report(side: str, label: str, mode: str, color: str) -> dict:
     side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_SIDE), (_CASH if mode == "cash" else f"NOT ({_CASH})")
     what = "paid in cash" if mode == "cash" else "paid by any mode except cash (bank + other)"
     return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Not cash - bank + other'})",
-            "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED,
+            "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED, "date_field": _RECEIVED_ON,
             "sections": [(f"{label} orders received, {what}", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {cash_sql}",
                           _RECEIVED_COLS, True)]}
 
@@ -70,7 +74,7 @@ _COMBINED_COLS = [("Order date", "order_received_date", 20, "L"), ("DC / Inv No"
 
 def _combined_report(key: str, title: str, heading: str, cond: str, color: str) -> dict:
     """Godown and shop together (the Side column says which)."""
-    return {"title": title, "file": key.replace("-", "_"), "color": color, "order": _NEWEST_RECEIVED,
+    return {"title": title, "file": key.replace("-", "_"), "color": color, "order": _NEWEST_RECEIVED, "date_field": _RECEIVED_ON,
             "sections": [(heading, f"{_LIVE} AND {_DELIVERED} AND {_RECEIVED} AND {cond}", _COMBINED_COLS, True)]}
 
 
@@ -212,14 +216,15 @@ def build_pdf(title: str, sections: list[dict], created_by: str, generated_at: d
     return buf.getvalue()
 
 
-def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | None, order_sql: str = _NEWEST_ORDERED) -> list[dict]:
+def fetch_rows(user, where_sql: str, date_from: date | None, date_to: date | None, order_sql: str = _NEWEST_ORDERED,
+               date_field: str = _ORDERED_ON) -> list[dict]:
     from . import main
     vis_sql, vis_params = roles.visibility(user)
     where, params = [vis_sql, f"({where_sql})"], list(vis_params)
     if date_from:
-        where.append("d.full_date >= %s"); params.append(date_from)
+        where.append(f"{date_field} >= %s"); params.append(date_from)
     if date_to:
-        where.append("d.full_date <= %s"); params.append(date_to)
+        where.append(f"{date_field} <= %s"); params.append(date_to)
     sql = (main.ORDER_SELECT + " WHERE " + " AND ".join(where) +
            f" ORDER BY {order_sql} LIMIT %s")
     with db.cursor() as cur:
@@ -250,6 +255,19 @@ def _cartage_sections(spec: dict, date_from: date | None, date_to: date | None, 
     return [{"heading": heading + tag, "columns": cols, "totals": totals, "rows": rows}], note, len(rows) >= o2d_cartage.MAX_ROWS
 
 
+def build_report(spec: dict, user, date_from: date | None, date_to: date | None, created_by: str, now: datetime) -> tuple[bytes, int]:
+    """One of the order-based reports (everything but the cartage ones) as (PDF bytes, number of orders). The From / To dates are the order date for the
+    pending reports and the date of receiving for the received & payments reports (the note under the title says which)."""
+    field = spec.get("date_field", _ORDERED_ON)
+    sections = [{"heading": h, "columns": cols, "totals": totals, "rows": fetch_rows(user, where, date_from, date_to, spec.get("order", _NEWEST_ORDERED), field)}
+                for h, where, cols, totals in spec["sections"]]
+    what = "Date of receiving" if field == _RECEIVED_ON else "Order dates"
+    note = f"{what} " + (f"{date_from:%d-%m-%Y}" if date_from else "start") + " to " + (f"{date_to:%d-%m-%Y}" if date_to else "today")         if (date_from or date_to) else ("All orders still open" if field == _ORDERED_ON else "All received orders")
+    if any(len(s["rows"]) >= MAX_ROWS for s in sections):
+        note += f" · first {MAX_ROWS} rows only, narrow the dates"
+    return build_pdf(spec["title"], sections, created_by, now, note, spec["color"]), sum(len(s["rows"]) for s in sections)
+
+
 @router.get("/{kind}.pdf")
 def report_pdf(kind: str, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None),
                delivered_by: str | None = Query(default=None, max_length=150),
@@ -273,13 +291,7 @@ def report_pdf(kind: str, date_from: date | None = Query(default=None), date_to:
         name = f"{spec['file']}_{datetime.now(IST):%Y%m%d_%H%M}.pdf"
         return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
                                                                      "Cache-Control": "no-store"})
-    sections = [{"heading": h, "columns": cols, "totals": totals, "rows": fetch_rows(user, where, date_from, date_to, spec.get("order", _NEWEST_ORDERED))}
-                for h, where, cols, totals in spec["sections"]]
-    note = "Order dates " + (f"{date_from:%d-%m-%Y}" if date_from else "start") + " to " + (f"{date_to:%d-%m-%Y}" if date_to else "today") \
-        if (date_from or date_to) else "All orders still open"
-    if any(len(s["rows"]) >= MAX_ROWS for s in sections):
-        note += f" · first {MAX_ROWS} rows only, narrow the dates"
-    pdf = build_pdf(spec["title"], sections, user.get("display_name") or user["username"], datetime.now(IST), note, spec["color"])
+    pdf, _ = build_report(spec, user, date_from, date_to, user.get("display_name") or user["username"], datetime.now(IST))
     name = f"{spec['file']}_{datetime.now(IST):%Y%m%d_%H%M}.pdf"
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
                                                                  "Cache-Control": "no-store"})

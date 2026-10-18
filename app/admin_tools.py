@@ -14,12 +14,15 @@ from .admin import ADMIN, EXPORT_COLUMNS, IST_COLS, audit
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
 IST = ZoneInfo("Asia/Kolkata")
+BILL_KINDS = ("Challan", "Invoice")            # v_orders.bill_kind - which bill series an order belongs to
+SALE_KINDS = ("Sales", "Sales return")        # v_orders.sale_kind
 NONE_TOKEN = "__none__"      # "no value" in a multi-select filter, e.g. orders with no payment status yet
 
 # ------------------------------------------------------------------ filters
 MULTI = {"stage": "v.stage", "channel": "v.channel", "submission_type": "v.submission_type",
          "delivery_status": "v.delivery_status", "payment_status": "v.payment_status", "ready_by": "v.ready_by",
-         "colour_making_by": "v.colour_making_by", "delivered_by": "v.delivered_by", "created_by": "v.created_by"}
+         "colour_making_by": "v.colour_making_by", "delivered_by": "v.delivered_by", "created_by": "v.created_by",
+         "bill_kind": "v.bill_kind", "sale_kind": "v.sale_kind"}   # Challan / Invoice, Sales / Sales return
 NUMBERS = {"min_amount": ("v.amount_received", ">="), "max_amount": ("v.amount_received", "<="),
            "min_cartage": ("v.cartage", ">="), "max_cartage": ("v.cartage", "<="),
            "min_hours": ("v.hours_to_deliver", ">="), "max_hours": ("v.hours_to_deliver", "<=")}
@@ -156,6 +159,7 @@ def filter_options(viewer=Depends(access.require_page(*access.DASHBOARD_PAGES)))
             "delivered_by": col("SELECT full_name FROM dim_person WHERE person_role = 'delivery' "
                                 "ORDER BY sort_order, lower(full_name)"),
             "created_by": col("SELECT display_name FROM dim_user ORDER BY lower(display_name)"),
+            "bill_kind": list(BILL_KINDS), "sale_kind": list(SALE_KINDS),
         }
 
 
