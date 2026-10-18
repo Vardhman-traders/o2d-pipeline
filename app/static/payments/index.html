@@ -243,25 +243,25 @@
 
     /* ===== SUMMARY CARDS ===== */
     .cards{
-      display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));
-      gap:14px;margin-bottom:24px;
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+      gap:10px;margin-bottom:16px;
     }
     .card{
-      border-radius:var(--radius);padding:18px 20px;
+      border-radius:var(--radius);padding:10px 14px;
       cursor:pointer;transition:all .2s ease;
       position:relative;overflow:hidden;
       border:2px solid transparent;
     }
     .card::before{
       content:'';position:absolute;right:-20px;top:-20px;
-      width:80px;height:80px;border-radius:50%;opacity:.12;
+      width:60px;height:60px;border-radius:50%;opacity:.12;
     }
     .card.active-card{border-color:rgba(255,255,255,0.6);transform:scale(1.03);}
     .card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
     .card:active{transform:translateY(0);}
-    .card .label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.85;}
-    .card .value{font-size:22px;font-weight:800;margin-top:8px;}
-    .card .card-sub{font-size:11px;margin-top:4px;opacity:.75;}
+    .card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.85;}
+    .card .value{font-size:17px;font-weight:800;margin-top:4px;}
+    .card .card-sub{font-size:10px;margin-top:2px;opacity:.75;}
 
     .card-cyan   {background:linear-gradient(135deg,#0891b2,#06b6d4);color:#fff;}
     .card-cyan::before{background:#fff;}
@@ -273,73 +273,6 @@
     .card-red::before{background:#fff;}
     .card-purple {background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;}
     .card-purple::before{background:#fff;}
-
-    /* ===== PENDING TYPE CARD ===== */
-    .pending-type-card{
-      background:var(--card);
-      border-radius:var(--radius);
-      border:1.5px solid #bfdbfe;
-      padding:14px 16px;
-      box-shadow:var(--shadow);
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      cursor:default;
-      transition:all .2s ease;
-    }
-    .pending-type-card:hover{
-      box-shadow:var(--shadow-lg);
-      transform:translateY(-2px);
-    }
-    .ptc-top{
-      display:flex;align-items:center;justify-content:space-between;
-    }
-    .ptc-label{
-      font-size:11px;font-weight:700;text-transform:uppercase;
-      letter-spacing:.06em;color:var(--accent-dark);
-      display:flex;align-items:center;gap:6px;
-    }
-    .ptc-divider{height:1px;background:var(--line);}
-    .ptc-select-wrap{position:relative;}
-    .ptc-select{
-      width:100%;
-      border:1.5px solid #bfdbfe;
-      border-radius:8px;
-      padding:8px 32px 8px 10px;
-      font-size:12.5px;
-      font-weight:600;
-      color:var(--ink);
-      background:#eff6ff;
-      cursor:pointer;
-      appearance:none;
-      -webkit-appearance:none;
-      background-image:url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-      background-repeat:no-repeat;
-      background-position:right 10px center;
-      background-color:#eff6ff;
-      transition:border-color .15s;
-    }
-    .ptc-select:focus{
-      outline:none;
-      border-color:var(--accent);
-      box-shadow:0 0 0 3px rgba(59,130,246,0.15);
-    }
-    .ptc-count-row{
-      display:flex;align-items:center;justify-content:space-between;
-    }
-    .ptc-count-sub{
-      font-size:11px;color:var(--accent-dark);margin-top:3px;font-weight:600;
-    }
-    .ptc-view-btn{
-      background:linear-gradient(135deg,var(--accent),var(--accent-dark));
-      color:#fff;border:none;border-radius:8px;
-      padding:7px 14px;font-size:12px;font-weight:700;
-      cursor:pointer;transition:all .15s;white-space:nowrap;
-    }
-    .ptc-view-btn:hover{
-      box-shadow:0 3px 10px rgba(59,130,246,0.40);
-      transform:translateY(-1px);
-    }
 
     /* ===== TRANSACTION LIST PANEL ===== */
     .list-panel{
@@ -376,19 +309,6 @@
     .action-link:hover{background:rgba(59,130,246,0.08);}
     .action-link.danger{color:var(--red);}
     .action-link.danger:hover{background:rgba(220,38,38,0.08);}
-
-    /* Invoice sequence toggle button */
-    .btn-seq{
-      border:1.5px solid var(--amber);
-      background:transparent;color:var(--amber);
-      border-radius:8px;padding:5px 12px;
-      font-size:12.5px;font-weight:700;cursor:pointer;
-      transition:all .15s;white-space:nowrap;
-    }
-    .btn-seq:hover{background:var(--amber-bg);}
-    .btn-seq.seq-active{background:var(--amber);color:#fff;}
-    .btn-seq.seq-active:hover{background:var(--orange);}
-    #th_invoice.seq-on button{color:var(--amber);}
 
     /* ===== TABLE ===== */
     .table-wrap{
@@ -568,56 +488,63 @@
 
     .divider{height:1px;background:var(--line);margin:4px 0;}
 
-    /* ===== EXCEL-STYLE COLUMN FILTER ===== */
-    .col-filter-btn{
-      display:inline-flex;align-items:center;gap:4px;
-      background:none;border:none;cursor:pointer;
-      font-size:11px;font-weight:700;color:var(--muted);
-      text-transform:uppercase;letter-spacing:.05em;
-      padding:2px 4px;border-radius:4px;width:100%;
-      justify-content:space-between;
+    /* ===== TOP FILTER BAR (all three tabs) ===== */
+    .fbar{
+      background:#fff;border-radius:var(--radius);padding:9px 12px;margin-bottom:12px;
+      box-shadow:var(--shadow);border:1.5px solid var(--line);
+      display:flex;flex-wrap:wrap;gap:8px;align-items:center;
     }
-    .col-filter-btn:hover{background:rgba(59,130,246,.08);color:var(--accent);}
-    .col-filter-btn.active{color:var(--accent);}
-    .col-filter-btn .cf-arrow{font-size:9px;transition:transform .15s;flex-shrink:0;}
-    .col-filter-btn.open .cf-arrow{transform:rotate(180deg);}
-
-    .cf-popup{
-      display:none;position:fixed;z-index:200;
-      background:#fff;border:1.5px solid var(--line);border-radius:10px;
-      box-shadow:0 8px 32px rgba(15,45,82,0.22);
-      width:240px;font-size:13px;
+    .fbar.flat{box-shadow:none;border:none;padding:0 0 10px;margin-bottom:0;}
+    .fbar .fitem{display:flex;align-items:center;gap:5px;margin:0;}
+    .fbar .fitem.fsearch{flex:1 1 210px;min-width:170px;}
+    .fbar .field{margin:0;min-width:0;}
+    .fbar .flab{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+    .fbar .fc{
+      height:34px;padding:0 9px;border:1.5px solid var(--line);border-radius:8px;
+      font-size:13px;color:var(--ink);background:#fff;min-width:0;width:auto;
     }
-    .cf-popup.open{display:block;}
-    .cf-popup-title{padding:10px 14px 8px;font-weight:700;font-size:12px;color:var(--navy);border-bottom:1px solid var(--line);}
-    .cf-search-wrap{padding:8px 10px;border-bottom:1px solid var(--line);}
-    .cf-search-wrap input{
-      width:100%;border:1.5px solid var(--line);border-radius:7px;
-      padding:6px 10px;font-size:12.5px;color:var(--ink);outline:none;
+    .fbar .fc:focus{border-color:var(--accent);outline:none;}
+    .fbar .fsearch .fc{width:100%;background:#f8fafc;}
+    .fbar input[type=number].fc{width:84px;}
+    .fbar .fgap{flex:1 1 0;}
+    .fbar .fmore{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:8px;border-top:1px dashed var(--line);}
+    .fbtn{
+      height:34px;border:none;border-radius:8px;padding:0 13px;font-size:12.5px;font-weight:700;
+      cursor:pointer;white-space:nowrap;color:#fff;transition:all .15s;
     }
-    .cf-search-wrap input:focus{border-color:var(--accent);}
-    .cf-select-row{display:flex;justify-content:space-between;align-items:center;padding:5px 14px;border-bottom:1px solid var(--line);}
-    .cf-select-row a{font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;}
-    .cf-select-row a:hover{text-decoration:underline;}
-    .cf-list{max-height:200px;overflow-y:auto;padding:4px 0;}
-    .cf-item{display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;}
-    .cf-item:hover{background:var(--bg);}
-    .cf-item input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;}
-    .cf-item label{cursor:pointer;font-size:13px;color:var(--ink);flex:1;}
-    .cf-footer{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);}
-    .cf-ok{
-      flex:1;background:linear-gradient(135deg,var(--accent),var(--accent-dark));
-      color:#fff;border:none;border-radius:7px;
-      padding:8px;font-size:13px;font-weight:700;cursor:pointer;
+    .fbtn.blue{background:linear-gradient(135deg,var(--accent),var(--accent-dark));}
+    .fbtn.green{background:linear-gradient(135deg,#0a7c5c,#10b981);}
+    .fbtn.teal{background:var(--teal);}
+    .fbtn.navy{background:var(--navy);}
+    .fbtn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line);}
+    .fbtn:hover{box-shadow:0 3px 10px rgba(15,45,82,0.2);}
+    .fbtn.on{border-color:var(--accent);color:var(--accent);}
+    /* multi-select dropdown used by the filters */
+    .ms{position:relative;}
+    .ms-btn{
+      height:34px;display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid var(--line);
+      border-radius:8px;padding:0 10px;font-size:13px;color:var(--ink);cursor:pointer;white-space:nowrap;
     }
-    .cf-ok:hover{box-shadow:0 2px 8px rgba(59,130,246,.35);}
-    .cf-cancel{
-      flex:1;background:#fff;color:var(--muted);
-      border:1.5px solid var(--line);border-radius:7px;
-      padding:8px;font-size:13px;font-weight:600;cursor:pointer;
+    .ms-btn.active{border-color:var(--accent);background:#eff6ff;}
+    .ms-count{color:var(--accent-dark);font-weight:700;max-width:110px;overflow:hidden;text-overflow:ellipsis;}
+    .ms-caret{font-size:10px;color:var(--muted);}
+    .ms-panel{
+      display:none;position:absolute;left:0;top:38px;z-index:60;min-width:210px;max-width:320px;background:#fff;
+      border:1.5px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(15,45,82,.2);padding:6px;
     }
-    .cf-cancel:hover{background:var(--bg);}
-    .cf-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:3px;vertical-align:middle;}
+    .ms.open .ms-panel{display:block;}
+    .ms-panel input[type=text]{width:100%;height:30px;border:1.5px solid var(--line);border-radius:6px;padding:0 8px;font-size:12.5px;margin-bottom:4px;}
+    .ms-list{max-height:240px;overflow-y:auto;}
+    .ms-item{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:13px;cursor:pointer;}
+    .ms-item:hover{background:var(--bg);}
+    .ms-item input{width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;}
+    .ms-clear{display:block;width:100%;text-align:left;background:none;border:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;cursor:pointer;}
+    /* click a column name to sort */
+    th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+    th.sortable:hover{color:var(--accent);}
+    th.sortable .si{font-size:10px;margin-left:4px;opacity:.35;}
+    th.sortable.sorted{color:var(--accent);}
+    th.sortable.sorted .si{opacity:1;}
 
     /* ===== PENDING MODE INDICATOR ===== */
     .mode-pending-badge{
@@ -680,51 +607,25 @@
       <button id="payTabCh" onclick="payTab('ch')">Upload Challan</button>
     </div>
     <div id="payArea">
-    <!-- SEARCH BAR -->
-    <div class="search-bar">
-      <label>🔍 Search</label>
-      <div class="sb-input">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        <input type="text" id="searchInvoice" placeholder="Invoice No. / Challan No. / Party…" onkeydown="if(event.key==='Enter')doSearch()">
-      </div>
-      <div class="sb-divider"></div>
-      <div class="sb-input" style="min-width:140px;flex:0 0 auto;">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        <input type="date" id="searchDate" onkeydown="if(event.key==='Enter')doSearch()">
-      </div>
-      <button class="btn-search" onclick="doSearch()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        Search
-      </button>
-      <button class="btn-search-clear" id="searchClearBtn" onclick="clearSearch()">✕ Clear</button>
-    </div>
-
-    <!-- TOOLBAR -->
-    <div class="toolbar" id="toolbar">
-      <div class="field" id="companyFilterField">
-        <label for="companyFilter">Company Filter</label>
-        <select id="companyFilter" onchange="onFilterChange()">
-          <option value="All Companies">All Companies</option>
-        </select>
-      </div>
-      <div class="field" id="dateFromField" style="display:none;max-width:150px;">
-        <label for="dateFrom">From Date</label>
-        <input type="date" id="dateFrom" onchange="onFilterChange()">
-      </div>
-      <div class="field" id="dateToField" style="display:none;max-width:150px;">
-        <label for="dateTo">To Date</label>
-        <input type="date" id="dateTo" onchange="onFilterChange()">
-      </div>
-      <div id="entryPanelWrap" style="display:none;">
-        <button class="tb-action-btn blue" id="entryToggleBtn" onclick="togglePanel('entryPanel','entryToggleBtn','+ New Transaction Entry')">+ New Transaction Entry</button>
-      </div>
-      <div id="addPartyPanelWrap" style="display:none;">
-        <button class="tb-action-btn green" id="addPartyToggleBtn" onclick="openAddPartyPanel()">+ Add New Party</button>
-      </div>
-      <button class="tb-action-btn blue" onclick="refreshAll()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Refresh
-      </button>
+    <!-- FILTER BAR: search + every column filter in one compact row (More filters opens the rest) -->
+    <div class="fbar" id="toolbar">
+      <div class="fitem fsearch"><input type="text" id="searchInvoice" class="fc" placeholder="🔍 Invoice / Challan no. / Party / Remarks…" aria-label="Search" oninput="onSearchInput()"></div>
+      <div class="fitem field" id="companyFilterField"><select id="companyFilter" class="fc" aria-label="Company" onchange="onFilterChange()"><option value="All Companies">All Companies</option></select></div>
+      <div class="fitem field" id="dateFromField" style="display:none;"><span class="flab">From</span><input type="date" id="dateFrom" class="fc" onchange="onFilterChange()"></div>
+      <div class="fitem field" id="dateToField" style="display:none;"><span class="flab">To</span><input type="date" id="dateTo" class="fc" onchange="onFilterChange()"></div>
+      <div class="fitem"><select id="statusFilter" class="fc" aria-label="Show entries" onchange="setStatusTab(this.value)"></select></div>
+      <div class="fitem" id="fmsMain"></div>
+      <button type="button" class="fbtn ghost" id="moreFiltersBtn" onclick="toggleMoreFilters()">More filters ▾</button>
       <span class="clear-date-link" id="clearDateLink" onclick="clearDateFilter()">Clear dates ✕</span>
+      <button type="button" class="btn-search-clear" id="searchClearBtn" onclick="clearAllFilters()">✕ Clear filters</button>
+      <span class="fgap"></span>
+      <div id="entryPanelWrap" style="display:none;"><button class="fbtn blue" id="entryToggleBtn" onclick="togglePanel('entryPanel','entryToggleBtn','+ New Entry')">+ New Entry</button></div>
+      <div id="addPartyPanelWrap" style="display:none;"><button class="fbtn green" id="addPartyToggleBtn" onclick="openAddPartyPanel()">+ Party</button></div>
+      <button class="fbtn blue" onclick="refreshAll()" title="Reload from the server">⟳ Refresh</button>
+      <div class="fmore" id="fmore" style="display:none;">
+        <div class="fitem" id="fmsMore"></div>
+        <div class="fitem"><span class="flab">Amount</span><input type="number" id="amtMin" class="fc" placeholder="min" step="0.01" oninput="onAmountInput()"><input type="number" id="amtMax" class="fc" placeholder="max" step="0.01" oninput="onAmountInput()"></div>
+      </div>
     </div>
 
     <!-- ========== ENTRY PANEL ========== -->
@@ -820,13 +721,7 @@
     <div class="list-panel" id="txnListPanel">
       <div class="list-header">
         <h3 id="listTitle">Transaction List</h3>
-        <div class="tabbar" id="statusTabbar">
-          <button class="active" data-status="all" onclick="setStatusTab('all')">All</button>
-          <button data-status="Pending" onclick="setStatusTab('Pending')">Pending</button>
-          <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>
-        </div>
         <span class="action-link danger" id="clearFilterLink" onclick="clearCardFilter()" style="display:none;">✕ Clear filter</span>
-        <button class="btn-seq main-only" id="seqBtn" onclick="toggleInvoiceSeq()" title="Invoice numbers ko 1,2,3... sequence mein dikhao"># Seq</button>
         <span class="action-link main-only" onclick="exportFilteredPDF()">⬇ PDF</span>
         <span class="action-link main-only" onclick="exportFilteredExcel()">⬇ Excel</span>
       </div>
@@ -840,16 +735,16 @@
           </colgroup>
           <thead>
             <tr>
-              <th><button class="col-filter-btn" id="cfb_date"      onclick="openColFilter(event,'date'      )">Date<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_company"   onclick="openColFilter(event,'company'   )">Co.<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_type"      onclick="openColFilter(event,'type'      )">Type<span class="cf-arrow">▼</span></button></th>
-              <th id="th_invoice"><button class="col-filter-btn" id="cfb_invoice" onclick="openColFilter(event,'invoice')">Inv.<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_party"     onclick="openColFilter(event,'party'     )">Party<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_amount"    onclick="openColFilter(event,'amount'    )">Amt<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_mode"      onclick="openColFilter(event,'mode'      )">Mode<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_createdby" onclick="openColFilter(event,'createdby' )">By<span class="cf-arrow">▼</span></button></th>
-              <th><button class="col-filter-btn" id="cfb_status"    onclick="openColFilter(event,'status'    )">St.<span class="cf-arrow">▼</span></button></th>
-              <th class="th-remarks" style="display:none;"><button class="col-filter-btn" id="cfb_remarks" onclick="openColFilter(event,'remarks')">Remarks<span class="cf-arrow">▼</span></button></th>
+              <th class="sortable" data-k="date" onclick="sortBy('txn','date')">Date<span class="si">⇅</span></th>
+              <th class="sortable" data-k="company" onclick="sortBy('txn','company')">Co.<span class="si">⇅</span></th>
+              <th class="sortable" data-k="type" onclick="sortBy('txn','type')">Type<span class="si">⇅</span></th>
+              <th class="sortable" data-k="invoice" onclick="sortBy('txn','invoice')">Inv.<span class="si">⇅</span></th>
+              <th class="sortable" data-k="party" onclick="sortBy('txn','party')">Party<span class="si">⇅</span></th>
+              <th class="sortable" data-k="amount" onclick="sortBy('txn','amount')">Amt<span class="si">⇅</span></th>
+              <th class="sortable" data-k="mode" onclick="sortBy('txn','mode')">Mode<span class="si">⇅</span></th>
+              <th class="sortable" data-k="createdby" onclick="sortBy('txn','createdby')">By<span class="si">⇅</span></th>
+              <th class="sortable" data-k="status" onclick="sortBy('txn','status')">St.<span class="si">⇅</span></th>
+              <th class="th-remarks sortable" data-k="remarks" style="display:none;" onclick="sortBy('txn','remarks')">Remarks<span class="si">⇅</span></th>
               <th>Action</th>
             </tr>
           </thead>
@@ -895,14 +790,22 @@
         </div>
       </div>
       <div class="list-panel">
-        <div class="list-header">
-          <h3>Uploaded challans <span id="chCount" style="color:var(--muted);font-weight:500;"></span></h3>
-          <div class="field" style="margin:0;"><label for="chFrom">From</label><input type="date" id="chFrom" onchange="chLoad()"></div>
-          <div class="field" style="margin:0;"><label for="chTo">To</label><input type="date" id="chTo" onchange="chLoad()"></div>
+        <div class="list-header"><h3>Uploaded challans <span id="chCount" style="color:var(--muted);font-weight:500;"></span></h3></div>
+        <div class="fbar flat" id="chBar">
+          <div class="fitem fsearch"><input type="text" id="chSearch" class="fc" placeholder="🔍 Challan no. / Note…" aria-label="Search" oninput="chDraw()"></div>
+          <div class="fitem"><span class="flab">From</span><input type="date" id="chFrom" class="fc" onchange="chLoad()"></div>
+          <div class="fitem"><span class="flab">To</span><input type="date" id="chTo" class="fc" onchange="chLoad()"></div>
+          <div class="fitem" id="chMs"></div>
+          <button type="button" class="btn-search-clear" id="chClearBtn" onclick="chClearFilters()">✕ Clear filters</button>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Challan</th><th>Challan date</th><th>Challan no.</th><th>Note</th><th>Uploaded by</th><th>Uploaded on</th></tr></thead>
+          <table id="chTable">
+            <thead><tr><th>Challan</th>
+              <th class="sortable" data-k="date" onclick="sortBy('ch','date')">Challan date<span class="si">⇅</span></th>
+              <th class="sortable" data-k="ref" onclick="sortBy('ch','ref')">Challan no.<span class="si">⇅</span></th>
+              <th class="sortable" data-k="note" onclick="sortBy('ch','note')">Note<span class="si">⇅</span></th>
+              <th class="sortable" data-k="by" onclick="sortBy('ch','by')">Uploaded by<span class="si">⇅</span></th>
+              <th class="sortable" data-k="at" onclick="sortBy('ch','at')">Uploaded on<span class="si">⇅</span></th></tr></thead>
             <tbody id="chBody"></tbody>
           </table>
         </div>
@@ -911,23 +814,23 @@
 
     <!-- ===================== REGULAR EXPENSES ===================== -->
     <div id="expArea" style="display:none;">
-      <div class="toolbar" style="flex-wrap:wrap;align-items:flex-end;">
-        <div class="field" id="expAccountField" style="display:none;">
-          <label for="expAccount">Account</label>
-          <select id="expAccount" onchange="expReload()"></select>
-        </div>
-        <div class="field"><label for="expFrom">From</label><input type="date" id="expFrom" onchange="expReload()"></div>
-        <div class="field"><label for="expTo">To</label><input type="date" id="expTo" onchange="expReload()"></div>
-        <div class="field"><label for="expCatFilter">Category</label><select id="expCatFilter" onchange="expReload()"></select></div>
-        <div class="field">
-          <label for="expKindFilter">Show</label>
-          <select id="expKindFilter" onchange="expReload()">
+      <div class="fbar" id="expBar">
+        <div class="fitem field" id="expAccountField" style="display:none;"><select id="expAccount" class="fc" aria-label="Account" onchange="expReload()"></select></div>
+        <div class="fitem"><span class="flab">From</span><input type="date" id="expFrom" class="fc" onchange="expReload()"></div>
+        <div class="fitem"><span class="flab">To</span><input type="date" id="expTo" class="fc" onchange="expReload()"></div>
+        <div class="fitem"><select id="expCatFilter" class="fc" aria-label="Category" onchange="expReload()"></select></div>
+        <div class="fitem">
+          <select id="expKindFilter" class="fc" aria-label="Show" onchange="expReload()">
             <option value="">Everything</option><option value="Expense">Expenses only</option><option value="Topup">Money added only</option>
           </select>
         </div>
-        <button class="btn btn-sm" id="expPdfBtn" style="background:#fff;border:1px solid var(--line);" title="Download this whole page for the chosen dates as a PDF" onclick="expExportPdf()">&#11015; PDF (whole page)</button>
-        <button class="btn btn-sm" id="expAddBtn" style="background:var(--teal);color:#fff;" onclick="expOpenAdd('Expense')">+ Add Expense</button>
-        <button class="btn btn-sm" id="expTopupBtn" style="display:none;background:var(--navy);color:#fff;" onclick="expOpenAdd('Topup')">+ Add Money to Account</button>
+        <div class="fitem fsearch"><input type="text" id="expSearch" class="fc" placeholder="🔍 Entry no. / Paid to / Details / Category…" aria-label="Search" oninput="expRedraw()"></div>
+        <div class="fitem" id="expMs"></div>
+        <button type="button" class="btn-search-clear" id="expClearBtn" onclick="expClearFilters()">✕ Clear filters</button>
+        <span class="fgap"></span>
+        <button class="fbtn ghost" id="expPdfBtn" title="Download this whole page for the chosen dates as a PDF" onclick="expExportPdf()">&#11015; PDF (whole page)</button>
+        <button class="fbtn teal" id="expAddBtn" onclick="expOpenAdd('Expense')">+ Add Expense</button>
+        <button class="fbtn navy" id="expTopupBtn" style="display:none;" onclick="expOpenAdd('Topup')">+ Add Money to Account</button>
       </div>
 
       <div class="cards" id="expCards"></div>
@@ -945,8 +848,17 @@
         </div>
         <div class="table-wrap">
           <table id="expTable">
-            <thead><tr><th>Date</th><th>Entry</th><th>Type</th><th>Category</th><th>Spent by</th><th>Paid to / details</th>
-              <th style="text-align:right">Amount</th><th style="text-align:right">Balance</th><th>Entered by</th><th></th></tr></thead>
+            <thead><tr>
+              <th class="sortable" data-k="date" onclick="sortBy('exp','date')">Date<span class="si">⇅</span></th>
+              <th class="sortable" data-k="no" onclick="sortBy('exp','no')">Entry<span class="si">⇅</span></th>
+              <th class="sortable" data-k="kind" onclick="sortBy('exp','kind')">Type<span class="si">⇅</span></th>
+              <th class="sortable" data-k="category" onclick="sortBy('exp','category')">Category<span class="si">⇅</span></th>
+              <th class="sortable" data-k="spentBy" onclick="sortBy('exp','spentBy')">Spent by<span class="si">⇅</span></th>
+              <th class="sortable" data-k="paid" onclick="sortBy('exp','paid')">Paid to / details<span class="si">⇅</span></th>
+              <th class="sortable" data-k="amount" style="text-align:right" onclick="sortBy('exp','amount')">Amount<span class="si">⇅</span></th>
+              <th class="sortable" data-k="balance" style="text-align:right" onclick="sortBy('exp','balance')">Balance<span class="si">⇅</span></th>
+              <th class="sortable" data-k="enteredBy" onclick="sortBy('exp','enteredBy')">Entered by<span class="si">⇅</span></th>
+              <th></th></tr></thead>
             <tbody id="expBody"></tbody>
           </table>
         </div>
@@ -954,23 +866,6 @@
       </div>
     </div>
   </main>
-</div>
-
-<!-- Excel-style column filter popup -->
-<div class="cf-popup" id="cfPopup">
-  <div class="cf-popup-title" id="cfPopupTitle">Filter</div>
-  <div class="cf-search-wrap">
-    <input type="text" id="cfSearch" placeholder="Search values…" oninput="cfFilterList()">
-  </div>
-  <div class="cf-select-row">
-    <a onclick="cfSelectAll(true)">Select All</a>
-    <a onclick="cfSelectAll(false)">Clear All</a>
-  </div>
-  <div class="cf-list" id="cfList"></div>
-  <div class="cf-footer">
-    <button class="cf-ok"     onclick="cfApply()">OK</button>
-    <button class="cf-cancel" onclick="cfClose()">Cancel</button>
-  </div>
 </div>
 
 <!-- ========== EDIT MODAL ========== -->
@@ -1083,7 +978,6 @@ let activeStatusTab    = 'all';
 let globalSearchQuery  = '';
 let autoRefreshTimer   = null;
 
-let invoiceSeqMode = false;
 
 let _callInFlight   = false;
 let _pendingRefresh = false;
@@ -1183,8 +1077,8 @@ function enterApp(){
   document.getElementById('addPartyPanelWrap').style.display = 'block';
   document.getElementById('entryPanel').style.display = 'none';
   document.getElementById('addPartyPanel').style.display = 'none';
-  document.getElementById('entryToggleBtn').textContent = '+ New Transaction Entry';
-  document.getElementById('addPartyToggleBtn').textContent = '+ Add New Party';
+  document.getElementById('entryToggleBtn').textContent = '+ New Entry';
+  document.getElementById('addPartyToggleBtn').textContent = '+ Party';
 
   const showFilters = currentUser.role !== 'Cashier';
   document.getElementById('companyFilterField').style.display = showFilters ? 'block' : 'none';
@@ -1444,24 +1338,13 @@ function getDateRange(){
   return { from, to };
 }
 
-function resetSeqMode(){
-  if (!invoiceSeqMode) return;
-  invoiceSeqMode = false;
-  const btn = document.getElementById('seqBtn');
-  const th  = document.getElementById('th_invoice');
-  if (btn) { btn.textContent = '# Seq'; btn.classList.remove('seq-active'); }
-  if (th)  th.classList.remove('seq-on');
-}
-
 function clearDateFilter(){
   document.getElementById('dateFrom').value = '';
   document.getElementById('dateTo').value   = '';
   document.getElementById('clearDateLink').style.display = 'none';
-  resetSeqMode();
   refreshAll();
 }
 function onFilterChange(){
-  resetSeqMode();
   refreshAll();
 }
 function refreshAll(silent){
@@ -1483,37 +1366,23 @@ function _onCallsDone(){
 // ============================================================
 // SEARCH
 // ============================================================
+function onSearchInput(){ clearTimeout(onSearchInput.t); onSearchInput.t = setTimeout(doSearch, 150); }
 function doSearch(){
-  const inv  = (document.getElementById('searchInvoice').value || '').trim().toLowerCase();
-  const date = (document.getElementById('searchDate').value    || '').trim();
-  globalSearchQuery = JSON.stringify({ inv, date });
-  const hasQuery = inv || date;
-  document.getElementById('searchClearBtn').style.display = hasQuery ? 'inline-flex' : 'none';
-  renderCurrentView();
-}
-function clearSearch(){
-  document.getElementById('searchInvoice').value = '';
-  document.getElementById('searchDate').value    = '';
-  globalSearchQuery = '';
-  document.getElementById('searchClearBtn').style.display = 'none';
+  const inv = (document.getElementById('searchInvoice').value || '').trim().toLowerCase();
+  globalSearchQuery = inv ? JSON.stringify({ inv, date:'' }) : '';
   renderCurrentView();
 }
 function applyGlobalSearch(rows){
   if (!globalSearchQuery) return rows;
-  let inv = '', dateQ = '';
-  try { const p = JSON.parse(globalSearchQuery); inv = p.inv||''; dateQ = p.date||''; } catch(e){ inv = globalSearchQuery; }
-  return rows.filter(r => {
-    const invOk  = !inv   || String(r.Invoice||'').toLowerCase().includes(inv)
-                          || String(r.Party||'').toLowerCase().includes(inv);
-    const dateOk = !dateQ || r.Date === dateQ;
-    return invOk && dateOk;
-  });
+  let inv = '';
+  try { inv = JSON.parse(globalSearchQuery).inv || ''; } catch(e){ inv = globalSearchQuery; }
+  return rows.filter(r => !inv || [r.Invoice, r.Party, r.Remarks, r.TxnID].some(v => String(v||'').toLowerCase().includes(inv)));
 }
 
 // ============================================================
-// COLUMN FILTERS
+// FILTERS (top bar) AND SORTING (click a column name)
 // ============================================================
-const colFilters = {};
+const colFilters = {};     // column -> Set of the values to keep (an empty set = no filter on that column)
 const COL_VAL = {
   date     : r => fmtDate(r.Date),
   company  : r => r.Company,
@@ -1526,91 +1395,154 @@ const COL_VAL = {
   status   : r => r.Status,
   remarks  : r => String(r.Remarks||'—'),
 };
-const COL_LABEL = {
-  date:'Date', company:'Company', type:'Type', invoice:'Invoice',
-  party:'Party', amount:'Amount', mode:'Mode', createdby:'Created By',
-  status:'Status', remarks:'Remarks'
+// what each column sorts by
+const TXN_SORT = {
+  date: r => r.Date, company: r => r.Company, type: r => r.Type, invoice: r => String(r.Invoice||'').trim(),
+  party: r => r.Party, amount: r => Number(r.Amount)||0, mode: r => r.Mode, createdby: r => r.CreatedBy,
+  status: r => r.Status, remarks: r => r.Remarks,
 };
+const SORT = { txn:{ key:null, dir:1 }, exp:{ key:null, dir:1 }, ch:{ key:null, dir:1 } };
+const SORT_TABLE = { txn:'mainTable', exp:'expTable', ch:'chTable' };
+function sortBy(tab, key){
+  const s = SORT[tab];
+  if (s.key === key) s.dir = -s.dir; else { s.key = key; s.dir = 1; }
+  if (tab === 'txn') renderCurrentView(); else if (tab === 'exp') expRedraw(); else chDraw();
+}
+function sortRows(tab, rows, getters){
+  const s = SORT[tab], g = getters[s.key];
+  if (!g) return rows;
+  const blank = v => v === null || v === undefined || v === '';
+  return rows.slice().sort((x, y) => {
+    const a = g(x), b = g(y);
+    if (blank(a) && blank(b)) return 0;
+    if (blank(a)) return 1;
+    if (blank(b)) return -1;
+    const c = (typeof a === 'number' && typeof b === 'number') ? a - b
+      : String(a).localeCompare(String(b), 'en', { numeric:true, sensitivity:'base' });
+    return c * s.dir;
+  });
+}
+function paintSort(tab){
+  const s = SORT[tab];
+  document.querySelectorAll('#' + SORT_TABLE[tab] + ' th.sortable').forEach(th => {
+    const on = th.dataset.k === s.key;
+    th.classList.toggle('sorted', on);
+    th.querySelector('.si').textContent = on ? (s.dir === 1 ? '▲' : '▼') : '⇅';
+    th.setAttribute('aria-sort', on ? (s.dir === 1 ? 'ascending' : 'descending') : 'none');
+  });
+}
 
-let _cfActiveKey = null;
-let _cfTempSel   = null;
-let _cfAllVals   = [];
+// A "Label ▾" button that opens a checklist (with a search box for long lists). `sel` is the Set it keeps up to date.
+function msFilter(label, getOptions, sel, onChange){
+  const wrap = document.createElement('div'); wrap.className = 'ms';
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'ms-btn';
+  const panel = document.createElement('div'); panel.className = 'ms-panel';
+  wrap.append(btn, panel);
+  const refresh = () => {
+    const n = sel.size;
+    btn.innerHTML = esc(label) + (n ? ` <span class="ms-count">${n === 1 ? esc([...sel][0]) : n + ' selected'}</span>` : '') + ' <span class="ms-caret">▾</span>';
+    btn.classList.toggle('active', n > 0);
+  };
+  const draw = () => {
+    panel.innerHTML = '';
+    const opts = getOptions();
+    let box = null;
+    const list = document.createElement('div'); list.className = 'ms-list';
+    const fill = () => {
+      const q = box ? box.value.trim().toLowerCase() : '';
+      list.innerHTML = '';
+      opts.filter(v => !q || String(v).toLowerCase().includes(q)).forEach(v => {
+        const row = document.createElement('label'); row.className = 'ms-item';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = sel.has(v);
+        cb.onchange = () => { if (cb.checked) sel.add(v); else sel.delete(v); refresh(); onChange(); };
+        row.append(cb, document.createTextNode(v)); list.appendChild(row);
+      });
+      if (!list.children.length) list.textContent = 'No values.';
+    };
+    if (sel.size) {
+      const clr = document.createElement('button'); clr.type = 'button'; clr.className = 'ms-clear'; clr.textContent = 'Clear selection';
+      clr.onclick = () => { sel.clear(); refresh(); draw(); onChange(); };
+      panel.appendChild(clr);
+    }
+    if (opts.length > 8) {
+      box = document.createElement('input'); box.type = 'text'; box.placeholder = 'Search…'; box.oninput = fill; panel.appendChild(box);
+    }
+    panel.appendChild(list); fill();
+  };
+  btn.onclick = e => {
+    e.stopPropagation();
+    const open = !wrap.classList.contains('open');
+    document.querySelectorAll('.ms.open').forEach(m => m.classList.remove('open'));
+    if (open) { draw(); wrap.classList.add('open'); }
+  };
+  panel.onclick = e => e.stopPropagation();
+  wrap.refresh = refresh; refresh();
+  return wrap;
+}
+document.addEventListener('click', () => document.querySelectorAll('.ms.open').forEach(m => m.classList.remove('open')));
 
-function openColFilter(e, colKey){
-  e.stopPropagation();
-  const popup = document.getElementById('cfPopup');
-  const btn   = document.getElementById('cfb_' + colKey);
-  if (_cfActiveKey === colKey && popup.classList.contains('open')){ cfClose(); return; }
-  cfClose();
-  _cfActiveKey = colKey;
-  btn.classList.add('open');
-  document.getElementById('cfPopupTitle').textContent = 'Filter: ' + (COL_LABEL[colKey]||colKey);
-  document.getElementById('cfSearch').value = '';
-  const getVal = COL_VAL[colKey];
-  const seen = {};
-  _cfAllVals = [];
-  lastTxnRows.forEach(r => { const v = getVal(r); if (!seen[v]){ seen[v]=true; _cfAllVals.push(v); } });
-  _cfAllVals.sort((a,b) => a.localeCompare(b, 'en', {sensitivity:'base'}));
-  _cfTempSel = colFilters[colKey] ? new Set(colFilters[colKey]) : new Set(_cfAllVals);
-  cfRenderList(_cfAllVals);
-  const rect = btn.getBoundingClientRect();
-  popup.style.top  = (rect.bottom + 4) + 'px';
-  popup.style.left = Math.min(rect.left, window.innerWidth - 256) + 'px';
-  popup.classList.add('open');
-  updateFilterBtnStyle(colKey);
+function txnOptions(key){
+  const seen = new Set();
+  lastTxnRows.forEach(r => seen.add(COL_VAL[key](r)));
+  return [...seen].sort((a, b) => String(a).localeCompare(String(b), 'en', { sensitivity:'base' }));
 }
-function cfRenderList(vals){
-  const q = document.getElementById('cfSearch').value.toLowerCase();
-  const filtered = q ? vals.filter(v => v.toLowerCase().includes(q)) : vals;
-  document.getElementById('cfList').innerHTML = filtered.map(v => `
-    <div class="cf-item">
-      <input type="checkbox" id="cfck_${esc(v)}" ${_cfTempSel.has(v)?'checked':''} onchange="cfToggle('${esc(v).replace(/'/g,"\'")}',this.checked)">
-      <label for="cfck_${esc(v)}">${esc(v)}</label>
-    </div>`).join('');
+function buildTxnFilters(){
+  const main = document.getElementById('fmsMain'), more = document.getElementById('fmsMore');
+  if (main.dataset.built) return;
+  main.dataset.built = '1';
+  const add = (host, key, label) => {
+    const sel = colFilters[key] = new Set();
+    host.appendChild(msFilter(label, () => txnOptions(key), sel, () => renderCurrentView()));
+  };
+  add(main, 'type', 'Type'); add(main, 'mode', 'Mode');
+  add(more, 'createdby', 'By'); add(more, 'party', 'Party');
 }
-function cfFilterList(){ cfRenderList(_cfAllVals); }
-function cfToggle(val, checked){ if (checked) _cfTempSel.add(val); else _cfTempSel.delete(val); }
-function cfSelectAll(sel){
-  if (sel) _cfAllVals.forEach(v => _cfTempSel.add(v)); else _cfTempSel.clear();
-  cfRenderList(_cfAllVals);
+function toggleMoreFilters(){
+  const box = document.getElementById('fmore');
+  box.style.display = box.style.display === 'none' ? 'flex' : 'none';
+  syncFilterUi();
 }
-function cfApply(){
-  if (!_cfActiveKey) return;
-  if (_cfTempSel.size === _cfAllVals.length){ delete colFilters[_cfActiveKey]; }
-  else { colFilters[_cfActiveKey] = new Set(_cfTempSel); }
-  updateFilterBtnStyle(_cfActiveKey);
-  cfClose();
+function onAmountInput(){ renderCurrentView(); }
+function applyAmount(rows){
+  const lo = document.getElementById('amtMin') ? document.getElementById('amtMin').value : '';
+  const hi = document.getElementById('amtMax') ? document.getElementById('amtMax').value : '';
+  if (lo === '' && hi === '') return rows;
+  return rows.filter(r => { const a = Number(r.Amount) || 0; return (lo === '' || a >= Number(lo)) && (hi === '' || a <= Number(hi)); });
+}
+function syncFilterUi(){
+  document.querySelectorAll('#toolbar .ms').forEach(m => m.refresh && m.refresh());
+  const moreKeys = ['createdby', 'party'];
+  const amt = document.getElementById('amtMin').value !== '' || document.getElementById('amtMax').value !== '';
+  const moreN = moreKeys.filter(k => colFilters[k] && colFilters[k].size).length + (amt ? 1 : 0);
+  const open = document.getElementById('fmore').style.display !== 'none';
+  const btn = document.getElementById('moreFiltersBtn');
+  btn.textContent = 'More filters' + (moreN ? ' (' + moreN + ')' : '') + (open ? ' ▴' : ' ▾');
+  btn.classList.toggle('on', moreN > 0);
+  const any = !!globalSearchQuery || amt || activeStatusTab !== 'all' || Object.values(colFilters).some(st => st && st.size);
+  document.getElementById('searchClearBtn').style.display = any ? 'inline-flex' : 'none';
+}
+function clearAllFilters(){
+  document.getElementById('searchInvoice').value = '';
+  globalSearchQuery = '';
+  Object.values(colFilters).forEach(st => st && st.clear());
+  document.getElementById('amtMin').value = ''; document.getElementById('amtMax').value = '';
+  setStatusTab('all', true);
   renderCurrentView();
 }
-function cfClose(){
-  const popup = document.getElementById('cfPopup');
-  popup.classList.remove('open');
-  if (_cfActiveKey){ const btn = document.getElementById('cfb_' + _cfActiveKey); if (btn) btn.classList.remove('open'); }
-  _cfActiveKey = null; _cfTempSel = null;
-}
-function updateFilterBtnStyle(colKey){
-  const btn = document.getElementById('cfb_' + colKey);
-  if (!btn) return;
-  const isActive = !!colFilters[colKey];
-  btn.classList.toggle('active', isActive);
-  const existing = btn.querySelector('.cf-dot');
-  if (isActive && !existing){ const dot = document.createElement('span'); dot.className='cf-dot'; btn.insertBefore(dot, btn.querySelector('.cf-arrow')); }
-  else if (!isActive && existing){ existing.remove(); }
-}
-document.addEventListener('click', e => {
-  const popup = document.getElementById('cfPopup');
-  if (popup && popup.classList.contains('open') && !popup.contains(e.target)) cfClose();
-});
 function applyColFilters(rows){
   return rows.filter(r => {
     for (const [colKey, selSet] of Object.entries(colFilters)){
-      if (!selSet) continue;
+      if (!selSet || !selSet.size) continue;
       const getVal = COL_VAL[colKey];
-      if (!getVal) continue;
-      if (!selSet.has(getVal(r))) return false;
+      if (getVal && !selSet.has(getVal(r))) return false;
     }
     return true;
   });
+}
+// the rows the table (and the PDF / Excel exports) show: every filter applied, then the chosen sort
+function visibleRows(){
+  const base = (currentFilterRows !== null) ? currentFilterRows : lastTxnRows;
+  return sortRows('txn', applyAmount(applyGlobalSearch(applyColFilters(applyStatusTab(base)))), TXN_SORT);
 }
 
 // ============================================================
@@ -1645,58 +1577,10 @@ function loadDashboard_(){
         <div class="card card-purple ${activeCardKey==='cashSales'?'active-card':''}" onclick="filterCard('cashSales')">
           <div class="label">🛒 Cash Sales</div><div class="value">${rupee(d.cashSales)}</div>
         </div>
-
-        <!-- 🔍 TYPE FILTER CARD -->
-        <div class="pending-type-card" id="pendingTypeCard">
-          <div class="ptc-top">
-            <div class="ptc-label">🔍 Filter by Type</div>
-          </div>
-          <div class="ptc-divider"></div>
-          <div class="ptc-select-wrap">
-            <select class="ptc-select" id="pendingTypeSelect">
-              <option value="all">All Types</option>
-              ${TXN_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="ptc-count-row">
-            <div>
-              <div class="ptc-count-sub" id="pendingCountSub" style="font-size:11px;margin-top:4px;">Select a type &amp; click View</div>
-            </div>
-            <button class="ptc-view-btn" onclick="viewByType()">View →</button>
-          </div>
-        </div>`;
+`;
     })
     .withFailureHandler(err => { _onCallsDone(); console.error(err); })
     .getDashboardData(currentUser.role, currentUser.username, companyFilter, range.from, range.to);
-}
-
-function viewByType(){
-  const sel = document.getElementById('pendingTypeSelect');
-  const val = sel ? sel.value : 'all';
-  const sub = document.getElementById('pendingCountSub');
-
-  resetSeqMode();
-
-  if (val === 'all') {
-    activeCardKey      = null;
-    currentFilterRows  = null;
-    currentFilterLabel = '';
-    document.getElementById('listTitle').textContent = defaultListTitle();
-    document.getElementById('clearFilterLink').style.display = 'none';
-    setStatusTab('all', true);
-    if (sub) sub.textContent = 'Showing all types';
-  } else {
-    activeCardKey      = 'typeFilter';
-    currentFilterRows  = lastTxnRows.filter(r => r.Type === val);
-    currentFilterLabel = val;
-    document.getElementById('listTitle').textContent = val + ' — Entries';
-    document.getElementById('clearFilterLink').style.display = 'inline';
-    setStatusTab('all', true);
-    if (sub) sub.textContent = `Showing: ${val}`;
-  }
-
-  renderCurrentView();
-  document.getElementById('txnListPanel').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 // ============================================================
@@ -1889,32 +1773,24 @@ function renderMerge(){
 // STATUS TAB
 // ============================================================
 function buildStatusTabs(){
-  const bar = document.getElementById('statusTabbar');
-  if (!bar) return;
-  if (currentUser.role === 'Admin') {
-    bar.innerHTML = `
-      <button class="active" data-status="all"      onclick="setStatusTab('all')">All</button>
-      <button data-status="Pending"  onclick="setStatusTab('Pending')">Pending</button>
-      <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>
-      <button data-status="Rejected" onclick="setStatusTab('Rejected')">Rejected</button>`;
-  } else {
-    bar.innerHTML = `
-      <button class="active" data-status="all"      onclick="setStatusTab('all')">All</button>
-      <button data-status="Pending"  onclick="setStatusTab('Pending')">Pending</button>
-      <button data-status="Approved" onclick="setStatusTab('Approved')">Approved</button>`;
-  }
-  bar.insertAdjacentHTML('beforeend',
-    `<button id="tabMergeSales"  data-status="merge:sales"  onclick="setStatusTab('merge:sales')">Sales</button>
-     <button id="tabMergeReturn" data-status="merge:return" onclick="setStatusTab('merge:return')">Sales Return</button>`);
+  const sel = document.getElementById('statusFilter');
+  if (!sel) return;
+  const opts = [['all', 'All entries'], ['Pending', 'Pending'], ['Approved', 'Approved']];
+  if (currentUser.role === 'Admin') opts.push(['Rejected', 'Rejected']);
+  sel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('') +
+    '<option id="tabMergeSales" value="merge:sales">Sales</option><option id="tabMergeReturn" value="merge:return">Sales Return</option>';
   updateMergeTabLabels();
   activeStatusTab = 'all';
+  sel.value = 'all';
+  buildTxnFilters();
 }
 function setStatusTab(status, silent){
   activeStatusTab = status;
-  document.querySelectorAll('#statusTabbar button').forEach(b =>
-    b.classList.toggle('active', b.dataset.status === status));
+  const sel = document.getElementById('statusFilter');
+  if (sel) sel.value = status;
   applyMergeVisibility();
-  if (!silent) { resetSeqMode(); if (!mergeKind()) renderCurrentView(); }
+  if (!silent && !mergeKind()) renderCurrentView();
+  else syncFilterUi();
 }
 function applyStatusTab(rows){
   if (activeStatusTab === 'all') return rows;
@@ -1978,7 +1854,6 @@ function filterCard(key){
   currentFilterLabel = def.label;
   document.getElementById('listTitle').textContent = `Transaction List — ${def.label}`;
   document.getElementById('clearFilterLink').style.display = 'inline';
-  resetSeqMode();
   renderCurrentView();
   document.getElementById('txnListPanel').scrollIntoView({ behavior:'smooth', block:'start' });
 }
@@ -1986,7 +1861,7 @@ function clearCardFilter(silent){
   activeCardKey = null; currentFilterRows = null; currentFilterLabel = '';
   document.getElementById('clearFilterLink').style.display = 'none';
   document.getElementById('listTitle').textContent = defaultListTitle();
-  if (!silent) { resetSeqMode(); renderCurrentView(); refreshAll(true); }
+  if (!silent) { renderCurrentView(); refreshAll(true); }
 }
 function defaultListTitle(){
   return currentUser.role === 'Account' ? 'Pending Entries — Approve or Edit'
@@ -1995,24 +1870,12 @@ function defaultListTitle(){
 }
 
 // ============================================================
-// INVOICE SEQUENCE MODE
-// ============================================================
-function toggleInvoiceSeq(){
-  invoiceSeqMode = !invoiceSeqMode;
-  const btn = document.getElementById('seqBtn');
-  const th  = document.getElementById('th_invoice');
-  if (invoiceSeqMode){ btn.textContent='# Seq ON — Reset'; btn.classList.add('seq-active'); if(th) th.classList.add('seq-on'); }
-  else               { btn.textContent='# Seq';            btn.classList.remove('seq-active'); if(th) th.classList.remove('seq-on'); }
-  renderCurrentView();
-}
-
-// ============================================================
 // RENDER
 // ============================================================
 function renderCurrentView(){
-  const base = (currentFilterRows !== null) ? currentFilterRows : lastTxnRows;
-  const filtered = applyGlobalSearch(applyColFilters(applyStatusTab(base)));
-  renderRows(filtered);
+  renderRows(visibleRows());
+  paintSort('txn');
+  syncFilterUi();
 }
 
 function highlight(text){
@@ -2050,19 +1913,7 @@ function renderRows(rows){
     return;
   }
 
-  let displayRows = rows.slice();
-  if (invoiceSeqMode) {
-    displayRows.sort((a, b) => {
-      const aNum = parseFloat(String(a.Invoice || '').replace(/[^\d.]/g, ''));
-      const bNum = parseFloat(String(b.Invoice || '').replace(/[^\d.]/g, ''));
-      const aHas = !isNaN(aNum) && String(a.Invoice || '').trim() !== '';
-      const bHas = !isNaN(bNum) && String(b.Invoice || '').trim() !== '';
-      if (aHas && bHas)  return aNum - bNum;
-      if (aHas && !bHas) return -1;
-      if (!aHas && bHas) return 1;
-      return 0;
-    });
-  }
+  const displayRows = rows;
 
   tbody.innerHTML = displayRows.map((r, idx) => {
     const backdatedFlag = r.IsBackdated === 'Yes'
@@ -2102,16 +1953,7 @@ function renderRows(rows){
 
     const showRemarks = (currentUser && currentUser.role !== 'Cashier');
 
-    let invDisplay;
-    if (invoiceSeqMode) {
-      const hasInvoice = r.Invoice && String(r.Invoice).trim() !== '' && String(r.Invoice).trim() !== '—';
-      invDisplay = `<span style="font-weight:800;color:var(--amber);font-size:13px;">${idx + 1}</span>`
-        + (hasInvoice
-            ? `<span class="inv-sub" style="color:var(--muted);font-size:10px;">${esc(r.Invoice)}</span>`
-            : '');
-    } else {
-      invDisplay = highlight(r.Invoice || '—');
-    }
+    const invDisplay = highlight(r.Invoice || '—');
 
     return `<tr>
       <td title="${esc(fmtDate(r.Date))}">${highlight(fmtDate(r.Date))}${backdatedFlag}</td>
@@ -2173,7 +2015,7 @@ function signedAmount(r){ return OUT_TYPES.includes(r.Type) ? -(Number(r.Amount)
 // EXPORT PDF
 // ============================================================
 function exportFilteredPDF(){
-  const rows = applyGlobalSearch(applyColFilters(applyStatusTab(currentFilterRows || lastTxnRows)));
+  const rows = visibleRows();
   if (!rows || rows.length === 0) { alert('Nothing to export.'); return; }
   const statusSuffix = activeStatusTab === 'all' ? '' : ` — ${activeStatusTab}`;
   const title        = `VT — ${currentFilterLabel || 'Transaction List'}${statusSuffix}`;
@@ -2207,7 +2049,7 @@ function exportFilteredPDF(){
 // EXPORT EXCEL
 // ============================================================
 function exportFilteredExcel(){
-  const rows = applyGlobalSearch(applyColFilters(applyStatusTab(currentFilterRows || lastTxnRows)));
+  const rows = visibleRows();
   if (!rows || rows.length === 0) { alert('Nothing to export.'); return; }
   const data = rows.map((r, idx) => ({
     'S.No'      : idx + 1,
@@ -2383,6 +2225,7 @@ function expStart(){
     document.getElementById('expTo').value = today;
     document.getElementById('expTopupBtn').style.display = b.level === 'manage' && b.canWrite ? '' : 'none';
     document.getElementById('expAddBtn').style.display = b.canWrite ? '' : 'none';
+    expBuildFilters();
     expReload();
   }).withFailureHandler(function(e){ alert(e.message); }).expBootstrap();
 }
@@ -2409,9 +2252,48 @@ function expDraw(s, l){
   document.getElementById('expByCategory').innerHTML = rows(s.byCategory, 'category');
   document.getElementById('expByPerson').innerHTML = rows(s.byPerson, 'name');
   document.getElementById('expListTitle').textContent = 'Account statement - ' + s.account;
+  expRedraw();
+  document.getElementById('expNote').textContent = l.truncated ? 'Showing the latest 5,000 entries; narrow the dates to see the rest.' :
+    'Balance = opening balance + money added − expenses. Cancelled entries are kept for the record but are not counted.';
+}
+
+const EXPF = { spent: new Set(), by: new Set() };
+const EXP_SORT = {
+  date: e => e.date, no: e => e.no, kind: e => e.kind, category: e => e.category, spentBy: e => e.spentBy,
+  paid: e => [e.paidTo, e.description].filter(Boolean).join(' — '), amount: e => Number(e.amount) || 0,
+  balance: e => e.balanceAfter, enteredBy: e => e.enteredBy,
+};
+function expBuildFilters(){
+  const host = document.getElementById('expMs');
+  if (host.dataset.built) return;
+  host.dataset.built = '1';
+  const opts = f => () => [...new Set((expLast ? expLast.ledger.entries : []).map(f))].sort((x, y) => String(x).localeCompare(String(y), 'en', { sensitivity:'base' }));
+  host.append(msFilter('Spent by', opts(e => e.spentBy || '—'), EXPF.spent, expRedraw),
+              msFilter('Entered by', opts(e => e.enteredBy || '—'), EXPF.by, expRedraw));
+}
+// the statement rows after the search / Spent by / Entered by filters and the chosen sort (the exports use the same rows)
+function expVisible(){
+  if (!expLast) return [];
+  const q = (document.getElementById('expSearch').value || '').trim().toLowerCase();
+  const rows = expLast.ledger.entries.filter(e =>
+    (!EXPF.spent.size || EXPF.spent.has(e.spentBy || '—')) && (!EXPF.by.size || EXPF.by.has(e.enteredBy || '—')) &&
+    (!q || [e.no, e.paidTo, e.description, e.category, e.spentBy].some(v => String(v || '').toLowerCase().includes(q))));
+  return sortRows('exp', rows, EXP_SORT);
+}
+function expClearFilters(){
+  document.getElementById('expSearch').value = '';
+  EXPF.spent.clear(); EXPF.by.clear();
+  expRedraw();
+}
+function expRedraw(){
+  if (!expLast) return;
+  const entries = expVisible();
+  document.querySelectorAll('#expBar .ms').forEach(m => m.refresh && m.refresh());
+  document.getElementById('expClearBtn').style.display =
+    (document.getElementById('expSearch').value || EXPF.spent.size || EXPF.by.size) ? 'inline-flex' : 'none';
   const body = document.getElementById('expBody');
-  if (!l.entries.length) { body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No entries for these filters.</td></tr>'; }
-  else body.innerHTML = l.entries.map(e => {
+  if (!entries.length) { body.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No entries for these filters.</td></tr>'; }
+  else body.innerHTML = entries.map(e => {
     const topup = e.kind === 'Topup', sign = topup ? '+' : '−';
     const style = e.voided ? 'text-decoration:line-through;opacity:.55;' : '';
     return `<tr style="${style}"><td>${esc(e.date)}</td><td>${esc(e.no)}</td><td>${topup ? '<b style="color:var(--green)">Money added</b>' : 'Expense'}</td>` +
@@ -2421,8 +2303,7 @@ function expDraw(s, l){
       `<td style="text-align:right">${e.balanceAfter === null ? '—' : rupee(e.balanceAfter)}</td><td>${esc(e.enteredBy)}</td>` +
       `<td>${e.canVoid && EXP.canWrite ? `<span class="action-link danger" onclick="expOpenVoid(${e.key}, '${esc(e.no)}')">Cancel</span>` : ''}</td></tr>`;
   }).join('');
-  document.getElementById('expNote').textContent = l.truncated ? 'Showing the latest 5,000 entries; narrow the dates to see the rest.' :
-    'Balance = opening balance + money added − expenses. Cancelled entries are kept for the record but are not counted.';
+  paintSort('exp');
 }
 
 function expOpenAdd(kind){
@@ -2477,7 +2358,7 @@ function expVoidSave(){
 
 // ---- export: the same numbers the screen shows
 function expLedgerRows(){
-  return expLast.ledger.entries.map(e => ({ Date: e.date, Entry: e.no, Type: e.kind === 'Topup' ? 'Money added' : 'Expense', Category: e.category,
+  return expVisible().map(e => ({ Date: e.date, Entry: e.no, Type: e.kind === 'Topup' ? 'Money added' : 'Expense', Category: e.category,
     'Spent by': e.spentBy, 'Paid to': e.paidTo, Details: e.description, 'Money in': e.kind === 'Topup' && !e.voided ? e.amount : '',
     'Money out': e.kind === 'Expense' && !e.voided ? e.amount : '', Balance: e.balanceAfter === null ? '' : e.balanceAfter,
     'Entered by': e.enteredBy, Status: e.voided ? 'Cancelled: ' + e.voidReason + ' (' + e.voidedBy + ')' : '' }));
@@ -2595,20 +2476,45 @@ function chStart(){
   }
   chLoad();
 }
+let chRows = [];
+const CHF = { by: new Set() };
+const CH_SORT = { date: c => c.date, ref: c => c.reference, note: c => c.note, by: c => c.uploadedBy, at: c => c.uploadedAt };
 function chLoad(){
   VT.run.withSuccessHandler(function(r){
     document.getElementById('chOff').style.display = r.enabled ? 'none' : 'block';
     document.getElementById('chForm').style.display = r.canWrite ? '' : 'none';
     document.getElementById('chSave').disabled = !r.enabled;
-    document.getElementById('chCount').textContent = '(' + r.rows.length + (r.truncated ? '+' : '') + ')';
-    document.getElementById('chBody').innerHTML = r.rows.length ? r.rows.map(function(c){
-      const file = !c.url ? '<span style="color:var(--muted)">—</span>' : c.isPdf
-        ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">📄 Open PDF</a>`
-        : `<a href="${esc(c.url)}" target="_blank" rel="noopener"><img src="${esc(c.url)}" alt="Challan" style="height:56px;border-radius:6px;border:1px solid var(--line);"></a>`;
-      return `<tr><td>${file}</td><td>${esc(c.date)}</td><td>${esc(c.reference || '—')}</td><td>${esc(c.note || '—')}</td><td>${esc(c.uploadedBy || '—')}</td><td>${esc(c.uploadedAt)}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No challans uploaded yet.</td></tr>';
+    chRows = r.rows;
+    chTruncated = !!r.truncated;
+    const host = document.getElementById('chMs');
+    if (!host.dataset.built) {
+      host.dataset.built = '1';
+      host.append(msFilter('Uploaded by', () => [...new Set(chRows.map(c => c.uploadedBy || '—'))].sort((x, y) => x.localeCompare(y, 'en', { sensitivity:'base' })), CHF.by, chDraw));
+    }
+    chDraw();
   }).withFailureHandler(function(e){ alert(e.message); })
     .chList(document.getElementById('chFrom').value, document.getElementById('chTo').value);
+}
+let chTruncated = false;
+function chClearFilters(){
+  document.getElementById('chSearch').value = '';
+  CHF.by.clear();
+  chDraw();
+}
+function chDraw(){
+  const q = (document.getElementById('chSearch').value || '').trim().toLowerCase();
+  const rows = sortRows('ch', chRows.filter(c =>
+    (!CHF.by.size || CHF.by.has(c.uploadedBy || '—')) && (!q || [c.reference, c.note].some(v => String(v || '').toLowerCase().includes(q)))), CH_SORT);
+  document.querySelectorAll('#chBar .ms').forEach(m => m.refresh && m.refresh());
+  document.getElementById('chClearBtn').style.display = (q || CHF.by.size) ? 'inline-flex' : 'none';
+  document.getElementById('chCount').textContent = '(' + (rows.length === chRows.length ? rows.length : rows.length + ' of ' + chRows.length) + (chTruncated ? '+' : '') + ')';
+  document.getElementById('chBody').innerHTML = rows.length ? rows.map(function(c){
+    const file = !c.url ? '<span style="color:var(--muted)">—</span>' : c.isPdf
+      ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">📄 Open PDF</a>`
+      : `<a href="${esc(c.url)}" target="_blank" rel="noopener"><img src="${esc(c.url)}" alt="Challan" style="height:56px;border-radius:6px;border:1px solid var(--line);"></a>`;
+    return `<tr><td>${file}</td><td>${esc(c.date)}</td><td>${esc(c.reference || '—')}</td><td>${esc(c.note || '—')}</td><td>${esc(c.uploadedBy || '—')}</td><td>${esc(c.uploadedAt)}</td></tr>`;
+  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">${chRows.length ? 'No challans match these filters.' : 'No challans uploaded yet.'}</td></tr>`;
+  paintSort('ch');
 }
 function chUpload(){
   const msg = document.getElementById('chMsg'), f = document.getElementById('chFile').files[0] || CH_CAM;
