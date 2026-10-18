@@ -166,6 +166,8 @@ def update_cartage(sl_no: int, body: CartageIn, user=Depends(access.require_page
         before = cur.fetchone()
         if not before:
             raise HTTPException(404, "Order not found")
+        if main.is_closed(before):   # closed orders are editable only by an admin, from All orders
+            return {"ok": True, "success": False, "message": main.CLOSED_MESSAGE}
         sets, params = ["cartage = %s"], [None if body.cartage is None else round(body.cartage, 2)]
         if body.deliveredByWhom:
             cur.execute("SELECT person_key FROM dim_person WHERE person_role = 'delivery' AND lower(btrim(full_name)) = lower(btrim(%s))",

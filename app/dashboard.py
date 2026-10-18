@@ -7,7 +7,7 @@ IST = "Asia/Kolkata"
 
 # Attribute filters the dashboard accepts, same columns as the Orders page's filter groups.
 FILTERABLE_COLUMNS = ("stage", "channel", "submission_type", "delivery_status", "payment_status",
-                      "ready_by", "colour_making_by", "delivered_by", "created_by")
+                      "ready_by", "colour_making_by", "delivered_by", "created_by", "bill_kind", "sale_kind")
 
 
 def _filter_clause(filters: dict | None, prefix: str = "") -> tuple[str, list]:

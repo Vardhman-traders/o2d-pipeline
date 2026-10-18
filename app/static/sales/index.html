@@ -366,14 +366,14 @@
     </div>
 
     <!-- Search Results Panel -->
-    <div id="topbar_searchResults" style="display:none;position:absolute;top:56px;right:20px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.2);padding:12px;width:640px;max-height:340px;overflow:auto;z-index:50;">
+    <div id="topbar_searchResults" style="display:none;position:absolute;top:56px;right:20px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.2);padding:12px;width:min(96vw,1500px);max-height:420px;overflow:auto;z-index:50;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <strong style="font-size:13px;color:var(--navy);">Search Results <span id="topbar_searchCount" style="color:var(--muted);font-weight:400;"></span></strong>
         <a href="#" onclick="closeTopbarSearch();return false;" style="color:var(--muted);font-size:12px;">✕ Close</a>
       </div>
-      <div class="table-scroll" style="max-height:260px;">
+      <div class="table-scroll" style="max-height:340px;">
         <table>
-          <thead><tr><th>Date</th><th>Address</th><th>DC No</th><th>Submission Type</th><th>Ready By</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Sl no.</th><th>DC / Invoice no.</th><th>Order date</th><th>Stage</th><th>Logged by</th><th>Order via</th><th>Submission type</th><th>Shipping location</th><th>Remarks</th><th>Ready by</th><th>Colour making by</th><th>Delivery status</th><th>Delivered by</th><th>Delivered at</th><th>Cartage</th><th>Date received</th><th>Payment status</th><th>Amount received</th></tr></thead>
           <tbody id="topbar_searchBody"></tbody>
         </table>
       </div>
@@ -404,15 +404,14 @@
           <span style="font-size:12px;color:var(--muted);">Dates (optional)</span>
           <input type="date" id="rep_from" aria-label="Report from date" style="width:auto;">
           <input type="date" id="rep_to" aria-label="Report to date" style="width:auto;">
-          <select id="rep_person" aria-label="Delivery person for the cartage history report" style="width:auto;"><option value="">Delivery person (for cartage history)</option></select>
           <span id="rep_msg" class="status-msg"></span>
         </div>
         <div id="rep_picker" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">Tick one or more reports, then Download: each opens as its own PDF (A4 landscape, ready to print). Cancelled orders are left out. Leave the dates empty for everything still open.</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;">Tick one or more reports, then Download: each opens as its own PDF (A4 landscape, ready to print). Cancelled orders are left out. The dates are the <b>order date</b> for the pending reports and the <b>date of receiving</b> for the received &amp; payments reports. Leave them empty for everything still open (pending) or every received order.</div>
         </div>
       </div>
       <div class="card accent-godown cc collapsed" id="overview_dailyCard" style="margin-bottom:16px;display:none;">
-        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_dailyBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🕢 Daily delivery reports <span style="font-size:12px;font-weight:400;color:var(--muted);">built automatically every day at 7:30 PM, one PDF per delivery person</span></h2>
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_dailyBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🕢 Daily delivery reports <span style="font-size:12px;font-weight:400;color:var(--muted);">built automatically every day at 7:30 PM: one PDF per delivery person, plus the pending and received &amp; payments reports</span></h2>
         <div class="cc-body" id="overview_dailyBody">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
           <span style="font-size:12px;color:var(--muted);">Day</span>
@@ -426,16 +425,11 @@
         </div>
       </div>
       <div id="overview_summary" class="ov-summary"></div>
-      <div class="card accent-shop" style="margin-bottom:16px;">
-        <h2>🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span></h2>
+      <div class="card accent-shop cc collapsed" style="margin-bottom:16px;">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="overview_missingBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🔍 Missing Numbers <span class="count" id="overview_missingCount" style="display:none;background:var(--red);"></span> <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="overview_missingBody">
         <div id="overview_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ No missing bill numbers</div>
-        <div id="overview_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
-          <div id="overview_missingContainer"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
-            <div id="overview_missingInvoiceContainer"></div>
-          </div>
+        <div id="overview_missingWrapper"></div>
         </div>
       </div>
       <div class="ov-row" style="margin:0 0 10px;">
@@ -462,16 +456,11 @@
       <div id="shop_errorBanner" class="error-banner" style="display:none;"></div>
       <div id="shop_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
-      <div class="card accent-shop">
-        <h2>🔍 Missing Numbers <span class="count" id="shop_missingCount" style="display:none;background:var(--red);"></span></h2>
+      <div class="card accent-shop cc collapsed">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="shop_missingBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🔍 Missing Numbers <span class="count" id="shop_missingCount" style="display:none;background:var(--red);"></span> <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="shop_missingBody">
         <div id="shop_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
-        <div id="shop_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
-          <div id="shop_missingContainer"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
-            <div id="shop_missingInvoiceContainer"></div>
-          </div>
+        <div id="shop_missingWrapper"></div>
         </div>
       </div>
 
@@ -579,16 +568,11 @@
       <div id="godown_errorBanner" class="error-banner" style="display:none;"></div>
       <div id="godown_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
-      <div class="card accent-godown">
-        <h2>🔍 Missing Numbers <span class="count" id="godown_missingCount" style="display:none;background:var(--red);"></span></h2>
+      <div class="card accent-godown cc collapsed">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="godown_missingBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🔍 Missing Numbers <span class="count" id="godown_missingCount" style="display:none;background:var(--red);"></span> <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="godown_missingBody">
         <div id="godown_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
-        <div id="godown_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
-          <div id="godown_missingContainer"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
-            <div id="godown_missingInvoiceContainer"></div>
-          </div>
+        <div id="godown_missingWrapper"></div>
         </div>
       </div>
 
@@ -644,16 +628,11 @@
       <div id="dispatch_errorBanner" class="error-banner" style="display:none;"></div>
       <div id="dispatch_dateWindowNote" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
 
-      <div class="card accent-dispatch">
-        <h2>🔍 Missing Numbers <span class="count" id="dispatch_missingCount" style="display:none;background:var(--red);"></span></h2>
+      <div class="card accent-dispatch cc collapsed">
+        <h2 role="button" tabindex="0" aria-expanded="false" aria-controls="dispatch_missingBody" onclick="toggleCc_(this)" onkeydown="ccKey_(event, this)">🔍 Missing Numbers <span class="count" id="dispatch_missingCount" style="display:none;background:var(--red);"></span> <span class="cc-hint">click to open</span></h2>
+        <div class="cc-body" id="dispatch_missingBody">
         <div id="dispatch_missingAllClear" style="display:none;background:rgba(34,179,120,0.08);border:1px solid rgba(34,179,120,0.3);border-radius:10px;padding:14px;font-size:13px;font-weight:700;color:var(--green);">✅ Koi bhi Document No. missing nahi hai</div>
-        <div id="dispatch_missingWrapper">
-          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)</div>
-          <div id="dispatch_missingContainer"></div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Invoice (yearly series)</div>
-            <div id="dispatch_missingInvoiceContainer"></div>
-          </div>
+        <div id="dispatch_missingWrapper"></div>
         </div>
       </div>
 
@@ -1135,37 +1114,30 @@
       .withSuccessHandler(function (data) {
         if (!data || !data.ok) return;
         GAP_TYPES = data.seriesTypes || {};
-        var ch = document.getElementById(prefix + '_missingContainer');
-        if (ch) ch.innerHTML = data.challan.map(function (g) {
-          return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Challan', g.date, g, data, prefix);
-        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing challan numbers.</div>';
-        if (ch && data.olderChallanDays > 0) ch.insertAdjacentHTML('beforeend', '<div style="font-size:12px;color:var(--muted);margin-top:6px;">' + data.olderChallanDays +
-          ' older day(s) also have open numbers. Enter them, or close them with "None of these need a bill", and the next ones appear here.</div>');
-        var inv = document.getElementById(prefix + '_missingInvoiceContainer');
-        if (inv) inv.innerHTML = data.invoice.map(function (g) {
-          return gapBlockHtml_('Financial year ' + g.fy, 'Invoice', g.fy, g, data, prefix);
-        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing invoice numbers.</div>';
-        // the two sales-return series: same rules as Challan (daily) and Invoice (financial year); their blocks are added under the invoice one
-        var wrap0 = document.getElementById(prefix + '_missingWrapper');
-        function srBox(id, heading) {
-          var box = document.getElementById(prefix + id);
-          if (!box && wrap0) {
-            var holder = document.createElement('div');
-            holder.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid var(--border);';
-            holder.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">' + heading + '</div><div id="' + prefix + id + '"></div>';
-            wrap0.appendChild(holder);
-            box = document.getElementById(prefix + id);
-          }
-          return box;
+        // a series gets a heading and a block only when it has at least one missing number
+        var sections = [], olderNote = '';
+        function addSection_(heading, blocks) {
+          if (!blocks.length) return;
+          sections.push('<div style="' + (sections.length ? 'margin-top:16px;padding-top:16px;border-top:1px solid var(--border);' : '') + '">' +
+            '<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">' + heading + '</div>' + blocks.join('') + '</div>');
         }
-        var src = srBox('_missingSrChallan', 'Sales Return Challan (restarts at 1 each day)');
-        if (src) src.innerHTML = (data.salesReturnChallan || []).map(function (g) {
+        var chBlocks = (data.challan || []).map(function (g) {
+          return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Challan', g.date, g, data, prefix);
+        });
+        if (data.olderChallanDays > 0) chBlocks.push('<div style="font-size:12px;color:var(--muted);margin-top:6px;">' + data.olderChallanDays +
+          ' older day(s) also have open numbers. Enter them, or close them with "None of these need a bill", and the next ones appear here.</div>');
+        addSection_('Challan (restarts at 1 each day; a day stays here until all its numbers are entered or closed)', chBlocks);
+        addSection_('Invoice (yearly series)', (data.invoice || []).map(function (g) {
+          return gapBlockHtml_('Financial year ' + g.fy, 'Invoice', g.fy, g, data, prefix);
+        }));
+        addSection_('Sales Return Challan (restarts at 1 each day)', (data.salesReturnChallan || []).map(function (g) {
           return gapBlockHtml_('📅 ' + formatDateDisplay(g.date), 'Sales Return Challan', g.date, g, data, prefix);
-        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing sales return challan numbers.</div>';
-        var sri = srBox('_missingSrInvoice', 'Sales Return Invoice (yearly series)');
-        if (sri) sri.innerHTML = (data.salesReturnInvoice || []).map(function (g) {
+        }));
+        addSection_('Sales Return Invoice (yearly series)', (data.salesReturnInvoice || []).map(function (g) {
           return gapBlockHtml_('Financial year ' + g.fy, 'Sales Return Invoice', g.fy, g, data, prefix);
-        }).join('') || '<div style="font-size:12px;color:var(--muted);">No missing sales return invoice numbers.</div>';
+        }));
+        var wrap0 = document.getElementById(prefix + '_missingWrapper');
+        if (wrap0) wrap0.innerHTML = sections.join('');
         var none = data.total === 0;
         var wrapper = document.getElementById(prefix + '_missingWrapper');
         var allClear = document.getElementById(prefix + '_missingAllClear');
@@ -1337,7 +1309,8 @@
     ['stage', 'stage', 'Stage'], ['channel', 'orderVia', 'Order via'], ['submission_type', 'typeOfSubmission', 'Submission type'],
     ['delivery_status', 'deliveryStatus', 'Delivery status'], ['payment_status', 'paymentStatus', 'Payment status'],
     ['ready_by', 'readyByWhom', 'Ready by'], ['colour_making_by', 'colourMakingBy', 'Colour making by'],
-    ['delivered_by', 'deliveredByWhom', 'Delivered by'], ['created_by', 'createdBy', 'Logged by']
+    ['delivered_by', 'deliveredByWhom', 'Delivered by'], ['created_by', 'createdBy', 'Logged by'],
+    ['bill_kind', 'billKind', 'Challan / Invoice'], ['sale_kind', 'saleKind', 'Sales / Sales return']
   ];
   var overviewFiltersBuilt = false, OV_SEL = {}, OV_WIDGETS = {}, OV_LIMIT = 25;
 
@@ -1449,6 +1422,7 @@
     initOverview();
   }
 
+  function esc_(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function fmtMoney_(v) { return v == null ? '' : '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 
   function openOrderModal(o) {
@@ -1547,9 +1521,7 @@
     ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
     ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
     ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown - cash'], ['shop-received-cash', 'Shop - cash'],
-    ['received-other-all', 'Godown + Shop - all other transactions (neither cash nor bank)'],
-    ['godown-received-other', 'Godown - not cash (bank + other)'], ['shop-received-other', 'Shop - not cash (bank + other)'],
-    ['cartage-detail', 'Cartage history (one delivery boy)'], ['cartage-by-employee', 'Cartage - paid to each person']];
+    ['received-other-all', 'Godown + Shop - all other transactions (neither cash nor bank)']];
   var REPORT_SEL = new Set();
 
   function buildReportPicker_() {
@@ -1604,11 +1576,9 @@
   function downloadSelectedReports_(goBtn) {
     var msg = document.getElementById('rep_msg');
     var from = document.getElementById('rep_from').value, to = document.getElementById('rep_to').value;
-    var person = document.getElementById('rep_person').value;
     var kinds = REPORT_CHOICES.filter(function (c) { return REPORT_SEL.has(c[0]); }).map(function (c) { return c[0]; });
     function fail(t) { msg.className = 'status-msg error'; msg.textContent = t; }
     if (!kinds.length) return fail('Choose at least one report.');
-    if (kinds.indexOf('cartage-detail') !== -1 && !person) return fail('Choose a delivery person first (needed for the cartage history).');
     if (from && to && from > to) return fail('"From" must be on or before "To".');
     goBtn.disabled = true; msg.className = 'status-msg';
     var done = 0, problems = [];
@@ -1631,17 +1601,8 @@
         }
         setTimeout(next, 400);   // a short pause so the browser accepts several downloads in a row
       }).withFailureHandler(function (err) { problems.push(kind + ' (' + err.message + ')'); setTimeout(next, 400); })
-        .downloadReport(CURRENT_TOKEN, kind, from, to, person);
+        .downloadReport(CURRENT_TOKEN, kind, from, to, '');
     })();
-  }
-
-  function fillReportPeople_() {
-    var sel = document.getElementById('rep_person');
-    if (!sel || sel.options.length > 1 || !(IS_ADMIN || (window.O2D_PAGES || []).indexOf('o2d_cartage') !== -1)) return;
-    VT.run.withSuccessHandler(function (d) {
-      if (!d || !d.ok) return;
-      d.people.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
-    }).getCartageData(CURRENT_TOKEN, '', '', '');
   }
 
   function loadDailyReports_() {
@@ -1670,6 +1631,7 @@
       if (!d.reports.length) list.appendChild(el_('span', { style: 'font-size:12px;color:var(--muted);' }, 'No reports for this day yet. They are built at ' + d.runsAt + ' from every order delivered that day.'));
       d.reports.forEach(function (r) {
         var b = el_('button', { type: 'button', class: 'ov-btn' }, '⬇ ' + r.person + ' (' + r.orders + ' order' + (r.orders === 1 ? '' : 's') + ')');
+        if (r.kind) b.style.borderStyle = 'dashed';   // a pending / received report rather than a delivery person's
         b.title = 'Built ' + r.generatedAt;
         b.onclick = function () {
           VT.run.withSuccessHandler(function (x) {
@@ -1685,7 +1647,6 @@
   }
 
   function initOverview() {
-    fillReportPeople_();
     buildReportPicker_();
     loadDailyReports_();
     document.getElementById('overview_reportsCard').style.display =
@@ -2867,36 +2828,28 @@
     var empty = document.getElementById('topbar_searchEmpty');
     var countEl = document.getElementById('topbar_searchCount');
     panel.style.display = 'block';
-    body.innerHTML = '<tr><td colspan="7" style="color:var(--muted);font-size:12px;">Searching...</td></tr>';
+    body.innerHTML = '<tr><td colspan="18" style="color:var(--muted);font-size:12px;">Searching...</td></tr>';
     empty.style.display = 'none'; countEl.textContent = '';
     VT.run
       .withSuccessHandler(function(data) {
         body.innerHTML = '';
-        if (!data || !data.ok) { body.innerHTML = '<tr><td colspan="7" style="color:var(--red);font-size:12px;">Error</td></tr>'; return; }
+        if (!data || !data.ok) { body.innerHTML = '<tr><td colspan="18" style="color:var(--red);font-size:12px;">Error</td></tr>'; return; }
         countEl.textContent = '(' + data.results.length + ')';
         empty.style.display = data.results.length ? 'none' : 'block';
         data.results.forEach(function(o) {
-          var editCell = '';
-          if (CURRENT_ROLE === 'godown')                                        { GODOWN_ORDERS[o.slNo]    = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') { DISPATCH_ORDERS[o.slNo]  = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
-          if (CURRENT_ROLE === 'receiving')                                      { RECEIVING_ORDERS[o.slNo] = o; editCell = '<button class="small" onclick="topbarEditFromSearch(' + o.slNo + ')">Edit</button>'; }
           var tr = document.createElement('tr');
-          tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
-            '<td>' + (o.shippingLocation||'') + '</td><td>' + (o.dcNo||'') + photoBadge_(o) + '</td>' +
-            '<td>' + (o.typeOfSubmission||'') + '</td><td>' + (o.readyByWhom||'') + '</td>' +
-            '<td>' + statusPill(o.deliveryStatus) + '</td><td>' + editCell + '</td>';
+          var cell = function (v) { return '<td>' + (v === '' || v == null ? '–' : esc_(String(v))) + '</td>'; };
+          tr.innerHTML = cell(o.slNo) + '<td>' + esc_(o.dcNo || '–') + photoBadge_(o) + '</td>' + cell(formatDateDisplay(o.orderRcvdDate)) + cell(o.stage) +
+            cell(o.createdBy) + cell(o.orderVia) + cell(o.typeOfSubmission) + cell(o.shippingLocation) + cell(o.detailedRemarks) +
+            cell(o.readyByWhom) + cell(o.colourMakingBy) + '<td>' + (o.deliveryStatus ? statusPill(o.deliveryStatus) : '–') + '</td>' +
+            cell((o.deliveredByWhom || '') + (o.deliveredByDetail ? ' - ' + o.deliveredByDetail : '')) +
+            cell(o.materialDeliveryDateTime ? o.materialDeliveryDateTime.replace('T', ' ').slice(0, 16) : '') + cell(fmtMoney_(o.cartage)) +
+            cell(o.dateOfReceiving ? formatDateDisplay(o.dateOfReceiving) : '') + cell(o.paymentStatus) + cell(fmtMoney_(o.amountReceived));
           body.appendChild(tr);
         });
       })
-      .withFailureHandler(function(err) { body.innerHTML = '<tr><td colspan="7" style="color:var(--red);font-size:12px;">Error: ' + err.message + '</td></tr>'; })
+      .withFailureHandler(function(err) { body.innerHTML = '<tr><td colspan="18" style="color:var(--red);font-size:12px;">Error: ' + err.message + '</td></tr>'; })
       .searchOrders(CURRENT_TOKEN, date, dcNo);
-  }
-
-  function topbarEditFromSearch(slNo) {
-    closeTopbarSearch();
-    if (CURRENT_ROLE === 'godown') godownOpenEdit(slNo);
-    else if (CURRENT_ROLE === 'shop_dispatch' || CURRENT_ROLE === 'godown_dispatch') dispatchOpenEdit(slNo);
-    else if (CURRENT_ROLE === 'receiving') receivingOpenEdit(slNo);
   }
 
   function closeTopbarSearch() { document.getElementById('topbar_searchResults').style.display = 'none'; }

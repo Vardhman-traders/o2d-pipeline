@@ -160,7 +160,7 @@ function randomPassword() {
 }
 
 /* fields: [{name,label,type:'text'|'password'|'number'|'url'|'select'|'checks'|'bool',options,value,hint,required}] */
-function formDialog({ title, fields, submitLabel = 'Save', onSubmit }) {
+function formDialog({ title, fields, submitLabel = 'Save', onSubmit, extraButtons = [] }) {
   const inputs = {};
   const err = h('div', { class: 'msg error' });
   const form = h('form', { novalidate: true });
@@ -190,7 +190,10 @@ function formDialog({ title, fields, submitLabel = 'Save', onSubmit }) {
   const submit = h('button', { type: 'submit', class: 'btn primary', text: submitLabel });
   const cancel = h('button', { type: 'button', class: 'btn', text: 'Cancel' });
   form.append(err);
-  const dlg = dialog(title, [form], [cancel, submit]);
+  // extraButtons: [{ text, danger, onClick(dlg) }] shown before Cancel (e.g. "Delete order" inside an edit form)
+  const extras = extraButtons.map((b) => h('button', { type: 'button', class: 'btn' + (b.danger ? ' danger' : ''), text: b.text, style: 'margin-right:auto' }));
+  const dlg = dialog(title, [form], [...extras, cancel, submit]);
+  extraButtons.forEach((b, i) => extras[i].addEventListener('click', () => b.onClick(dlg)));
   cancel.addEventListener('click', () => dlg.close());
   submit.addEventListener('click', () => form.requestSubmit());
   form.addEventListener('submit', async (e) => {
@@ -696,7 +699,8 @@ function defaultDashboardRange() {
 // Same attribute list the Orders page filters by; the dashboard filters by the same values.
 const DASH_FILTER_GROUPS = [['stage', 'Stage'], ['channel', 'Order via'], ['submission_type', 'Submission type'],
   ['delivery_status', 'Delivery status'], ['payment_status', 'Payment status'], ['ready_by', 'Ready by'],
-  ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by']];
+  ['colour_making_by', 'Colour making by'], ['delivered_by', 'Delivered by'], ['created_by', 'Logged by'],
+  ['bill_kind', 'Challan / Invoice'], ['sale_kind', 'Sales / Sales return']];
 
 async function renderDashboard(panel) {
   const slot = S.actionsSlot || h('div'); // top-right of the tab row (see renderModule)

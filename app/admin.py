@@ -205,12 +205,14 @@ def get_dashboard(
     payment_status: list[str] | None = Query(default=None), ready_by: list[str] | None = Query(default=None),
     colour_making_by: list[str] | None = Query(default=None),
     delivered_by: list[str] | None = Query(default=None),
-    created_by: list[str] | None = Query(default=None), viewer=Depends(access.require_page("dashboard_overview")),
+    created_by: list[str] | None = Query(default=None), bill_kind: list[str] | None = Query(default=None),
+    sale_kind: list[str] | None = Query(default=None), viewer=Depends(access.require_page("dashboard_overview")),
 ):
     date_from, date_to = _range(date_from, date_to)
     filters = {"stage": stage, "channel": channel, "submission_type": submission_type,
                "delivery_status": delivery_status, "payment_status": payment_status, "ready_by": ready_by,
-               "colour_making_by": colour_making_by, "delivered_by": delivered_by, "created_by": created_by}
+               "colour_making_by": colour_making_by, "delivered_by": delivered_by, "created_by": created_by,
+               "bill_kind": bill_kind, "sale_kind": sale_kind}
     return dashboard.build(date_from, date_to, filters)
 
 

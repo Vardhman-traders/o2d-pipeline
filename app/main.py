@@ -263,7 +263,8 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        d.full_date AS order_received_date,
        o.order_via_key, c.channel_name AS order_via,
        o.submission_type_key, st.type_name AS submission_type,
-       o.delivery_status_key, ds.status_name AS delivery_status, ds.dispatch_route, ds.amount_effect,
+       o.delivery_status_key, ds.status_name AS delivery_status, ds.dispatch_route,
+       CASE WHEN st.bill_series IN ('sales_return_challan', 'sales_return_invoice', 'goods_return') THEN 'subtract' ELSE ds.amount_effect END AS amount_effect,
        o.ready_by_person_key, rp.full_name AS ready_by,
        o.colour_making_person_key, cp.full_name AS colour_making_by,
        o.delivered_by_person_key, dp.full_name AS delivered_by, dp.phone_number AS delivered_by_phone,
@@ -447,14 +448,32 @@ def insert_order(body: OrderIn, user, *, check_fields: bool = True):
 @app.patch("/orders/{sl_no}")
 def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(default=None),
                   user=Depends(ANY_ORDER_ROLE_OR_ADMIN)):
+    return save_order(sl_no, body, archived, user, allow_closed=user["role"] == "admin")
+
+
+def save_order(sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False):
+    """update_order for in-process callers. allow_closed lets an admin change a closed order (All orders > Edit); it is deliberately
+    not something a request can ask for."""
     try:
         with db.cursor() as cur:
-            return apply_order_update(cur, sl_no, body, archived, user)[1]
+            return apply_order_update(cur, sl_no, body, archived, user, allow_closed=allow_closed)[1]
     except pgerr.ForeignKeyViolation as e:
         raise _fk_error(e)
 
 
-def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user):
+CLOSED_MESSAGE = ("This order is closed (every stage is done), so it can no longer be edited here. "
+                  "Only an admin can change it, from Dashboard > All orders.")
+
+
+def is_closed(o: dict) -> bool:
+    """All stages done: sent by the godown, dispatched, received and paid - the same rule as the 'Closed' stage of v_orders.
+    A cancelled order is its own stage, not a closed one."""
+    cancelled = bool(o.get("is_cancelled")) or (o.get("submission_type") or "").strip().lower() == "cancelled"
+    return (not cancelled and o.get("delivery_status_key") is not None and o.get("material_delivery_datetime") is not None
+            and o.get("date_of_receiving") is not None and o.get("payment_status_key") is not None)
+
+
+def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False):
     """The one update path (permission, test-account, visibility and bill-number checks, the write and the order_event row) on a cursor
     the caller owns - so the bulk "Mark done" can save several orders in one transaction with exactly the single-order rules.
     Returns (order before, order after)."""
@@ -483,6 +502,8 @@ def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user):
         raise HTTPException(404, "Order not found")
     cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
     before = cur.fetchone()
+    if not allow_closed and is_closed(before):   # a closed order is editable only by an admin from All orders (allow_closed)
+        raise HTTPException(403, CLOSED_MESSAGE)
     _check_doc_number(cur, user, fields, before)
     cur.execute(
         f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "

@@ -2,7 +2,9 @@
 
 Every day at 7:30 PM IST the app builds one PDF per delivery person (the people offered on the Godown Dispatch screen) listing every
 order that person delivered that day, keeps the PDFs in the database (Reports page: download any day's), and posts a one-message
-summary to the WhatsApp group set under Setup > WhatsApp ("Daily delivery summary").
+summary to the WhatsApp group set under Setup > WhatsApp ("Daily delivery summary"). The same run also keeps the Reports card's pending
+reports (Godown / Shop Dispatch / Godown Dispatch pending, Awaiting receiving) and received & payments reports (Godown + Shop bank, Godown cash,
+Shop cash, all other transactions) - see DAILY_REPORT_KINDS.
 
 How it runs: a small background thread inside the web service wakes every minute and does the day's work once, after 7:30 PM
 (also if the service was restarted later in the evening). `daily_report_run` plus a database lock make that safe if more than one
@@ -25,6 +27,13 @@ RUN_AT = time(19, 30)
 LOCK_ID = 7003
 RETRY_AFTER_FAILURE_S = 600
 router = APIRouter(prefix="/o2d/daily-reports", tags=["daily-reports"])
+
+# The reports of the Reports card that are also kept automatically every evening (in this order). The pending ones are a picture of
+# what is open at 7:30 PM; the received & payments ones cover the orders whose receiving was entered that day.
+DAILY_REPORT_KINDS = ("godown-pending", "shop-dispatch-pending", "godown-dispatch-pending", "receiving-pending",
+                      "received-bank", "godown-received-cash", "shop-received-cash", "received-other-all")
+# who the automatic reports are built for: sees every (active) order, like an admin
+_SYSTEM_USER = {"role": "admin", "username": "automatic daily report", "display_name": "Automatic daily report"}
 
 _COLS = [("Order date", "order_received_date", 22, "L"), ("DC / Inv No", "dc_inv_no", 24, "L"), ("Address", "shipping_location", 68, "L"),
          ("Delivered at", "material_delivery_datetime", 32, "L"), ("Delivered by", "delivered_by_full", 50, "L"),
@@ -72,7 +81,30 @@ def generate(day: date, now: datetime | None = None) -> list[dict]:
                         "ON CONFLICT (report_date, person_name) DO UPDATE SET order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, "
                         "generated_at = now()", (day, person, len(rows), pdf))
         out.append({"person": person, "orders": len(rows), "cartage": sum(float(r.get("cartage") or 0) for r in rows)})
+    generate_reports(day, now)
     return out
+
+
+def generate_reports(day: date, now: datetime) -> int:
+    """(Re)build and store the day's pending / received reports (DAILY_REPORT_KINDS). One failing report is logged and skipped so the
+    others (and the delivery-person reports) are still kept. Returns how many were stored."""
+    stored = 0
+    for kind in DAILY_REPORT_KINDS:
+        spec = o2d_reports.REPORTS[kind]
+        received = spec.get("date_field") == o2d_reports._RECEIVED_ON
+        try:
+            pdf, count = o2d_reports.build_report(spec, _SYSTEM_USER, day if received else None, day if received else None,
+                                                  "Automatic daily report", now)
+        except Exception:
+            log.exception("Could not build the daily report %s for %s", kind, day)
+            continue
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO daily_delivery_report (report_date, person_name, order_count, pdf, generated_at, report_kind) "
+                        "VALUES (%s, %s, %s, %s, now(), %s) ON CONFLICT (report_date, person_name) DO UPDATE SET "
+                        "order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, generated_at = now(), report_kind = EXCLUDED.report_kind",
+                        (day, spec["title"], count, pdf, kind))
+        stored += 1
+    return stored
 
 
 def summary_text(done: list[dict]) -> str:
@@ -147,13 +179,13 @@ def start_scheduler() -> Scheduler | None:
 def list_reports(day: date | None = Query(default=None, alias="date"), user=Depends(access.require_page("o2d_reports"))):
     day = day or datetime.now(IST).date()
     with db.cursor() as cur:
-        cur.execute("SELECT report_key, person_name, order_count, generated_at FROM daily_delivery_report WHERE report_date = %s "
-                    "ORDER BY person_name", (day,))
+        cur.execute("SELECT report_key, person_name, order_count, generated_at, report_kind FROM daily_delivery_report WHERE report_date = %s "
+                    "ORDER BY report_kind IS NOT NULL, person_name", (day,))
         rows = cur.fetchall()
         cur.execute("SELECT report_date FROM daily_report_run ORDER BY report_date DESC LIMIT 14")
         days = [r["report_date"].isoformat() for r in cur.fetchall()]
     return {"ok": True, "date": day.isoformat(), "days": days, "runsAt": "7:30 PM IST", "canGenerate": user["role"] == "admin",
-            "reports": [{"key": r["report_key"], "person": r["person_name"], "orders": r["order_count"],
+            "reports": [{"key": r["report_key"], "person": r["person_name"], "orders": r["order_count"], "kind": r["report_kind"],
                          "generatedAt": r["generated_at"].astimezone(IST).strftime("%d-%m-%Y %H:%M")} for r in rows]}
 
 
@@ -175,4 +207,5 @@ def generate_now(day: date | None = Query(default=None, alias="date"), user=Depe
         raise HTTPException(403, "Only an admin can generate the reports on demand.")
     day = day or datetime.now(IST).date()
     done = generate(day)
-    return {"ok": True, "date": day.isoformat(), "persons": len(done), "message": f"Built {len(done)} report(s) for {day:%d-%m-%Y}."}
+    return {"ok": True, "date": day.isoformat(), "persons": len(done),
+            "message": f"Built the delivery reports ({len(done)} person(s)) and the {len(DAILY_REPORT_KINDS)} pending / received reports for {day:%d-%m-%Y}."}

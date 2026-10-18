@@ -34,7 +34,8 @@ def test_missing_numbers_panel_lists_clicks_and_clears(base_url):
             page.click("#shop_saveBtn")
             expect(page.locator("#shop_statusMsg")).to_contain_text("Order saved", timeout=8000)
 
-        sel = "#shop_missingContainer a.gap-num[onclick*=\"'" + day.isoformat() + "'\"]"
+        page.click("#shop_missingBody >> xpath=preceding-sibling::h2")   # the card starts collapsed
+        sel = "#shop_missingWrapper a.gap-num[onclick*=\"'" + day.isoformat() + "'\"]"
         pills = page.locator(sel)   # that day's pills only
         expect(pills).to_have_text(["2", "3", "4", "5", "6", "7"], timeout=8000)
         
@@ -79,9 +80,8 @@ def test_reports_are_one_multi_select_and_download_one_pdf_each(base_url, migrat
             page.click("#rep_downloadBtn")
         assert first.value.suggested_filename.endswith(".pdf")
         expect(page.locator("#rep_msg")).to_have_text("Downloaded 3 reports.", timeout=20000)
-        # cartage history needs a delivery person
+        # the cartage and "not cash" reports are no longer offered in the picker
         page.click("#rep_pickBtn")
-        page.check('#rep_picker input[data-report="cartage-detail"]')
-        page.click("#rep_downloadBtn")
-        expect(page.locator("#rep_msg")).to_contain_text("Choose a delivery person")
+        for kind in ("cartage-detail", "cartage-by-employee", "godown-received-other", "shop-received-other"):
+            assert page.locator(f'#rep_picker input[data-report="{kind}"]').count() == 0
         browser.close()

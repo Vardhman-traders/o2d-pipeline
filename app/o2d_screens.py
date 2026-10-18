@@ -198,13 +198,13 @@ def _screen_orders(user, screen: str) -> list[dict]:
         return [map_order(r) for r in cur.fetchall()]
 
 
-def _write(user, sl_no: int, payload: dict, archived: bool | None = None) -> dict:
+def _write(user, sl_no: int, payload: dict, archived: bool | None = None, allow_closed: bool = False) -> dict:
     """Apply a partial update through the one real update path; translate errors to {success: False}."""
     from . import main
     if any(k.endswith("_key") and v is None for k, v in payload.items()):
         return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
     try:
-        row = main.update_order(sl_no, main.OrderPatch(**payload), archived, user=user)
+        row = main.save_order(sl_no, main.OrderPatch(**payload), archived, user, allow_closed=allow_closed)
     except HTTPException as e:
         return {"ok": True, "success": False, "message": str(e.detail)}
     except ValueError as e:  # pydantic validation
@@ -535,13 +535,23 @@ def admin_form_options(user=Depends(ADMIN_ONLY)):
         "readyByWhom": _names(_people_rows("ready_by")),
         "colourMakingBy": _names(_people_rows("colour_making")),
         "deliveredByWhom": _names(_people_rows("delivery")),
-        "stage": list(STAGES), "createdBy": _created_by_names()}}
+        "stage": list(STAGES), "createdBy": _created_by_names(),
+        "billKind": ["Challan", "Invoice"], "saleKind": ["Sales", "Sales return"]}}
 
 
 @router.get("/search")
 def search_orders(date_: date | None = Query(default=None, alias="date"),
                   dc_no: str | None = Query(default=None, max_length=100), user=Depends(ANY_VIEWER)):
-    found = _orders(user, date_from=date_, date_to=date_, q=dc_no, limit=100)
+    from . import main
+    rows = main.list_orders(delivery_status_key=None, date_from=date_, date_to=date_, q=dc_no, include_cancelled=True, archived=None,
+                            limit=100, offset=0, user=user)
+    found = []
+    for r in rows:
+        o = map_order(r)
+        # the same stage rule as v_orders, so a search result reads like the Overview's order details
+        o["stage"] = ("Cancelled" if r["is_cancelled"] or _is_cancelled_type(o) else "Awaiting godown" if not r["delivery_status_key"]
+                      else "Awaiting dispatch" if not _delivered(o) else "Awaiting receiving" if not _received(o) else "Closed")
+        found.append(o)
     _with_photos(found)
     return {"ok": True, "results": found}
 
@@ -962,7 +972,7 @@ def update_admin(sl_no: int, form: Form, archived: bool = False, user=Depends(AD
     if _has(form.cartage):
         p["cartage"] = float(form.cartage)
     p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
-    result = _write(user, sl_no, p, archived=True if archived else None)
+    result = _write(user, sl_no, p, archived=True if archived else None, allow_closed=True)   # All orders > Edit (admin) is the one way to change a closed order
     result.pop("order", None)
     return result
 
