@@ -160,7 +160,7 @@ function randomPassword() {
 }
 
 /* fields: [{name,label,type:'text'|'password'|'number'|'url'|'select'|'checks'|'bool',options,value,hint,required}] */
-function formDialog({ title, fields, submitLabel = 'Save', onSubmit, extraButtons = [] }) {
+function formDialog({ title, fields, submitLabel = 'Save', onSubmit, extraButtons = [], after = null }) {
   const inputs = {};
   const err = h('div', { class: 'msg error' });
   const form = h('form', { novalidate: true });
@@ -189,6 +189,7 @@ function formDialog({ title, fields, submitLabel = 'Save', onSubmit, extraButton
   }
   const submit = h('button', { type: 'submit', class: 'btn primary', text: submitLabel });
   const cancel = h('button', { type: 'button', class: 'btn', text: 'Cancel' });
+  if (after) form.append(after);   // extra content under the fields (e.g. the order's photos, each with a delete button)
   form.append(err);
   // extraButtons: [{ text, danger, onClick(dlg) }] shown before Cancel (e.g. "Delete order" inside an edit form)
   const extras = extraButtons.map((b) => h('button', { type: 'button', class: 'btn' + (b.danger ? ' danger' : ''), text: b.text, style: 'margin-right:auto' }));

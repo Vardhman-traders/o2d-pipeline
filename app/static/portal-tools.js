@@ -14,9 +14,11 @@ const ORDER_COLS = [['sl_no', 'Sl'], ['order_date', 'Order date'], ['dc_inv_no',
 // Admin can edit or permanently delete any order here, active or archived - no need to go through
 // the O2D "view as" screens first. Edit reuses the same endpoint those screens' admin form uses.
 function openOrderEdit(row, options, onSaved) {
+  const photos = h('div', { id: 'editPhotos' });
+  showOrderPhotos(row.sl_no, photos);   // the order's photos, each with a Delete photo button
   const sel = (key) => [['', '-- no change --'], ...(options[key] || []).map((v) => [v, v])];
   formDialog({
-    title: `Edit order ${row.dc_inv_no || row.sl_no}`, submitLabel: 'Save',
+    title: `Edit order ${row.dc_inv_no || row.sl_no}`, submitLabel: 'Save', after: photos,
     extraButtons: [{ text: 'Delete order', danger: true, onClick: (dlg) => deleteOrder(row, (n) => { dlg.close(); onSaved(n); }) }],
     fields: [
       { name: 'orderRcvdDate', label: 'Order date', type: 'date', value: row.order_date },
@@ -423,10 +425,27 @@ async function showOrderPhotos(slNo, body) {
   let d;
   try { d = await api(`/o2d/orders/${slNo}/photos`); } catch { return; }
   if (!d || !d.enabled || !d.photos.length) return;
-  const grid = h('div', { id: 'orderPhotos', style: 'display:flex;flex-wrap:wrap;gap:10px' }, d.photos.map((p) => h('a', { href: p.url, target: '_blank', rel: 'noopener',
-    title: `${p.kind} photo by ${p.uploadedBy || '?'} - ${fmtExact(p.uploadedAt)} IST`, style: 'display:block;width:140px;height:140px;border-radius:10px;overflow:hidden;border:1px solid var(--border)' },
-    h('img', { src: p.url, alt: p.kind + ' photo', style: 'width:100%;height:100%;object-fit:cover' }))));
-  body.append(h('h3', { class: 'tl-title', text: `Photos (${d.photos.length})` }), grid);
+  const title = h('h3', { class: 'tl-title', text: `Photos (${d.photos.length})` });
+  const grid = h('div', { id: 'orderPhotos', style: 'display:flex;flex-wrap:wrap;gap:10px' });
+  const err = h('div', { class: 'msg error' });
+  const tile = (p) => {
+    const box = h('div', { style: 'width:140px' });
+    const del = h('button', { type: 'button', class: 'btn danger', text: 'Delete photo', style: 'width:100%;margin-top:4px', onclick: async () => {
+      if (!(await confirmDialog('Delete this photo?', `The ${p.kind} photo by ${p.uploadedBy || '?'} is removed from the order for good. Cannot be undone.`, 'Delete', true))) return;
+      try { await api(`/o2d/orders/${slNo}/photos/${p.id}`, { method: 'DELETE' }); } catch (ex) { err.textContent = ex.message || 'Could not delete the photo.'; return; }
+      box.remove();
+      const left = grid.children.length;
+      title.textContent = `Photos (${left})`;
+      err.textContent = '';
+      if (!left) { title.remove(); grid.remove(); }
+    } });
+    box.append(h('a', { href: p.url, target: '_blank', rel: 'noopener',
+      title: `${p.kind} photo by ${p.uploadedBy || '?'} - ${fmtExact(p.uploadedAt)} IST`, style: 'display:block;width:140px;height:140px;border-radius:10px;overflow:hidden;border:1px solid var(--border)' },
+      h('img', { src: p.url, alt: p.kind + ' photo', style: 'width:100%;height:100%;object-fit:cover' })), del);
+    return box;
+  };
+  d.photos.forEach((p) => grid.append(tile(p)));
+  body.append(title, err, grid);
 }
 
 // ------------------------------------------------------------------ Setup > Access & permissions (one page)

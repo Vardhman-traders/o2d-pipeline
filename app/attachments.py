@@ -142,6 +142,26 @@ def order_photos(sl_no: int, user=Depends(ANY_VIEWER)):
     return {"ok": True, "enabled": True, "photos": list_photos(user, sl_no)}
 
 
+@router.delete("/orders/{sl_no}/photos/{attachment_key}")
+def delete_photo(sl_no: int, attachment_key: int, admin=Depends(auth.require_roles("admin"))):
+    """Admin only (the All orders details): remove one photo of an order - the record and the stored file. Recorded in the admin audit log."""
+    from .admin import audit
+    order = _visible_order(admin, sl_no)
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM order_attachments WHERE attachment_key = %s AND order_key = %s RETURNING kind, object_key, uploaded_by",
+                    (attachment_key, order["order_key"]))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Photo not found.")
+        audit(cur, admin, "order.photo_delete", f"Sl {sl_no}", {"kind": row["kind"], "uploaded_by": row["uploaded_by"]})
+    if configured():
+        try:
+            storage().delete_object(Bucket=_bucket(), Key=row["object_key"])
+        except Exception:   # the record is gone; a stray file in storage is harmless and logged
+            log.exception("could not remove photo file %s", row["object_key"])
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ generic files for the other modules
 # (Delegation task proofs, Purchase invoice photos, ...). Same storage, same signed links, but any module/record.
 def put_file(module: str, record_key: int, kind: str, user, data: bytes, content_type: str) -> int:
