@@ -539,6 +539,24 @@
     .ms-item:hover{background:var(--bg);}
     .ms-item input{width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;}
     .ms-clear{display:block;width:100%;text-align:left;background:none;border:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;cursor:pointer;}
+    /* statement tables: long text wraps instead of pushing the Amount / Balance columns off the page (and out of the PDF) */
+    .wrapcells tbody td{white-space:normal;word-break:break-word;}
+    .wrapcells tbody td.num{white-space:nowrap;}
+    .wrapcells tbody td:nth-child(-n+3){white-space:nowrap;}
+    .flag-warn.clickable{cursor:pointer;text-decoration:underline dotted;}
+    /* file pick: an icon, not a text box */
+    .upl-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .upl-btn{
+      width:40px;height:40px;border-radius:10px;border:1.5px solid var(--line);background:#fff;color:var(--accent);
+      display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;
+    }
+    .upl-btn:hover{border-color:var(--accent);background:#eff6ff;}
+    .upl-info{font-size:12px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .warn-grid{display:grid;grid-template-columns:140px 1fr;gap:4px 12px;font-size:13px;margin:6px 0 12px;}
+    .warn-grid dt{color:var(--muted);font-weight:600;}
+    .warn-grid dd{margin:0;}
+    .warn-ev{border-left:3px solid var(--accent);padding:4px 0 4px 10px;margin:8px 0;font-size:13px;}
+    .warn-ev ul{margin:4px 0 0 16px;padding:0;}
     /* click a column name to sort */
     th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
     th.sortable:hover{color:var(--accent);}
@@ -775,12 +793,15 @@
         <p id="chOff" style="display:none;color:var(--red);font-size:13px;margin:0 4px 10px;">Photo storage is not set up yet, so challans cannot be uploaded. Ask the administrator.</p>
         <div id="chForm">
           <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
-            <div class="field"><label for="chFile">Photo or PDF of the challan</label><input type="file" id="chFile" accept="image/*,application/pdf">
-              <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <button type="button" class="btn btn-sm" style="background:#546E7A;color:#fff;" title="Take photo with camera" aria-label="Take photo with camera" onclick="document.getElementById('chCam').click()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
-                <span id="chCamInfo" style="font-size:12px;color:var(--muted);"></span>
-                <input type="file" id="chCam" accept="image/*" capture="environment" style="display:none" onchange="chCamTaken(this)">
-              </div></div>
+<div class="field"><label>Challan file</label>
+              <div class="upl-row">
+                <button type="button" class="upl-btn" title="Choose a photo or PDF from this device" aria-label="Choose a photo or PDF" onclick="document.getElementById('chFile').click()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                <button type="button" class="upl-btn" title="Take a photo with the camera" aria-label="Take a photo with the camera" onclick="document.getElementById('chCam').click()"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+                <span id="chCamInfo" class="upl-info"></span>
+              </div>
+              <input type="file" id="chFile" accept="image/*,application/pdf" style="display:none" onchange="chFilePicked(this)">
+              <input type="file" id="chCam" accept="image/*" capture="environment" style="display:none" onchange="chCamTaken(this)">
+            </div>
             <div class="field"><label for="chDate">Challan date</label><input type="date" id="chDate"></div>
             <div class="field"><label for="chRef">Challan no. (optional)</label><input type="text" id="chRef" maxlength="100"></div>
             <div class="field"><label for="chNote">Note (optional)</label><input type="text" id="chNote" maxlength="500"></div>
@@ -790,8 +811,9 @@
         </div>
       </div>
       <div class="list-panel">
-        <div class="list-header"><h3>Uploaded challans <span id="chCount" style="color:var(--muted);font-weight:500;"></span></h3></div>
-        <div class="fbar flat" id="chBar">
+        <div class="list-header"><h3>Uploaded challans <span id="chCount" style="color:var(--muted);font-weight:500;"></span></h3>
+          <button type="button" class="fbtn ghost" id="chFilterBtn" onclick="toggleChFilters()">🔍 Filters ▾</button></div>
+        <div class="fbar flat" id="chBar" style="display:none;">
           <div class="fitem fsearch"><input type="text" id="chSearch" class="fc" placeholder="🔍 Challan no. / Note…" aria-label="Search" oninput="chDraw()"></div>
           <div class="fitem"><span class="flab">From</span><input type="date" id="chFrom" class="fc" onchange="chLoad()"></div>
           <div class="fitem"><span class="flab">To</span><input type="date" id="chTo" class="fc" onchange="chLoad()"></div>
@@ -799,7 +821,7 @@
           <button type="button" class="btn-search-clear" id="chClearBtn" onclick="chClearFilters()">✕ Clear filters</button>
         </div>
         <div class="table-wrap">
-          <table id="chTable">
+          <table id="chTable" class="wrapcells">
             <thead><tr><th>Challan</th>
               <th class="sortable" data-k="date" onclick="sortBy('ch','date')">Challan date<span class="si">⇅</span></th>
               <th class="sortable" data-k="ref" onclick="sortBy('ch','ref')">Challan no.<span class="si">⇅</span></th>
@@ -847,7 +869,7 @@
           <span class="action-link" onclick="expExportCsv()">⬇ CSV</span>
         </div>
         <div class="table-wrap">
-          <table id="expTable">
+          <table id="expTable" class="wrapcells">
             <thead><tr>
               <th class="sortable" data-k="date" onclick="sortBy('exp','date')">Date<span class="si">⇅</span></th>
               <th class="sortable" data-k="no" onclick="sortBy('exp','no')">Entry<span class="si">⇅</span></th>
@@ -866,6 +888,18 @@
       </div>
     </div>
   </main>
+</div>
+
+<!-- PAYMENTS: an entry whose O2D order changed after it was merged (admin) -->
+<div class="modal-backdrop" id="warnModal">
+  <div class="modal-box" style="max-width:660px;">
+    <div class="modal-top">
+      <h3>⚠ Order changed after this entry <span id="wId" style="color:var(--accent);"></span></h3>
+      <button class="modal-close" onclick="closeWarnModal()">✕</button>
+    </div>
+    <div id="wBody" style="max-height:60vh;overflow-y:auto;">Loading…</div>
+    <div class="form-actions" id="wActions"></div>
+  </div>
 </div>
 
 <!-- ========== EDIT MODAL ========== -->
@@ -1964,7 +1998,9 @@ function renderRows(rows){
       <td><strong>${rupee(r.Amount)}</strong></td>
       <td title="${esc(r.Mode)}">${modeDisplay}</td>
       <td title="${esc(r.CreatedBy)}">${highlight(r.CreatedBy)}</td>
-      <td>${statusPill}${r.Warning ? `<span class="flag-warn" title="${esc(r.Warning)}">⚠</span>` : ''}</td>
+      <td>${statusPill}${r.Warning ? (currentUser.role === 'Admin'
+        ? `<span class="flag-warn clickable" title="${esc(r.Warning)} - click to see what changed" onclick="openWarnModal('${esc(r.TxnID)}')">⚠</span>`
+        : `<span class="flag-warn" title="${esc(r.Warning)}">⚠</span>`) : ''}</td>
       ${showRemarks ? `<td class="td-remarks">${highlight(r.Remarks||'—')}</td>` : ''}
       <td><div class="txnid-label">${esc(r.TxnID)}</div>${action}</td>
     </tr>`;
@@ -2007,9 +2043,57 @@ function decide(txnId, decision){
 }
 
 // ============================================================
+// ENTRY WITH A WARNING (the O2D order changed after it was merged) - admin: see the change, edit / delete / mark reviewed
+// ============================================================
+function closeWarnModal(){ document.getElementById('warnModal').classList.remove('open'); }
+function openWarnModal(txnId){
+  document.getElementById('wId').textContent = txnId;
+  document.getElementById('wBody').textContent = 'Loading…';
+  document.getElementById('wActions').innerHTML = '';
+  document.getElementById('warnModal').classList.add('open');
+  VT.run.withSuccessHandler(d => renderWarnModal(txnId, d))
+    .withFailureHandler(e => { document.getElementById('wBody').textContent = e.message; }).payOrderChange(txnId);
+}
+function renderWarnModal(txnId, d){
+  const money = v => v === null || v === undefined ? '—' : rupee(v);
+  const row = (k, v) => `<dt>${esc(k)}</dt><dd>${esc(v === '' || v === null || v === undefined ? '—' : v)}</dd>`;
+  const en = d.entry, o = d.order, m = d.merged;
+  let html = `<p style="margin:0 0 8px;color:var(--amber);font-weight:600;">${esc(en.warning || 'No warning is set on this entry.')}</p>`;
+  html += '<h4 style="margin:10px 0 2px;">This entry</h4><dl class="warn-grid">' +
+    row('Type / mode', en.type + ' · ' + en.mode) + row('Company', en.company) + row('Party', en.party) + row('Invoice / challan', en.invoice) +
+    row('Amount', money(en.amount)) + row('Status', en.status) + '</dl>';
+  if (!o) {
+    html += '<p class="small-note">This entry is not linked to an O2D order, so there is no order change to show.</p>';
+  } else {
+    html += '<h4 style="margin:10px 0 2px;">The O2D order now</h4><dl class="warn-grid">' +
+      row('DC / Invoice no.', o.dcNo + (o.slNo ? ' (Sl ' + o.slNo + ')' : '')) + row('Address', o.address) + row('Stage', o.cancelled ? 'Cancelled' : o.stage) +
+      row('Delivery status', o.deliveryStatus) + row('Payment status', o.paymentStatus) + row('Amount', money(o.amount)) + '</dl>';
+    if (m) html += `<p class="small-note">When merged (${esc((m.at || '').replace('T', ' ').slice(0, 16))}): Cash ${money(m.cash)} · Bank ${money(m.bank)}.</p>`;
+    html += `<h4 style="margin:10px 0 2px;">Changes to the order since it was merged (${d.events.length})</h4>`;
+    if (!d.events.length) html += '<p class="small-note">No recorded changes after the merge - the order may have been changed before step-by-step tracking began.</p>';
+    html += d.events.map(e => `<div class="warn-ev"><strong>${esc(e.title)}</strong> · ${esc((e.at || '').replace('T', ' ').slice(0, 16))} · ${esc(e.by || '')}` +
+      (e.changes && e.changes.length ? '<ul>' + e.changes.map(c => `<li>${esc(c.field)}: <i>${esc(c.from || 'empty')}</i> → <b>${esc(c.to == null ? 'cleared' : c.to)}</b></li>`).join('') + '</ul>' : '') + '</div>').join('');
+  }
+  document.getElementById('wBody').innerHTML = html;
+  const act = document.getElementById('wActions');
+  act.innerHTML = '';
+  const btn = (text, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.style.width = 'auto'; b.textContent = text; b.onclick = fn; act.appendChild(b); return b; };
+  btn('Edit entry', 'btn-primary', () => { closeWarnModal(); openEditModal(txnId); });
+  if (en.warning) btn('Mark reviewed', 'btn-secondary', () => {
+    VT.run.withSuccessHandler(() => { closeWarnModal(); refreshAll(true); }).withFailureHandler(e => alert(e.message)).payClearWarning(txnId);
+  });
+  btn('Delete entry', 'btn-reject', () => {
+    if (!confirm('Delete entry ' + txnId + ' for good? An entry that came from O2D will show again on the Sales / Sales Return tab so it can be merged again.')) return;
+    VT.run.withSuccessHandler(() => { closeWarnModal(); refreshAll(true); }).withFailureHandler(e => alert(e.message)).payDeleteTxn(txnId);
+  });
+}
+
+// ============================================================
 // SIGNED AMOUNT
 // ============================================================
-function signedAmount(r){ return OUT_TYPES.includes(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0); }
+// money going out is decided by the type's "direction" set in Setup (the same rule the server uses for its totals)
+function isOutType(t){ return !!TYPE_META[t] && TYPE_META[t].direction !== 'in'; }
+function signedAmount(r){ return isOutType(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0); }
 
 // ============================================================
 // EXPORT PDF
@@ -2025,7 +2109,7 @@ function exportFilteredPDF(){
     <td style="text-align:center;">${idx+1}</td>
     <td>${esc(fmtDate(r.Date))}</td><td>${esc(r.Company)}</td><td>${esc(r.Type)}</td>
     <td>${esc(r.Invoice||'—')}</td><td>${esc(r.Party||'—')}</td>
-    <td style="text-align:right;">${OUT_TYPES.includes(r.Type)?'-':''}${rupee(r.Amount)}</td>
+    <td style="text-align:right;">${isOutType(r.Type)?'-':''}${rupee(r.Amount)}</td>
     <td>${esc(r.Mode)}</td><td>${esc(r.Remarks||'—')}</td><td>${esc(r.Status)}</td>
   </tr>`).join('');
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
@@ -2058,7 +2142,7 @@ function exportFilteredExcel(){
     'Company'   : r.Company,
     'Party'     : r.Party     || '',
     'Mode'      : r.Mode,
-    'Amount'    : OUT_TYPES.includes(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0),
+    'Amount'    : isOutType(r.Type) ? -(Number(r.Amount)||0) : (Number(r.Amount)||0),
     'Invoice'   : r.Invoice   || '',
     'Remarks'   : r.Remarks   || '',
     'Created By': r.CreatedBy,
@@ -2299,8 +2383,8 @@ function expRedraw(){
     return `<tr style="${style}"><td>${esc(e.date)}</td><td>${esc(e.no)}</td><td>${topup ? '<b style="color:var(--green)">Money added</b>' : 'Expense'}</td>` +
       `<td>${esc(e.category || '—')}</td><td>${esc(e.spentBy || '—')}</td><td>${esc([e.paidTo, e.description].filter(Boolean).join(' — ') || '—')}` +
       (e.voided ? `<div style="font-size:11px;color:var(--red)">Cancelled by ${esc(e.voidedBy)}: ${esc(e.voidReason)}</div>` : '') + '</td>' +
-      `<td style="text-align:right;font-weight:600;color:${topup ? 'var(--green)' : 'var(--ink)'}">${sign} ${rupee(e.amount)}</td>` +
-      `<td style="text-align:right">${e.balanceAfter === null ? '—' : rupee(e.balanceAfter)}</td><td>${esc(e.enteredBy)}</td>` +
+      `<td class="num" style="text-align:right;font-weight:600;color:${topup ? 'var(--green)' : 'var(--ink)'}">${sign} ${rupee(e.amount)}</td>` +
+      `<td class="num" style="text-align:right">${e.balanceAfter === null ? '—' : rupee(e.balanceAfter)}</td><td>${esc(e.enteredBy)}</td>` +
       `<td>${e.canVoid && EXP.canWrite ? `<span class="action-link danger" onclick="expOpenVoid(${e.key}, '${esc(e.no)}')">Cancel</span>` : ''}</td></tr>`;
   }).join('');
   paintSort('exp');
@@ -2359,7 +2443,7 @@ function expVoidSave(){
 // ---- export: the same numbers the screen shows
 function expLedgerRows(){
   return expVisible().map(e => ({ Date: e.date, Entry: e.no, Type: e.kind === 'Topup' ? 'Money added' : 'Expense', Category: e.category,
-    'Spent by': e.spentBy, 'Paid to': e.paidTo, Details: e.description, 'Money in': e.kind === 'Topup' && !e.voided ? e.amount : '',
+    'Spent by': e.spentBy, 'Paid to': e.paidTo, Details: e.description, Amount: (e.kind === 'Topup' ? 1 : -1) * Number(e.amount), 'Money in': e.kind === 'Topup' && !e.voided ? e.amount : '',
     'Money out': e.kind === 'Expense' && !e.voided ? e.amount : '', Balance: e.balanceAfter === null ? '' : e.balanceAfter,
     'Entered by': e.enteredBy, Status: e.voided ? 'Cancelled: ' + e.voidReason + ' (' + e.voidedBy + ')' : '' }));
 }
@@ -2396,6 +2480,7 @@ async function expExportPdf(){
     if (src) host.appendChild(src.cloneNode(true));
   });
   host.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  host.querySelectorAll('.si').forEach(e => e.remove());                                 // the sort arrows of the column names
   host.querySelectorAll('.action-link').forEach(e => e.remove());                         // Excel / CSV / Cancel links are not part of the report
   host.querySelectorAll('table').forEach(t => {
     const head = t.querySelector('thead tr');
@@ -2463,6 +2548,11 @@ function expExportCsv(){
 // UPLOAD CHALLAN (photo / PDF, date, who uploaded it)
 // ============================================================
 let CH_STARTED = false, CH_CAM = null;
+function chFilePicked(input){
+  const f = input.files && input.files[0] ? input.files[0] : null;
+  document.getElementById('chCamInfo').textContent = f ? '📎 ' + f.name : '';
+  if (f) { CH_CAM = null; document.getElementById('chCam').value = ''; }
+}
 function chCamTaken(input){
   CH_CAM = input.files && input.files[0] ? input.files[0] : null;
   document.getElementById('chCamInfo').textContent = CH_CAM ? 'Camera photo ready' : '';
@@ -2496,6 +2586,11 @@ function chLoad(){
     .chList(document.getElementById('chFrom').value, document.getElementById('chTo').value);
 }
 let chTruncated = false;
+function toggleChFilters(){
+  const bar = document.getElementById('chBar');
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+  chDraw();
+}
 function chClearFilters(){
   document.getElementById('chSearch').value = '';
   CHF.by.clear();
@@ -2507,6 +2602,10 @@ function chDraw(){
     (!CHF.by.size || CHF.by.has(c.uploadedBy || '—')) && (!q || [c.reference, c.note].some(v => String(v || '').toLowerCase().includes(q)))), CH_SORT);
   document.querySelectorAll('#chBar .ms').forEach(m => m.refresh && m.refresh());
   document.getElementById('chClearBtn').style.display = (q || CHF.by.size) ? 'inline-flex' : 'none';
+  const nF = (q ? 1 : 0) + (CHF.by.size ? 1 : 0) + (document.getElementById('chFrom').value ? 1 : 0) + (document.getElementById('chTo').value ? 1 : 0);
+  const fb = document.getElementById('chFilterBtn');
+  fb.textContent = '🔍 Filters' + (nF ? ' (' + nF + ')' : '') + (document.getElementById('chBar').style.display === 'none' ? ' ▾' : ' ▴');
+  fb.classList.toggle('on', nF > 0);
   document.getElementById('chCount').textContent = '(' + (rows.length === chRows.length ? rows.length : rows.length + ' of ' + chRows.length) + (chTruncated ? '+' : '') + ')';
   document.getElementById('chBody').innerHTML = rows.length ? rows.map(function(c){
     const file = !c.url ? '<span style="color:var(--muted)">—</span>' : c.isPdf

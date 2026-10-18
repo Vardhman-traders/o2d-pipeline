@@ -7,7 +7,7 @@ The rules live in the data, not in code:
     'PENDING' typed into the code);
   - the old Cashier / Account / Admin logins are simply the pages a person holds (Setup > Access).
 """
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2 import errors as pgerr
@@ -375,6 +375,82 @@ def update_transaction(txn_no: str, body: TxnIn, user=Depends(ANY)):
     except pgerr.ForeignKeyViolation as e:
         return {"success": False, "message": mc.date_fk_error(e).detail}
     return {"success": True, "txnId": txn_no, "isBackdated": c["date"] < today}
+
+
+def _admin_only(user) -> None:
+    if _user_gate(user) != "Admin":
+        raise HTTPException(403, "Only an admin can do this.")
+
+
+@router.get("/transactions/{txn_no}/order-change")
+def order_change(txn_no: str, user=Depends(ANY)):
+    """Admin: what happened to the O2D order behind a merged entry (the entry carries a warning when it changed after the merge): the money
+    that was merged against the order now, and every change made to the order since the merge."""
+    from . import timeline
+    _admin_only(user)
+    with db.cursor() as cur:
+        cur.execute(SELECT + " WHERE t.txn_no = %s", (txn_no,))
+        t = cur.fetchone()
+        if not t:
+            raise HTTPException(404, "Entry not found - it may have been removed.")
+        cur.execute("SELECT order_key, kind, merged_at, merged_kind, merged_cash, merged_bank, cash_amount, bank_amount, edited_after_merge "
+                    "FROM payment_push WHERE cash_txn_key = %s OR bank_txn_key = %s", (t["txn_key"], t["txn_key"]))
+        push = cur.fetchone()
+        entry = {"txnId": t["txn_no"], "date": t["txn_date"].isoformat(), "type": t["type_name"], "company": t["company_name"],
+                 "party": t["party_name"] or "", "mode": t["mode_name"], "amount": float(t["amount"]), "invoice": t["invoice_no"] or "",
+                 "status": t["status"], "warning": t["order_warning"] or ""}
+        if not push:
+            return {"ok": True, "entry": entry, "order": None, "events": [], "merged": None}
+        cur.execute("SELECT * FROM v_orders_archive WHERE order_key = %s", (push["order_key"],))
+        o = cur.fetchone()
+        if not o:
+            return {"ok": True, "entry": entry, "order": None, "events": [], "merged": None}
+        tl = timeline.timeline_for(cur, push["order_key"], o)
+    since = push["merged_at"]
+    events = []
+    for e in tl["events"]:
+        if e["type"] in ("whatsapp", "created") or e.get("reconstructed") or not e["at"]:
+            continue
+        if since is None or datetime.fromisoformat(e["at"]) >= since:
+            events.append(e)
+    return {"ok": True, "entry": entry, "events": events,
+            "order": {"slNo": o["sl_no"], "dcNo": o["dc_inv_no"] or "", "address": o["shipping_location"] or "", "stage": o["stage"],
+                      "deliveryStatus": o["delivery_status"] or "", "paymentStatus": o["payment_status"] or "",
+                      "amount": float(o["amount_received"]) if o["amount_received"] is not None else None,
+                      "cancelled": bool(o["is_cancelled"])},
+            "merged": {"at": timeline._iso(since), "kind": push["merged_kind"] or push["kind"],
+                       "cash": float(push["merged_cash"]) if push["merged_cash"] is not None else None,
+                       "bank": float(push["merged_bank"]) if push["merged_bank"] is not None else None}}
+
+
+@router.post("/transactions/{txn_no}/clear-warning")
+def clear_warning(txn_no: str, user=Depends(ANY)):
+    """Admin: the change behind the warning has been looked at - remove the warning sign."""
+    _admin_only(user)
+    with db.cursor() as cur:
+        cur.execute("UPDATE fact_payment_txn SET order_warning = NULL WHERE txn_no = %s RETURNING txn_key", (txn_no,))
+        if not cur.fetchone():
+            raise HTTPException(404, "Entry not found - it may have been removed.")
+        cur.execute("UPDATE payment_push SET edited_after_merge = false WHERE cash_txn_key = (SELECT txn_key FROM fact_payment_txn WHERE txn_no = %s) "
+                    "OR bank_txn_key = (SELECT txn_key FROM fact_payment_txn WHERE txn_no = %s)", (txn_no, txn_no))
+    return {"ok": True, "success": True}
+
+
+@router.delete("/transactions/{txn_no}")
+def delete_transaction(txn_no: str, user=Depends(ANY)):
+    """Admin: remove an entry for good (an entry merged from O2D comes back on the Sales / Sales Return tab as "already merged", so it can be
+    merged again). Recorded in the admin audit log."""
+    from .admin import audit
+    _admin_only(user)
+    with db.cursor() as cur:
+        cur.execute(SELECT + " WHERE t.txn_no = %s FOR UPDATE OF t", (txn_no,))
+        t = cur.fetchone()
+        if not t:
+            raise HTTPException(404, "Entry not found - it may have been removed.")
+        cur.execute("DELETE FROM fact_payment_txn WHERE txn_key = %s", (t["txn_key"],))
+        audit(cur, user, "payment.delete", txn_no, {"type": t["type_name"], "amount": float(t["amount"]), "party": t["party_name"],
+                                                    "company": t["company_name"], "status": t["status"], "date": t["txn_date"].isoformat()})
+    return {"ok": True, "success": True}
 
 
 class DecisionIn(BaseModel):
