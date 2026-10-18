@@ -160,11 +160,15 @@ def assign(body: AssignIn, user=Depends(ANY)):
     if not body.staffId or not desc or not body.dueDate:
         return "All fields including deadline are required!"
     due = mc.parse_date(body.dueDate, "Deadline")
+    if due < mc.today_ist():
+        return "The deadline cannot be in the past."
     try:
         with db.cursor() as cur:
             person = _staff_by_username(cur, body.staffId)
             if not person:
                 return "Staff not found!"
+            if person["user_key"] not in {s["user_key"] for s in assignable_staff()}:   # the people the screen offers: staff, not managers / admins
+                return "That person cannot be given tasks - tasks go to staff who use Delegation (not to managers)."
             cur.execute("INSERT INTO fact_task (staff_user_key, assigned_by_user_key, description, assigned_date_key, due_date_key) "
                         "VALUES (%s, %s, %s, %s, %s)", (person["user_key"], user["user_key"], desc, mc.date_key(mc.today_ist()), mc.date_key(due)))
     except pgerr.ForeignKeyViolation as e:
@@ -238,8 +242,9 @@ def review(task_no: str, body: ReviewIn, user=Depends(ANY)):
             cur.execute("UPDATE fact_task SET revision_count = revision_count + 1, status = 'Pending', score = NULL, remark = %s, "
                         "updated_at = now() WHERE task_key = %s", (body.remark.strip() or "Sent back for revision", r["task_key"]))
             return f"Sent back for revision — {s['revise']} points applied."
-        cur.execute("UPDATE fact_task SET status = %s, remark = %s, updated_at = now() WHERE task_key = %s",
-                    (body.status, body.remark.strip(), r["task_key"]))
+        # Approved keeps the points earned at submission; Rejected earns nothing (no score, so it is not counted on the scoreboard)
+        cur.execute("UPDATE fact_task SET status = %s, remark = %s, score = CASE WHEN %s = 'Rejected' THEN NULL ELSE score END, "
+                    "updated_at = now() WHERE task_key = %s", (body.status, body.remark.strip(), body.status, r["task_key"]))
     return f"Task {body.status} successfully!"
 
 
@@ -256,6 +261,8 @@ def extend(task_no: str, body: ExtendIn, user=Depends(ANY)):
     if not body.newDueDate:
         return "Task and new deadline are required!"
     new_due = mc.parse_date(body.newDueDate, "New deadline")
+    if new_due < mc.today_ist():
+        return "The new deadline cannot be in the past."
     s = _settings()
     try:
         with db.cursor() as cur:
@@ -265,12 +272,21 @@ def extend(task_no: str, body: ExtendIn, user=Depends(ANY)):
                 return "Task Not Found"
             if r["status"] != "Pending":
                 return "Only a still-pending task can have its deadline revised."
-            remark = body.remark.strip() or f"Missed deadline ({r['due_date'].isoformat()}) — revised to {new_due.isoformat()}, {s['extend']} pts"
-            cur.execute("UPDATE fact_task SET due_date_key = %s, extension_count = extension_count + 1, remark = %s, updated_at = now() "
-                        "WHERE task_key = %s", (mc.date_key(new_due), remark, r["task_key"]))
+            if r["due_date"] < mc.today_ist():       # the deadline was missed: the extension costs the penalty
+                remark = body.remark.strip() or f"Missed deadline ({r['due_date'].isoformat()}) — revised to {new_due.isoformat()}, {s['extend']} pts"
+                cur.execute("UPDATE fact_task SET due_date_key = %s, extension_count = extension_count + 1, remark = %s, updated_at = now() "
+                            "WHERE task_key = %s", (mc.date_key(new_due), remark, r["task_key"]))
+                penalty = True
+            else:                                    # moved before it was missed: nobody is penalised for that
+                remark = body.remark.strip() or f"Deadline moved from {r['due_date'].isoformat()} to {new_due.isoformat()}"
+                cur.execute("UPDATE fact_task SET due_date_key = %s, remark = %s, updated_at = now() WHERE task_key = %s",
+                            (mc.date_key(new_due), remark, r["task_key"]))
+                penalty = False
     except pgerr.ForeignKeyViolation as e:
         raise mc.date_fk_error(e)
-    return f"Deadline revised to {new_due.isoformat()} — {s['extend']} points applied."
+    if penalty:
+        return f"Deadline revised to {new_due.isoformat()} — {s['extend']} points applied."
+    return f"Deadline moved to {new_due.isoformat()} — no penalty, the old deadline had not been missed."
 
 
 # ------------------------------------------------------------------ scores
@@ -374,6 +390,8 @@ class PlanIn(BaseModel):
 
 @router.post("/weekly-plan")
 def save_plan(body: PlanIn, user=Depends(ANY)):
+    if min(body.green, body.yellow, body.red) < 0 or max(body.green, body.yellow, body.red) > 100:
+        return "ERROR: Each share must be between 0% and 100%."
     if round(body.green + body.yellow + body.red) != 100:
         return "ERROR: Green + Yellow + Red must add up to 100%."
     ws = mc.parse_date(body.weekStart, "Week")

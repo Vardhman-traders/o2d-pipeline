@@ -176,7 +176,7 @@ def mine(user=Depends(ANY)):
     lo, hi = today - timedelta(days=LOOK_BACK_DAYS), today + timedelta(days=LOOK_AHEAD_DAYS)
     with db.cursor() as cur:
         _materialize(cur, lo, hi, assignee_key=user["user_key"])
-        cur.execute(ITEM_SQL + " WHERE o.assignee_user_key = %s AND dd.full_date BETWEEN %s AND %s AND c.is_active "
+        cur.execute(ITEM_SQL + " WHERE o.assignee_user_key = %s AND dd.full_date BETWEEN %s AND %s AND (c.is_active OR o.status <> 'Pending') "
                     "ORDER BY dd.full_date, lower(c.title)", (user["user_key"], lo, hi))
         rows = [_item(r, today) for r in cur.fetchall()]
     recent = today - timedelta(days=14)
@@ -218,6 +218,8 @@ def mark(occurrence_key: int, body: MarkIn, user=Depends(ANY)):
         if body.status == "Pending":
             if not manager:
                 raise HTTPException(403, "Only a manager can re-open a finished item.")
+        elif o["status"] != "Pending" and not manager:
+            raise HTTPException(403, "This item is already marked. Ask a manager to re-open it if it needs to change.")
         if body.status == "Not Done":
             if o["due_date"] > today:
                 raise HTTPException(422, "It is not due yet - mark it Done, or wait until the due date.")
@@ -253,7 +255,7 @@ def calendar_month(year: int = Query(default=0), month: int = Query(default=0), 
             who_key = row["user_key"]
         scope = who_key if (not wide or assignee) else None
         _materialize(cur, max(first, today - timedelta(days=LOOK_BACK_DAYS)), last, assignee_key=scope)
-        cur.execute(ITEM_SQL + " WHERE dd.full_date BETWEEN %s AND %s AND c.is_active AND (%s::int IS NULL OR o.assignee_user_key = %s) "
+        cur.execute(ITEM_SQL + " WHERE dd.full_date BETWEEN %s AND %s AND (c.is_active OR o.status <> 'Pending') AND (%s::int IS NULL OR o.assignee_user_key = %s) "
                     "AND (%s = '' OR lower(cat.category_name) = lower(%s)) ORDER BY dd.full_date, lower(c.title) LIMIT %s",
                     (first, last, scope, scope, category, category, MAX_CALENDAR_ITEMS))
         items = [_item(r, today) for r in cur.fetchall()]
@@ -405,7 +407,7 @@ def update(checklist_key: int, body: ChecklistIn, user=Depends(ANY)):
     today = mc.today_ist()
     try:
         with db.cursor() as cur:
-            cur.execute("SELECT sd.full_date AS start_date FROM dim_checklist c JOIN dim_date sd ON sd.date_key = c.start_date_key "
+            cur.execute("SELECT sd.full_date AS start_date, c.assignee_user_key FROM dim_checklist c JOIN dim_date sd ON sd.date_key = c.start_date_key "
                         "WHERE c.checklist_key = %s FOR UPDATE OF c", (checklist_key,))
             old = cur.fetchone()
             if not old:
@@ -416,6 +418,10 @@ def update(checklist_key: int, body: ChecklistIn, user=Depends(ANY)):
                            WHERE checklist_key = %s""",
                         (v["title"], v["description"], v["category_key"], v["assignee"]["user_key"], v["frequency"], v["due_dow"], v["due_day"],
                          v["due_month"], mc.date_key(v["start"]), mc.date_key(v["end"]), checklist_key))
+            if old["assignee_user_key"] != v["assignee"]["user_key"]:
+                # a new person takes over: what is still open (overdue included) is theirs now; what was already marked stays with who marked it
+                cur.execute("UPDATE fact_checklist_occurrence SET assignee_user_key = %s WHERE checklist_key = %s AND status = 'Pending'",
+                            (v["assignee"]["user_key"], checklist_key))
             _drop_future_untouched(cur, checklist_key, today)   # the schedule or person may have changed: future rows are rebuilt
             audit(cur, user, "checklist.update", v["title"], {"assignee": v["assignee"]["id"], "frequency": v["frequency"]})
     except HTTPException:

@@ -157,8 +157,12 @@ def test_task_lifecycle_scoring_and_week(client, db_conn, days, seed):
 def test_missed_deadline_extension_costs_points_and_counts_red(client, db_conn, days, seed):
     mgr, _ = user(client, db_conn, "manager")
     staff, sname = user(client, db_conn, "staff")
-    yesterday = (days - timedelta(days=1)).isoformat()
-    client.post("/delegation/tasks", json={"staffId": sname, "desc": "Late job", "dueDate": yesterday}, headers=mgr)
+    # a deadline cannot be given in the past any more, so a task that has missed its deadline is one whose deadline went by
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO fact_task (staff_user_key, assigned_by_user_key, description, assigned_date_key, due_date_key) "
+                    "SELECT user_key, user_key, 'Late job', %s, %s FROM dim_user WHERE username = %s",
+                    (modcommon.date_key(days - timedelta(days=3)), modcommon.date_key(days - timedelta(days=1)), sname))
+    db_conn.commit()
     task = next(t for t in client.get("/delegation/tasks", headers=staff).json() if t["taskDesc"] == "Late job")
     assert task["deadlineState"] == "overdue"
     assert "-5 points" in client.post(f"/delegation/tasks/{task['taskId']}/extend", json={"newDueDate": (days + timedelta(days=2)).isoformat()}, headers=mgr).json()
