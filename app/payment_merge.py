@@ -222,6 +222,9 @@ def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
                                  "An admin can set it in Setup > Module settings.")
     if out["company_key"] is None:
         raise HTTPException(422, "Please choose a company from the list.")
+    cur.execute("SELECT is_sales_company FROM dim_company WHERE company_key = %s", (out["company_key"],))
+    if not cur.fetchone()["is_sales_company"]:
+        raise HTTPException(422, "Sales and Sales Return can only be merged for a sales company (VT or Asian).")
     if None in (out["cash_mode"], out["bank_mode"]):
         raise HTTPException(422, "The Cash / Bank payment modes are not set up. "
                                  "An admin can set them in Setup > Module settings.")

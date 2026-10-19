@@ -605,7 +605,7 @@ tr:hover td{background:#F5F6FF}
 //  ✅ v6.1: GP % now divided by RECEIVED (not Contract)
 // ═══════════════════════════════════════════════════════
 
-var ROLE             = '';
+var ROLE             = '', IS_ADMIN = false;
 var ALL_CLIENTS      = { active: [], completed: [], hidden: [] };
 var CUR_CLIENT_ID    = null;
 var BL_LOADED        = false;
@@ -622,12 +622,12 @@ var STAFF_COLORS = ['#1565C0','#6A1B9A','#2E7D32','#C62828','#E65100','#00838F',
 function portalStart(){
   gas('getConfig',{}).then(function(cfg){
     if(!cfg||!cfg.ok){document.body.innerHTML='<div style="padding:40px;font-family:sans-serif;text-align:center">'+esc((cfg&&cfg.msg)||'Could not open VT Decor')+'<br><br><a href="/">Back to home</a></div>';return;}
-    CFG=cfg;ROLE=cfg.role;
+    CFG=cfg;ROLE=cfg.role;IS_ADMIN=!!cfg.admin;
     STAFF_LIST=cfg.staff.map(function(s,i){return {id:s.id,name:s.name,color:s.id==='owner'?'#E65100':STAFF_COLORS[i%STAFF_COLORS.length],initial:(s.name||'?').charAt(0).toUpperCase()};});
     fillLists();
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('app').style.display='flex';
-    document.getElementById('roleLabel').textContent=ROLE==='owner'?'Owner':(cfg.name||ROLE);
+    document.getElementById('roleLabel').textContent=IS_ADMIN?'Owner':(cfg.name||ROLE);
     buildTabs();loadAll();
   }).catch(function(e){toast('Error: '+(e&&e.message||e));});
 }
@@ -809,10 +809,10 @@ function buildTabs(){
     {id:'completed', label:'Completed', show:true},
     {id:'quotations',label:'Quotations',show:true},
     {id:'photos',    label:'Site Photos',show:true},
-    {id:'staff',     label:'Staff',      show:isOwner},
+    {id:'staff',     label:'Staff',      show:IS_ADMIN},
     {id:'gp',        label:'GP & Profit',show:isOwner},
-    {id:'ledger',    label:'Ledger',     show:isOwner},
-    {id:'settings',  label:'Settings',   show:isOwner}
+    {id:'ledger',    label:'Ledger',     show:IS_ADMIN},
+    {id:'settings',  label:'Settings',   show:IS_ADMIN}
   ];
   document.getElementById('tabBar').innerHTML=tabs.filter(function(t){return t.show;}).map(function(t,i){
     return '<div class="tab'+(i===0?' active':'')+'" data-tab="'+t.id+'" onclick="switchTab(\''+t.id+'\')">'+t.label+'</div>';

@@ -188,6 +188,29 @@
       cursor: pointer;
     }
     .logout-btn:disabled, .report-btn:disabled { opacity: .6; cursor: default; }
+    /* the "Home" button api.js inserts copies the log-out button's class: widen it so the word fits */
+    .topbar-right .logout-btn:not(#logoutBtn) { width: auto; padding: 0 12px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+    .add-btn {
+      flex-shrink: 0;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 0 16px;
+      height: 46px;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .add-btn:hover { filter: brightness(1.08); }
+    @media (max-width: 520px) {
+      .search-bar-inner { flex-wrap: wrap; }
+      .search-bar input { flex: 1 1 100%; }
+      .filter-btn { flex: 1; }
+      .add-btn { flex: 2; }
+    }
     #refreshBtn { display: inline-flex; align-items: center; justify-content: center; }
     #refreshBtn.spinning { animation: spin .7s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -612,6 +635,7 @@
         <span class="search-icon">⌕</span>
         <input type="text" id="searchInput" placeholder="Search vendor, invoice #, remarks…">
         <button class="filter-btn" id="filterOpenBtn">Filters<span class="filter-dot" id="filterDot"></span></button>
+        <button class="add-btn" id="fabAdd">+ New Purchase Entry</button>
       </div>
     </div>
 
@@ -641,7 +665,6 @@
       <div class="loading-block">Loading entries…</div>
     </div>
 
-    <button class="fab" id="fabAdd">+</button>
   </div>
 
 </div>
@@ -995,7 +1018,7 @@
     container.innerHTML = '';
 
     if (entries.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No entries yet</h3><p>Tap the + button to add your first record</p></div>';
+      container.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No entries yet</h3><p>Tap New Purchase Entry to add your first record</p></div>';
       return;
     }
     if (filtered.length === 0) {

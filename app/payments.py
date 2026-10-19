@@ -22,7 +22,8 @@ ANY = auth.require_roles(*roles.ALL_ROLES)
 SELECT = """
 SELECT t.txn_key, t.txn_no, d.full_date AS txn_date, tt.type_name, tt.direction, c.company_name, p.party_name,
        m.mode_name, t.amount, t.account_name, t.invoice_no, t.remarks, t.status, t.is_backdated, t.order_warning,
-       cu.username AS created_by, t.created_at, au.username AS approved_by, t.approved_at
+       cu.username AS created_by, t.created_at, au.username AS approved_by, t.approved_at,
+       EXISTS (SELECT 1 FROM payment_push pp WHERE pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key) AS from_o2d
 FROM fact_payment_txn t
 JOIN dim_date d ON d.date_key = t.txn_date_key
 JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
@@ -79,7 +80,7 @@ def _row(r: dict, today: date) -> dict:
             "CreatedAt": r["created_at"].isoformat() if r["created_at"] else "", "Status": r["status"],
             "IsBackdated": "Yes" if r["is_backdated"] else "No", "ApprovedBy": r["approved_by"] or "",
             "ApprovedAt": r["approved_at"].isoformat() if r["approved_at"] else "", "IsToday": r["txn_date"] == today,
-            "Warning": r.get("order_warning") or ""}
+            "Warning": r.get("order_warning") or "", "Source": "O2D" if r.get("from_o2d") else "Direct"}
 
 
 # ------------------------------------------------------------------ lists the screen fills its dropdowns from
