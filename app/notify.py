@@ -1,14 +1,9 @@
-"""Notifications for Delegation and Checklist: when a task / checklist is given to someone, or a task is completed or a checklist item is
-marked, the people the alert is set to reach hear about it twice - on their own WhatsApp number and on the web (the bell on the Delegation
-screen).
+"""Notifications for Delegation and Checklist: when a task / checklist is given, a task is completed or a checklist item is marked, the
+message goes to the WhatsApp GROUP set for that alert (Setup > WhatsApp - one group for Delegation, one for Checklist) and shows on the
+web bell of the person it concerns and of every admin.
 
-Who hears is decided per alert under Setup > WhatsApp (whatsapp.ALERTS, the four personal alerts): the person it concerns, the EA (an
-employee chosen there) and the admin (every admin's web screen, plus any admin WhatsApp numbers listed there). A WhatsApp number is the
-`phone_number` on the attendance employee (Setup > Dropdown values > Attendance employees); a member and an employee are the same person
-(dim_att_employee.user_key). The message goes through the same provider call, login and answer check as every other WhatsApp message
-(whatsapp.send_personal / reply_ok).
-
-A notification never makes the action it follows fail: it is sent after the work is saved, in the background, and every attempt - sent, or
+The WhatsApp message uses the same provider call, login and answer check as every other alert (whatsapp.send_alert / reply_ok). A
+notification never makes the action it follows fail: it is sent after the work is saved, in the background, and every attempt - sent, or
 why not - is written to notify_log.
 """
 import logging
@@ -36,40 +31,18 @@ def _log(alert_key: str, channel: str, recipient: str, ok: bool, detail: str = "
         log.exception("could not write the notification log")
 
 
-def _employee_by_user(cur, user_key: int) -> dict | None:
-    cur.execute("SELECT employee_name, phone_number, user_key FROM dim_att_employee WHERE user_key = %s", (user_key,))
-    return cur.fetchone()
-
-
-def recipients(settings: dict, assignee_user_key: int | None, actor_user_key: int | None = None) -> list[dict]:
-    """[{label, user_key, phone}] - one entry per person, whatever roles they hold (a person who is both the EA and the assignee hears once).
-    Whoever did the thing (gave the task, marked the item) is not told about their own action."""
-    out: dict = {}
-
-    def add(label: str, user_key, phone):
-        key = ("u", user_key) if user_key else ("p", phone)
-        cur = out.setdefault(key, {"label": label, "user_key": user_key, "phone": None})
-        cur["phone"] = cur["phone"] or whatsapp.normalize_phone(phone)
-
+def bell_recipients(assignee_user_key: int | None, actor_user_key: int | None = None) -> list[dict]:
+    """Who sees the web notification: the person it concerns and every admin (whoever did the thing is not told about their own action)."""
+    out: dict[int, str] = {}
     with db.cursor() as cur:
-        if settings["to_assignee"] and assignee_user_key:
+        if assignee_user_key:
             cur.execute("SELECT display_name FROM dim_user WHERE user_key = %s", (assignee_user_key,))
             u = cur.fetchone()
-            e = _employee_by_user(cur, assignee_user_key)
-            add(u["display_name"] if u else "assignee", assignee_user_key, e["phone_number"] if e else None)
-        if settings["to_ea"] and settings["ea_employee_key"]:
-            cur.execute("SELECT employee_name, phone_number, user_key FROM dim_att_employee WHERE employee_key = %s AND is_active",
-                        (settings["ea_employee_key"],))
-            e = cur.fetchone()
-            if e:
-                add("EA " + e["employee_name"], e["user_key"], e["phone_number"])
-        if settings["to_admin"]:
-            cur.execute("SELECT user_key, display_name FROM dim_user WHERE role = 'admin' AND password_hash <> %s", (auth.DISABLED_HASH,))
-            for u in cur.fetchall():
-                add("admin " + u["display_name"], u["user_key"], None)
-            for n in whatsapp.split_numbers(settings["admin_numbers"]) or []:
-                add("admin " + n, None, n)
-    return [r for r in out.values() if not (actor_user_key and r["user_key"] == actor_user_key)]
+            out[assignee_user_key] = u["display_name"] if u else "assignee"
+        cur.execute("SELECT user_key, display_name FROM dim_user WHERE role = 'admin' AND password_hash <> %s", (auth.DISABLED_HASH,))
+        for u in cur.fetchall():
+            out.setdefault(u["user_key"], "admin " + u["display_name"])
+    return [{"user_key": k, "label": v} for k, v in out.items() if k != actor_user_key]
 
 
 def _deliver(key: str, values: dict, assignee_user_key: int | None, actor_user_key: int | None) -> None:
@@ -80,38 +53,28 @@ def _deliver(key: str, values: dict, assignee_user_key: int | None, actor_user_k
     text = whatsapp.render(settings["template"], values)
     title = whatsapp.render(spec["app_title"], values)[:200]
     module = MODULE_OF[key.split("_", 1)[0]]
-    sent_to: set = set()
-    for r in recipients(settings, assignee_user_key, actor_user_key):
-        if r["user_key"]:
-            try:
-                with db.cursor() as cur:
-                    cur.execute("INSERT INTO app_notification (user_key, module, title, body) VALUES (%s, %s, %s, %s)",
-                                (r["user_key"], module, title, text))
-                _log(key, "app", r["label"], True)
-            except Exception as exc:
-                log.exception("in-app notification failed")
-                _log(key, "app", r["label"], False, f"EXCEPTION: {exc}")
-        if not r["phone"]:
-            if r["user_key"] and not str(r["label"]).startswith("admin"):   # an admin has the web screen; anyone else without a number is worth knowing about
-                _log(key, "whatsapp", r["label"], False, "No WhatsApp number on the employee (Setup > Dropdown values > Attendance employees).")
-            continue
-        if r["phone"] in sent_to:
-            continue
-        sent_to.add(r["phone"])
+    for r in bell_recipients(assignee_user_key, actor_user_key):
         try:
-            out = whatsapp.send_personal(key, r["phone"], text, post=whatsapp._http_post, ignore_switch=True)   # looked up now, so tests can swap the sender
+            with db.cursor() as cur:
+                cur.execute("INSERT INTO app_notification (user_key, module, title, body) VALUES (%s, %s, %s, %s)", (r["user_key"], module, title, text))
+            _log(key, "app", r["label"], True)
         except Exception as exc:
-            log.exception("WhatsApp personal message failed")
-            _log(key, "whatsapp", r["label"], False, f"EXCEPTION: {exc}")
-            continue
-        if out.get("skipped"):
-            _log(key, "whatsapp", r["label"], False, out["reason"])
-        else:
-            _log(key, "whatsapp", r["label"], whatsapp.reply_ok(out.get("code"), out.get("body", "")), out.get("body", ""))
+            log.exception("in-app notification failed")
+            _log(key, "app", r["label"], False, f"EXCEPTION: {exc}")
+    try:
+        out = whatsapp.send_text(key, text, post=whatsapp._http_post)       # looked up now, so tests can swap the sender
+    except Exception as exc:
+        log.exception("WhatsApp group message failed")
+        _log(key, "whatsapp", settings["group_id"] or "(no group)", False, f"EXCEPTION: {exc}")
+        return
+    if out.get("skipped"):
+        _log(key, "whatsapp", settings["group_id"] or "(no group)", False, out["reason"])
+    else:
+        _log(key, "whatsapp", settings["group_id"], whatsapp.reply_ok(out.get("code"), out.get("body", "")), out.get("body", ""))
 
 
 def fire(key: str, values: dict, assignee_user_key: int | None = None, actor_user_key: int | None = None) -> None:
-    """Tell the people alert `key` is set to reach. Call it after the work is saved; it never raises."""
+    """Tell the group alert `key` is set for (and the web bells). Call it after the work is saved; it never raises."""
     def work():
         try:
             _deliver(key, values, assignee_user_key, actor_user_key)
@@ -156,7 +119,7 @@ def read_one(notification_key: int, user=Depends(ANY)):
 
 @router.get("/log")
 def delivery_log(limit: int = 100, admin=Depends(ADMIN)):
-    """Admin: what was sent to whom, and why a message did not go out."""
+    """Admin: what was sent, and why a message did not go out."""
     with db.cursor() as cur:
         cur.execute("SELECT at, alert_key, channel, recipient, ok, detail FROM notify_log ORDER BY log_key DESC LIMIT %s", (max(1, min(limit, 500)),))
         return [{"at": r["at"].isoformat(), "alert": r["alert_key"], "channel": r["channel"], "recipient": r["recipient"], "ok": r["ok"],

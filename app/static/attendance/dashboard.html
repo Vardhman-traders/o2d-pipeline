@@ -6,6 +6,7 @@
 <title>Vardhman Traders — Owner Dashboard</title>
 <script>window.VT_MODULE = 'attendance_owner';</script>
 <script src="../modules/api.js"></script>
+<script src="../vendor/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -48,10 +49,23 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 .tab.active{background:#fff;color:#1a237e;box-shadow:0 2px 8px rgba(26,35,126,.08)}
 
 .view{display:none}.view.active{display:block}
+.subtabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.subtab{padding:.65rem 1.1rem;border:2px solid #e2e8f0;background:#fff;border-radius:12px;font-family:inherit;font-size:.85rem;font-weight:800;color:#64748b;cursor:pointer;transition:all .15s}
+.subtab:hover{border-color:#1a237e;color:#1a237e}
+.subtab.active{background:#1a237e;border-color:#1a237e;color:#fff;box-shadow:0 6px 16px rgba(26,35,126,.25)}
+.export-bar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
+.export-bar .lbl{font-size:.72rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+.day.fixable{cursor:pointer}.day.fixable:hover{outline:2px solid #1a237e;outline-offset:-2px}
+.day-fix{position:absolute;top:3px;right:5px;font-size:.62rem;color:#1a237e;font-weight:900}
 
 .card{background:#fff;border-radius:18px;padding:1.4rem;box-shadow:0 6px 22px rgba(26,35,126,.08);margin-bottom:1.1rem}
 .card-title{font-size:1rem;font-weight:800;margin-bottom:.2rem;display:flex;align-items:center;gap:.4rem}
 .card-sub{font-size:.78rem;color:#6b7280;margin-bottom:1rem}
+.card-title.foldable{cursor:pointer;user-select:none}
+.fold-arrow{margin-left:auto;color:#64748b;transition:transform .15s}
+.card.folded .fold-arrow{transform:rotate(-90deg)}
+.card.folded > .card-body{display:none}
+.card.folded > .card-title{margin-bottom:0}
 
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.7rem;margin-bottom:1.1rem}
 .stat{background:#fff;border-radius:14px;padding:1rem 1.1rem;box-shadow:0 4px 16px rgba(26,35,126,.06);border-left:4px solid #1a237e}
@@ -320,6 +334,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
   <!-- MONTHLY REPORT -->
   <div class="view" id="v-report">
+    <div class="subtabs">
+      <button class="subtab active" id="sub-report" onclick="showMonthlySub('report')">📊 Attendance Report</button>
+      <button class="subtab" id="sub-salary" onclick="showMonthlySub('salary')">🧮 Salary Calculator</button>
+    </div>
+
+    <div id="mp-report">
     <div class="card">
       <div class="card-title">📊 Monthly Attendance Report</div>
       <div class="card-sub">Employee search karo aur month choose karo</div>
@@ -331,12 +351,20 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <select class="input" id="monthSel" style="max-width:155px" onchange="reloadReport()"></select>
         <select class="input" id="yearSel"  style="max-width:105px" onchange="reloadReport()"></select>
       </div>
+      <div class="export-bar">
+        <span class="lbl">⬇ Export this month</span>
+        <button class="btn btn-sm btn-ghost" onclick="exportMonthOne()">📥 This employee (Excel)</button>
+        <button class="btn btn-sm" onclick="exportMonthAll()">📥 All employees (Excel)</button>
+      </div>
       <div id="reportContent">
         <div class="empty-state"><span class="emoji">👆</span><div>Employee search karo aur month choose karo</div></div>
       </div>
     </div>
 
-    <!-- SALARY REPORT -->
+    </div>
+
+    <!-- SALARY CALCULATOR (its own sub-page) -->
+    <div id="mp-salary" style="display:none">
     <div class="card">
       <div class="card-title">🧮 Salary Calculator</div>
       <div class="card-sub">Employee select karo — salary auto-load hogi, advance bhi deduct hoga</div>
@@ -349,21 +377,29 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <select class="input" id="salYearSel"  style="max-width:105px"></select>
         <button class="btn" onclick="loadSalaryReport()" style="white-space:nowrap;height:48px">🧮 Calculate</button>
       </div>
+      <div class="export-bar">
+        <span class="lbl">⬇ Export this month</span>
+        <button class="btn btn-sm btn-ghost" onclick="exportSalOne()">📥 This employee (Excel)</button>
+        <button class="btn btn-sm" onclick="exportSalAll()">📥 All employees (Excel)</button>
+      </div>
       <div id="salaryResult">
         <div class="empty-state"><span class="emoji">💰</span><div>Employee select karke Calculate dabao</div></div>
       </div>
     </div>
+    </div>
   </div>
 
-  <!-- SALARY TAB -->
+  <!-- SALARY TAB: Set / Update Salary and Employee PIN are two screens, one at a time; both pick the employee from the same tiles -->
   <div class="view" id="v-salary">
-    <div class="act-bar">
-      <button class="btn" id="btnSalTiles" onclick="toggleSalTiles()">💰 Set / Update Salary</button>
-      <button class="btn btn-amber" id="btnPinSec" onclick="togglePinSection()">🔐 Set Employee PIN</button>
+    <div class="subtabs">
+      <button class="subtab active" id="ssub-salary" onclick="showSalarySub('salary')">💰 Set / Update Salary</button>
+      <button class="subtab" id="ssub-pin" onclick="showSalarySub('pin')">🔐 Set Employee PIN</button>
     </div>
+
+    <div id="sp-salary">
     <div class="card">
       <div class="card-title">💰 Employee Salary</div>
-      <div class="card-sub">Salary yahan chhupi rehti hai. "Set / Update Salary" dabao, phir employee ki tile par click karo — uski salary aur details khulengi aur wahin se set / badal sakte ho.</div>
+      <div class="card-sub">Employee ki tile par click karo — uski salary aur details khulengi aur wahin se set / badal sakte ho.</div>
 
       <div class="rules-box">
         <strong>Salary Rules:</strong> &nbsp;
@@ -391,73 +427,90 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         </div>
       </div>
 
-      <div id="salTilesWrap" style="display:none">
-        <div class="card-title" style="margin:.4rem 0 .6rem">👥 Employee chuno</div>
-        <div class="search-row" style="margin-bottom:.6rem">
-          <div class="search-box">
-            <input id="salListSearch" placeholder="Search by name…" oninput="renderSalaryList()">
-          </div>
-        </div>
-        <div id="salaryListContent">
-          <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
+      <div class="card-title" style="margin:.4rem 0 .6rem">👥 Employee chuno</div>
+      <div class="search-row" style="margin-bottom:.6rem">
+        <div class="search-box">
+          <input id="salListSearch" placeholder="Search by name…" oninput="renderSalaryList()">
         </div>
       </div>
+      <div id="salaryListContent">
+        <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
+      </div>
+    </div>
     </div>
 
-    <!-- PIN MANAGEMENT (opens with "Set Employee PIN") -->
-    <div class="card" id="pinCard" style="display:none">
-      <div class="card-title">🔐 Employee Salary PIN Set Karo</div>
-      <div class="card-sub">Har employee ko ek alag PIN do — woh apni salary sirf PIN daalne ke baad dekh paayega. Bina PIN ke salary nahi dikhegi.</div>
+    <div id="sp-pin" style="display:none">
+    <div class="card">
+      <div class="card-title">🔐 Employee Salary PIN</div>
+      <div class="card-sub">Employee ki tile par click karo aur uska PIN set / change karo. Employee apni salary sirf PIN daalne ke baad dekh paayega — bina PIN ke salary nahi dikhegi.</div>
+
       <div class="sal-set-card mform" id="mf-pin" style="background:#fff7ed;border-color:#fed7aa">
-        <div class="sal-set-title" style="color:#c2410c">➕ PIN Set / Change Karo</div>
-        <div class="sal-set-sub">Employee naam search karo aur 4+ digit PIN daalo. Baad mein change bhi ho sakta hai.</div>
+        <div class="sal-set-title" id="pinFormTitle" style="color:#c2410c">🔐 PIN Set / Change Karo</div>
+        <div class="sal-set-sub" id="pinFormSub">4+ digit ka PIN daalo. Baad mein change bhi ho sakta hai. Employee ko PIN WhatsApp ya verbally batao.</div>
         <div class="sal-set-grid">
           <div>
             <div class="sal-set-label">Employee Name</div>
-            <div style="position:relative">
-              <input class="input" id="pinSetEmp" placeholder="Name type karo…" oninput="filterPinSetSuggestions()" onfocus="filterPinSetSuggestions()">
-              <div id="pinSetSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:200px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
-            </div>
+            <input class="input" id="pinSetEmp" readonly>
           </div>
           <div>
             <div class="sal-set-label">PIN (4+ digits)</div>
-            <input class="input" type="text" inputmode="numeric" id="pinSetValue" placeholder="e.g. 1234" maxlength="8">
+            <input class="input" type="text" inputmode="numeric" id="pinSetValue" placeholder="e.g. 1234" maxlength="8" onkeydown="if(event.key==='Enter')doSetPIN()">
           </div>
           <button class="btn btn-amber" onclick="doSetPIN()" style="height:48px;white-space:nowrap;margin-top:auto">🔐 Save PIN</button>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
-        <div>
-          <div class="card-title" style="margin-bottom:.2rem;font-size:.9rem">📋 Sabhi Employee PINs</div>
-          <div class="card-sub" style="margin-bottom:.6rem">Employee ko unka PIN WhatsApp ya verbally batao</div>
+
+      <div class="card-title" style="margin:.4rem 0 .6rem">👥 Employee chuno</div>
+      <div class="search-row" style="margin-bottom:.6rem">
+        <div class="search-box">
+          <input id="pinListSearch" placeholder="Search by name…" oninput="renderPinTiles()">
         </div>
-        <button class="btn btn-sm btn-amber" onclick="openMform('mf-pin')">➕ Set / Change PIN</button>
       </div>
       <div id="pinListContent">
         <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
       </div>
     </div>
+    </div>
   </div>
 
-  <!-- ADVANCE TAB -->
-  <div class="view" id="v-advance">
-    <div class="act-bar">
-      <button class="btn btn-amber" onclick="openMform('mf-adv')">💸 Add Advance</button>
+  <!-- CORRECT A WRONGLY PUNCHED DAY (admin only) -->
+  <div class="sal-set-card mform" id="mf-fix" style="background:#fff7ed;border-color:#fed7aa">
+    <div class="sal-set-title" id="fixTitle" style="color:#c2410c">✏️ Attendance correct karo</div>
+    <div class="sal-set-sub" id="fixSub"></div>
+    <div class="sal-set-grid" style="grid-template-columns:1fr 1fr">
+      <div><div class="sal-set-label">Check-in time</div><input class="input" type="time" id="fixIn"></div>
+      <div><div class="sal-set-label">Check-out time (khali = abhi tak nahi gaya)</div><input class="input" type="time" id="fixOut"></div>
+      <div><div class="sal-set-label">Status</div>
+        <select class="input" id="fixStatus"><option value="">Auto — times se rules ke hisaab se</option><option>Present</option><option>Late</option><option>Half Day</option><option>Absent</option></select></div>
+      <div><div class="sal-set-label">Place</div><select class="input" id="fixSite"><option value="">(jaisa tha waisa)</option></select></div>
     </div>
+    <div style="margin-top:.8rem"><div class="sal-set-label">Reason (zaroori — din ke saath save hota hai)</div>
+      <input class="input" id="fixReason" maxlength="200" placeholder="e.g. Galti se late punch hua"></div>
+    <div style="display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap">
+      <button class="btn" onclick="saveFix()">💾 Save correction</button>
+      <button class="btn btn-danger" id="fixDelete" onclick="deleteFix()">🗑️ Is din ka punch hatao</button>
+    </div>
+  </div>
+
+  <!-- ADVANCE TAB: Advance History and Add Advance are two screens, one at a time -->
+  <div class="view" id="v-advance">
+    <div class="subtabs">
+      <button class="subtab active" id="asub-history" onclick="showAdvanceSub('history')">📋 Advance History</button>
+      <button class="subtab" id="asub-add" onclick="showAdvanceSub('add')">💸 Add Advance</button>
+    </div>
+
+    <div id="ap-add" style="display:none">
     <div class="card">
       <div class="card-title">💸 Advance Payment Daalo</div>
-      <div class="card-sub">Employee ko advance diya ho toh yahan record karo — salary calculate karte waqt automatically deduct ho jaayega</div>
+      <div class="card-sub">Employee ki tile par click karo, phir amount daalo — salary calculate karte waqt automatically deduct ho jaayega</div>
 
       <div class="adv-form-card mform" id="mf-adv">
-        <div class="adv-form-title">➕ Naya Advance Add Karo</div>
+        <div class="adv-form-title" id="advFormTitle">➕ Naya Advance Add Karo</div>
         <div class="adv-form-sub">Ek mahine mein multiple advance entries ho sakti hain. Sab deduct honge.</div>
         <div class="adv-form-grid">
           <div>
             <div class="sal-set-label">Employee</div>
-            <div style="position:relative">
-              <input class="input" id="advEmpName" placeholder="Naam type karo…" oninput="filterAdvEmpSuggestions()" onfocus="filterAdvEmpSuggestions()">
-              <div id="advEmpSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:200px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
-            </div>
+            <input class="input" id="advEmpName" readonly>
           </div>
           <div>
             <div class="sal-set-label">Amount (₹)</div>
@@ -471,6 +524,18 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         </div>
       </div>
 
+      <div class="card-title" style="margin:.4rem 0 .6rem">👥 Employee chuno</div>
+      <div class="search-row" style="margin-bottom:.6rem">
+        <div class="search-box">
+          <input id="advListSearch" placeholder="Search by name…" oninput="renderAdvTiles()">
+        </div>
+      </div>
+      <div id="advTilesContent"></div>
+    </div>
+    </div>
+
+    <div id="ap-history">
+    <div class="card">
       <div class="card-title" style="margin-bottom:.4rem">📋 Advance History</div>
       <div class="card-sub">Sabse recent pehle. Galti se daala ho toh delete kar sakte ho.</div>
 
@@ -484,6 +549,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
       <div id="advanceHistoryContent">
         <div class="empty-state"><span class="emoji">⏳</span><div>Loading…</div></div>
       </div>
+    </div>
     </div>
   </div>
 
@@ -597,6 +663,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
 <script>
 var PWD='', ALL_EMPS=[], ACT_EMPS=[], modalEmpName='', isMaster=false;
+var IS_ADMIN=false;   // only the admin may correct attendance (the server checks it as well)
 var ALL_SALARIES=[], ALL_ADVANCES=[];
 
 /* ─── LOGIN ─── */
@@ -630,6 +697,8 @@ function logout(){ VT.toPortal(); }
 
 function portalStart(){
   PWD='portal'; isMaster=false;
+  IS_ADMIN=!!(window.VT&&window.VT.me&&window.VT.me.role==='admin');
+  if(IS_ADMIN) loadFixPlaces();
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('dashScreen').style.display='block';
   setupReportSelectors(); setupSalarySelectors();
@@ -644,8 +713,8 @@ function showTab(name){
     document.getElementById('t-'+n).className='tab'+(n===name?' active':'');
     document.getElementById('v-'+n).className='view'+(n===name?' active':'');
   });
-  if(name==='salary'){ loadSalaryList(); loadPINList(); }
-  if(name==='advance') loadAdvanceHistory();
+  if(name==='salary'){ loadSalaryList(); loadPINList(); showSalarySub('salary'); }
+  if(name==='advance') showAdvanceSub('history');
 }
 
 /* ─── TODAY ─── */
@@ -720,12 +789,13 @@ function renderTodayTable(){
     var outCell=m.checkedOut?('<span class="pill teal">'+m.checkoutTime+'</span>'):'<span style="color:#94a3b8;font-size:.75rem">Not yet</span>';
     var hoursCell=m.checkedOut?('<strong>'+m.hoursWorked+'</strong>'):'<span style="color:#94a3b8">—</span>';
     var actionCell=m.checkedOut?'<span style="color:#94a3b8;font-size:.75rem">Done</span>':'<button class="btn btn-sm btn-green" onclick="openCheckoutModal(\''+escH(m.name)+'\')">🏁 Checkout</button>';
+    if(IS_ADMIN) actionCell+=' <button class="btn btn-sm btn-ghost" title="Galat punch theek karo" onclick="openFixToday('+r.marked.indexOf(m)+')">✏️ Fix'+(m.corrected?' ✎':'')+'</button>';
     rows+='<tr><td><strong>'+escH(m.name)+'</strong>'+photoLinks(m)+'</td><td>'+m.time+'</td><td>'+outCell+'</td><td>'+hoursCell+'</td><td>'+statusPill(m.finalStatus)+'</td><td>'+si+' '+escH(m.site)+'</td><td>'+actionCell+'</td></tr>';
   }
   var nmLabel=r.isWeeklyOff?'Weekly Off':'Not marked';
   for(var j=0;j<notMarked.length;j++){
     rows+='<tr><td><strong>'+escH(notMarked[j].name)+'</strong><div style="font-size:.7rem;color:#6b7280">'+escH(notMarked[j].role||'')+'</div></td><td colspan="3" style="color:#94a3b8">—</td>'
-      +'<td><span class="pill '+(r.isWeeklyOff?'gray':'red')+'">'+nmLabel+'</span></td><td style="color:#94a3b8">—</td><td style="color:#94a3b8">—</td></tr>';
+      +'<td><span class="pill '+(r.isWeeklyOff?'gray':'red')+'">'+nmLabel+'</span></td><td style="color:#94a3b8">—</td><td>'+(IS_ADMIN?'<button class="btn btn-sm btn-ghost" title="Is din ka punch jodo" onclick="openFixAdd('+j+')">➕ Add punch</button>':'<span style="color:#94a3b8">—</span>')+'</td></tr>';
   }
   tb.innerHTML=rows;
 }
@@ -776,28 +846,43 @@ function loadSalaryList(){
 }
 
 var PINS={};
-function renderSalaryList(){
-  var q=(document.getElementById('salListSearch')?document.getElementById('salListSearch').value:'').toLowerCase().trim();
-  var content=document.getElementById('salaryListContent');
-  if(!content) return;
-  var toShow=[], total=0, pending=0;
+/* the employee tiles shared by the Salary, PIN and Advance screens: badge(emp) -> small status text ('' for none) */
+function empTilesHtml(q, onclickName, badge, summary){
+  var toShow=[];
   for(var i=0;i<ACT_EMPS.length;i++){
-    var sal=salaryOf(ACT_EMPS[i].name);
-    total++; if(!(sal>0)) pending++;
     if(q&&ACT_EMPS[i].name.toLowerCase().indexOf(q)===-1) continue;
-    toShow.push({idx:i,name:ACT_EMPS[i].name,role:ACT_EMPS[i].role,salary:sal});
+    toShow.push({idx:i,name:ACT_EMPS[i].name,role:ACT_EMPS[i].role});
   }
-  if(!toShow.length){ content.innerHTML='<div class="empty-state"><span class="emoji">🔍</span><div>No employees found</div></div>'; return; }
-  var html='<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+(total-pending)+' salary set · '+pending+' pending — tile par click karke dekho</div><div class="sal-tiles">';
-  for(var i=0;i<toShow.length;i++){
-    var e=toShow[i], words=e.name.split(' ');
+  if(!toShow.length) return '<div class="empty-state"><span class="emoji">🔍</span><div>No employees found</div></div>';
+  var html=(summary?'<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+summary+'</div>':'')+'<div class="sal-tiles">';
+  for(var j=0;j<toShow.length;j++){
+    var e=toShow[j], words=e.name.split(' ');
     var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
-    html+='<button type="button" class="sal-tile" onclick="openSalaryDetail('+e.idx+')">'
+    html+='<button type="button" class="sal-tile" onclick="'+onclickName+'('+e.idx+')">'
       +'<div class="sal-emp-avatar">'+initials+'</div>'
       +'<div style="min-width:0"><div class="sal-emp-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escH(e.name)+'</div><div class="sal-emp-role">'+escH(e.role||'')+'</div>'
-      +(e.salary>0?'':'<span class="sal-tile-pend">salary pending</span>')+'</div></button>';
+      +badge(ACT_EMPS[e.idx])+'</div></button>';
   }
-  content.innerHTML=html+'</div>';
+  return html+'</div>';
+}
+function renderSalaryList(){
+  var content=document.getElementById('salaryListContent'); if(!content) return;
+  var q=(document.getElementById('salListSearch').value||'').toLowerCase().trim(), pending=0;
+  for(var i=0;i<ACT_EMPS.length;i++) if(!(salaryOf(ACT_EMPS[i].name)>0)) pending++;
+  content.innerHTML=empTilesHtml(q,'openSalaryDetail',function(e){ return salaryOf(e.name)>0?'':'<span class="sal-tile-pend">salary pending</span>'; },
+    (ACT_EMPS.length-pending)+' salary set · '+pending+' pending — tile par click karke dekho');
+}
+function renderPinTiles(){
+  var content=document.getElementById('pinListContent'); if(!content) return;
+  var q=(document.getElementById('pinListSearch').value||'').toLowerCase().trim(), withPin=0;
+  for(var i=0;i<ACT_EMPS.length;i++) if(PINS[ACT_EMPS[i].name.toLowerCase().trim()]) withPin++;
+  content.innerHTML=empTilesHtml(q,'openPinForm',function(e){ return PINS[e.name.toLowerCase().trim()]?'<span class="sal-tile-pend" style="color:#166534;background:#dcfce7">PIN set ✓</span>':'<span class="sal-tile-pend" style="color:#991b1b;background:#fee2e2">PIN not set</span>'; },
+    withPin+' PIN set · '+(ACT_EMPS.length-withPin)+' pending — tile par click karke PIN set / change karo');
+}
+function renderAdvTiles(){
+  var content=document.getElementById('advTilesContent'); if(!content) return;
+  var q=(document.getElementById('advListSearch').value||'').toLowerCase().trim();
+  content.innerHTML=empTilesHtml(q,'openAdvanceForm',function(){ return ''; },'Tile par click karke us employee ka advance daalo');
 }
 
 function salaryOf(name){
@@ -806,12 +891,29 @@ function salaryOf(name){
   return 0;
 }
 
-/* "Set / Update Salary" shows the employee tiles; a tile opens that employee's salary and details (and is where it is changed) */
-function toggleSalTiles(){
-  var w=document.getElementById('salTilesWrap');
-  var open=w.style.display==='none';
-  w.style.display=open?'block':'none';
-  if(open){ renderSalaryList(); w.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+/* Salary tab: the two screens, one at a time */
+function showSalarySub(w){
+  document.getElementById('sp-salary').style.display=(w==='salary')?'block':'none';
+  document.getElementById('sp-pin').style.display=(w==='pin')?'block':'none';
+  document.getElementById('ssub-salary').className='subtab'+(w==='salary'?' active':'');
+  document.getElementById('ssub-pin').className='subtab'+(w==='pin'?' active':'');
+  if(w==='pin') renderPinTiles(); else renderSalaryList();
+}
+/* Advance tab: history, or the employee tiles to add one */
+function showAdvanceSub(w){
+  document.getElementById('ap-history').style.display=(w==='history')?'block':'none';
+  document.getElementById('ap-add').style.display=(w==='add')?'block':'none';
+  document.getElementById('asub-history').className='subtab'+(w==='history'?' active':'');
+  document.getElementById('asub-add').className='subtab'+(w==='add'?' active':'');
+  if(w==='add') renderAdvTiles(); else loadAdvanceHistory();
+}
+function openAdvanceForm(idx){
+  var e=ACT_EMPS[idx]; if(!e) return;
+  document.getElementById('advFormTitle').textContent='💸 Advance — '+e.name;
+  document.getElementById('advEmpName').value=e.name;
+  document.getElementById('advAmount').value=''; document.getElementById('advNote').value='';
+  openMform('mf-adv');
+  setTimeout(function(){ document.getElementById('advAmount').focus(); },80);
 }
 function openSalaryDetail(idx){
   var e=ACT_EMPS[idx]; if(!e) return;
@@ -829,14 +931,6 @@ function openSalaryDetail(idx){
   document.getElementById('salSetAmount').value=sal||'';
   openMform('mf-salary');
   setTimeout(function(){ document.getElementById('salSetAmount').focus(); },80);
-}
-
-/* "Set Employee PIN" opens the PIN section (the form and the table of who has a PIN) */
-function togglePinSection(){
-  var c=document.getElementById('pinCard');
-  var open=c.style.display==='none';
-  c.style.display=open?'block':'none';
-  if(open){ loadPINList(); c.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 }
 
 function doSetSalary(){
@@ -910,7 +1004,7 @@ function doAddAdvance(){
         document.getElementById('advEmpName').value='';
         document.getElementById('advAmount').value='';
         document.getElementById('advNote').value='';
-        loadAdvanceHistory();
+        loadAdvanceHistory(); showAdvanceSub('history');
       } else { toast('❌ '+(r.msg||'Failed'),'err'); }
     })
     .withFailureHandler(function(){ toast('Connection error','err'); })
@@ -1133,9 +1227,11 @@ function renderReport(r,month,year){
     else if(d.status==='Weekly Off'){cls='gray';label='🛌 Off';}
     else if(d.status==='—'){cls='future';label='—';}
     var hrs=(d.hoursWorked&&d.hoursWorked!=='—')?'<div class="day-hrs">⏱ '+d.hoursWorked+'</div>':'';
-    html+='<div class="day '+cls+'"><div class="day-num">'+d.day+'</div><div class="day-st">'+label+'</div>'+hrs+'</div>';
+    var fix=(IS_ADMIN&&d.status!=='—')?' fixable" title="Click to correct this day" onclick="openFixDay('+i+')':'';
+    html+='<div class="day '+cls+fix+'" style="position:relative"><div class="day-num">'+d.day+'</div><div class="day-st">'+label+'</div>'+hrs+(d.corrected?'<div class="day-fix" title="'+escH('Corrected: '+d.note)+'">✎</div>':'')+'</div>';
   }
   html+='</div>';
+  if(IS_ADMIN) html+='<div style="font-size:.72rem;color:#6b7280;margin-top:.6rem">✏️ Admin: kisi din par click karke galat punch theek karo (✎ = theek kiya gaya din).</div>';
   html+='<div style="margin-top:1.2rem;display:flex;gap:.6rem;justify-content:flex-end;flex-wrap:wrap">'
     +'<button class="btn btn-sm btn-ghost" onclick="downloadCSV()">📥 CSV</button>'
     +'<button class="btn btn-sm btn-purple" onclick="downloadPDF()">📄 PDF</button>'
@@ -1340,49 +1436,177 @@ function dl(text,filename){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
+
+/* ─── MONTHLY: Attendance Report and Salary Calculator are two sub-pages, one at a time ─── */
+function showMonthlySub(w){
+  document.getElementById('mp-report').style.display=(w==='report')?'block':'none';
+  document.getElementById('mp-salary').style.display=(w==='salary')?'block':'none';
+  document.getElementById('sub-report').className='subtab'+(w==='report'?' active':'');
+  document.getElementById('sub-salary').className='subtab'+(w==='salary'?' active':'');
+}
+
+/* ─── EXCEL EXPORTS for the chosen month ─── */
+var MONTHS_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function needXlsx(){ if(typeof XLSX==='undefined'){ toast('Excel tool load nahi hua - page refresh karo','err'); return true; } return false; }
+function saveBook(wb,name){ XLSX.writeFile(wb,name.replace(/[^a-zA-Z0-9_.-]/g,'_')); }
+function dayCode(st){ return {'Present':'P','Late':'L','Half Day':'H','Absent':'A','Incomplete':'I','Weekly Off':'Off','—':'—'}[st]||st; }
+
+function exportMonthOne(){
+  if(needXlsx()) return;
+  var rep=window._lastReport; if(!rep){ toast('Pehle employee chuno aur report dekho','err'); return; }
+  var rows=[['Vardhman Traders - Monthly Attendance Report'],['Employee',rep.emp.name],['Role',rep.emp.role||''],['Month',rep.monthName+' '+rep.year],[],
+            ['Day','Weekday','Date','Status','Check-in','Check-out','Hours','Corrected']];
+  rep.days.forEach(function(d){ rows.push([d.day,d.dayName,d.date,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'',d.corrected?('Yes: '+d.note):'']); });
+  rows.push([],['Summary'],['Present',rep.stats.present],['Late',rep.stats.late],['Half Day',rep.stats.halfDay],['Absent',rep.stats.absent],['Weekly Off',rep.stats.weeklyOff],['Incomplete',rep.stats.incomplete||0],['Paid Days',rep.stats.paidDays]);
+  var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Attendance');
+  saveBook(wb,rep.emp.name+'_Attendance_'+rep.monthName+'_'+rep.year+'.xlsx');
+}
+function exportMonthAll(){
+  if(needXlsx()) return;
+  var month=parseInt(document.getElementById('monthSel').value,10), year=parseInt(document.getElementById('yearSel').value,10);
+  toast('Poori team ka report ban raha hai…');
+  VT.run.withSuccessHandler(function(r){
+    if(r.status==='unauthorized'){logout();return;}
+    if(r.status!=='ok'){ toast('❌ '+(r.msg||'Failed'),'err'); return; }
+    var mName=MONTHS_FULL[month-1], n=r.employees.length?r.employees[0].days.length:0;
+    var summary=[['Employee','Role','Present','Late','Half Day','Absent','Weekly Off','Incomplete','Paid Days']];
+    var grid=[['Employee','Role'].concat(Array.apply(null,Array(n)).map(function(_,i){return i+1;}))];
+    var punches=[['Employee','Date','Weekday','Status','Check-in','Check-out','Hours','Corrected']];
+    r.employees.forEach(function(e){
+      var s=e.stats;
+      summary.push([e.name,e.role,s.present,s.late,s.halfDay,s.absent,s.weeklyOff,s.incomplete||0,s.paidDays]);
+      grid.push([e.name,e.role].concat(e.days.map(function(d){return dayCode(d.status);})));
+      e.days.forEach(function(d){ if(d.status!=='—') punches.push([e.name,d.date,d.dayName,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'',d.corrected?('Yes: '+d.note):'']); });
+    });
+    grid.push([],['P = Present, L = Late, H = Half Day, A = Absent, I = Incomplete, Off = Weekly Off']);
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),'Summary');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(grid),'Day-wise');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(punches),'Punches');
+    saveBook(wb,'Attendance_All_Employees_'+mName+'_'+year+'.xlsx');
+    toast('✅ Excel download ho gaya','ok');
+  }).withFailureHandler(function(){ toast('Connection error','err'); }).getMonthlyAll(PWD,year,month);
+}
+function exportSalOne(){
+  if(needXlsx()) return;
+  var r=window._lastSalary; if(!r){ toast('Pehle salary calculate karo','err'); return; }
+  var mName=MONTHS_FULL[r.month-1], s=r.stats;
+  var rows=[['Vardhman Traders - Salary Slip'],['Employee',r.employeeName],['Month',mName+' '+r.year],[],
+            ['Gross salary',r.monthlySalary],['Per day rate (÷ '+r.baseDays+')',r.perDaySalary],['Deduction days',r.totalDeductionDays],['Deduction amount',r.deductionAmount],
+            ['Advance',r.totalAdvance],['Net payable',r.netSalary],['Paid days',r.totalPaidDays],[],
+            ['Present',s.present],['Late',s.late],['Half Day',s.halfDay],['Absent',s.absent],['Sandwich days',s.sandwich],['Weekly Off',s.weeklyOff],[],
+            ['Day','Status','Check-in','Check-out','Hours']];
+  r.days.forEach(function(d){ rows.push([d.day,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'']); });
+  var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Salary slip');
+  saveBook(wb,r.employeeName+'_Salary_'+mName+'_'+r.year+'.xlsx');
+}
+function exportSalAll(){
+  if(needXlsx()) return;
+  var month=parseInt(document.getElementById('salMonthSel').value,10), year=parseInt(document.getElementById('salYearSel').value,10);
+  toast('Poori team ki salary sheet ban rahi hai…');
+  VT.run.withSuccessHandler(function(r){
+    if(r.status==='unauthorized'){logout();return;}
+    if(r.status!=='ok'){ toast('❌ '+(r.msg||'Failed'),'err'); return; }
+    var mName=MONTHS_FULL[month-1];
+    var rows=[['Employee','Role','Monthly salary','Per day (÷ '+r.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Deduction days','Deduction amount','Advance','Net payable','Paid days']];
+    var net=0,adv=0,ded=0;
+    r.rows.forEach(function(x){
+      if(!x.salarySet){ rows.push([x.name,x.role,'Salary not set']); return; }
+      rows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.deductionDays,x.deductionAmount,x.advance,x.netSalary,x.paidDays]);
+      net+=x.netSalary; adv+=x.advance; ded+=x.deductionAmount;
+    });
+    rows.push([],['Total','','','','','','','','','','',ded,adv,net]);
+    var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Salary '+mName.slice(0,3)+' '+year);
+    saveBook(wb,'Salary_All_Employees_'+mName+'_'+year+'.xlsx');
+    toast('✅ Excel download ho gaya','ok');
+  }).withFailureHandler(function(){ toast('Connection error','err'); }).getSalaryAll(PWD,year,month);
+}
+
+/* ─── ADMIN: correct a wrongly punched day ─── */
+var FIX=null;
+function loadFixPlaces(){
+  VT.run.withSuccessHandler(function(r){
+    var sel=document.getElementById('fixSite'); if(!sel||!r) return;
+    var list=r.places||r.workPlaces||[];
+    sel.innerHTML='<option value="">(jaisa tha waisa)</option>'+list.map(function(p){var n=p.name||p; return '<option value="'+escH(n)+'">'+escH(n)+'</option>';}).join('');
+  }).withFailureHandler(function(){}).getWorkPlaces(PWD);
+}
+function openFix(ctx){
+  if(!IS_ADMIN) return;
+  FIX=ctx;
+  var dmy=ctx.date.split('-').reverse().join('-');
+  document.getElementById('fixTitle').textContent=(ctx.hasRecord?'✏️ Correct: ':'➕ Add punch: ')+ctx.name+' — '+dmy;
+  document.getElementById('fixSub').textContent=ctx.hasRecord
+    ?('Abhi: '+(ctx.status||'—')+(ctx.in?', in '+ctx.in:'')+(ctx.out&&ctx.out!=='—'?', out '+ctx.out:'')+(ctx.corrected?' · pehle theek kiya gaya: '+ctx.note:'')+'. Naye time daalo — status rules ke hisaab se khud nikalega (ya khud chuno).')
+    :'Is din koi punch nahi hai. Sahi check-in / check-out time daalo.';
+  document.getElementById('fixIn').value=ctx.in||'';
+  document.getElementById('fixOut').value=(ctx.out&&ctx.out!=='—')?ctx.out:'';
+  document.getElementById('fixStatus').value='';
+  document.getElementById('fixSite').value='';
+  document.getElementById('fixReason').value='';
+  document.getElementById('fixDelete').style.display=ctx.hasRecord?'':'none';
+  openMform('mf-fix');
+}
+function openFixDay(i){
+  var rep=window._lastReport; if(!rep) return;
+  var d=rep.days[i];
+  openFix({name:rep.emp.name,date:d.date,hasRecord:d.hasRecord,in:d.time,out:d.checkoutTime,status:d.status,site:d.site,corrected:d.corrected,note:d.note});
+}
+function openFixToday(i){
+  var m=TODAY&&TODAY.marked[i]; if(!m) return;
+  openFix({name:m.name,date:TODAY.dateIso,hasRecord:true,in:m.time,out:m.checkoutTime,status:m.finalStatus,site:m.site,corrected:m.corrected,note:''});
+}
+function openFixAdd(j){
+  var e=TODAY&&TODAY.absent[j]; if(!e) return;
+  openFix({name:e.name,date:TODAY.dateIso,hasRecord:false,in:'',out:'',status:'',site:'',corrected:false,note:''});
+}
+function afterFix(){
+  loadToday();
+  if(selectedReportEmp&&FIX&&FIX.name===selectedReportEmp.name) reloadReport();
+}
+function saveFix(){
+  if(!FIX) return;
+  var inT=document.getElementById('fixIn').value, outT=document.getElementById('fixOut').value, reason=document.getElementById('fixReason').value.trim();
+  if(!inT){ toast('Check-in time daalo','err'); return; }
+  if(outT&&outT<inT){ toast('Check-out, check-in se pehle nahi ho sakta','err'); return; }
+  if(!reason){ toast('Reason likhna zaroori hai','err'); return; }
+  VT.run.withSuccessHandler(function(r){
+    if(r.status==='ok'){ toast('✅ '+(r.created?'Punch jud gaya':'Theek ho gaya')+' — '+r.finalStatus,'ok'); afterFix(); }
+    else toast('❌ '+(r.msg||'Failed'),'err');
+  }).withFailureHandler(function(){ toast('Connection error','err'); })
+    .correctAttendance(PWD,{name:FIX.name,date:FIX.date,checkIn:inT,checkOut:outT,status:document.getElementById('fixStatus').value,site:document.getElementById('fixSite').value,reason:reason});
+}
+function deleteFix(){
+  if(!FIX) return;
+  var reason=document.getElementById('fixReason').value.trim();
+  if(!reason){ toast('Reason likhna zaroori hai','err'); return; }
+  if(!confirm('Is din ka punch hata dein? Din bina punch ke gina jayega (Absent / Weekly Off).')) return;
+  VT.run.withSuccessHandler(function(r){
+    if(r.status==='ok'){ toast('🗑️ Punch hata diya','ok'); afterFix(); } else toast('❌ '+(r.msg||'Failed'),'err');
+  }).withFailureHandler(function(){ toast('Connection error','err'); }).deleteAttendance(PWD,{name:FIX.name,date:FIX.date,reason:reason});
+}
+
 /* ─── PIN MANAGEMENT ─── */
 function loadPINList(){
   VT.run
     .withSuccessHandler(function(r){
       if(r.status==='unauthorized'){logout();return;}
       PINS={}; (r.pins||[]).forEach(function(p){ PINS[p.name.toLowerCase().trim()]=p.pin; });
-      renderPINList(r.pins||[], ACT_EMPS);
+      renderPinTiles();
     })
     .withFailureHandler(function(){ })
     .getAllPINs(PWD);
 }
 
-function renderPINList(pins, emps){
-  var content=document.getElementById('pinListContent');
-  if(!content) return;
-  var pinMap={};
-  for(var p=0;p<pins.length;p++) pinMap[pins[p].name.toLowerCase().trim()]=pins[p].pin;
-
-  if(!emps.length){ content.innerHTML='<div class="empty-state"><span class="emoji">👥</span><div>Koi employee nahi</div></div>'; return; }
-
-  var withPin=0, html='';
-  html+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Employee</th><th>Role</th><th>PIN Status</th><th style="text-align:right">Action</th></tr></thead><tbody>';
-  for(var i=0;i<emps.length;i++){
-    var e=emps[i];
-    var pin=pinMap[e.name.toLowerCase().trim()]||'';
-    if(pin) withPin++;
-    var statusCell=pin
-      ?'<span class="pill green">Set ✓</span>'
-      :'<span class="pill red">Not Set</span>';
-    html+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'')+'</td><td>'+statusCell+'</td>'
-      +'<td style="text-align:right"><button class="btn btn-sm btn-ghost" onclick="prefillPIN(\''+escH(e.name)+'\',\''+pin+'\')">'+(pin?'✏️ Change':'➕ Set')+'</button></td></tr>';
-  }
-  html+='</tbody></table></div>';
-  html='<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+withPin+' PIN set · '+(emps.length-withPin)+' pending</div>'+html;
-  content.innerHTML=html;
-}
-
-function prefillPIN(name, pin){
-  openMform('mf-pin');
-  document.getElementById('pinSetEmp').value=name;
+function openPinForm(idx){
+  var e=ACT_EMPS[idx]; if(!e) return;
+  var has=!!PINS[e.name.toLowerCase().trim()];
+  document.getElementById('pinFormTitle').textContent='🔐 PIN — '+e.name;
+  document.getElementById('pinFormSub').textContent=(has?'Is employee ka PIN pehle se set hai — naya PIN daaloge toh purana badal jaayega. ':'Is employee ka PIN abhi set nahi hai. ')+'4+ digit ka PIN daalo, aur employee ko WhatsApp ya verbally batao.';
+  document.getElementById('pinSetEmp').value=e.name;
   document.getElementById('pinSetValue').value='';
-  document.getElementById('pinSetEmp').scrollIntoView({behavior:'smooth',block:'center'});
-  document.getElementById('pinSetValue').focus();
+  openMform('mf-pin');
+  setTimeout(function(){ document.getElementById('pinSetValue').focus(); },80);
 }
 
 function doSetPIN(){
@@ -1405,9 +1629,22 @@ function doSetPIN(){
     .setEmployeePIN(PWD,name,pin);
 }
 
-function filterPinSetSuggestions(){
-  showSug('pinSetEmp','pinSetSuggestions',function(name,role){ document.getElementById('pinSetEmp').value=name; document.getElementById('pinSetSuggestions').style.display='none'; });
-}
+/* ─── COLLAPSIBLE CARDS: click a card's heading to fold / unfold everything under it (Monthly and Streak) ─── */
+(function(){
+  var cards=document.querySelectorAll('#v-report .card, #v-streak .card');
+  for(var i=0;i<cards.length;i++){
+    var c=cards[i], title=c.querySelector(':scope > .card-title'); if(!title) continue;
+    var body=document.createElement('div'); body.className='card-body';
+    while(title.nextSibling) body.appendChild(title.nextSibling);
+    c.appendChild(body);
+    var arrow=document.createElement('span'); arrow.className='fold-arrow'; arrow.textContent='▾';
+    title.appendChild(arrow); title.classList.add('foldable'); title.setAttribute('role','button'); title.setAttribute('tabindex','0');
+    var flip=(function(card,t){ return function(){ var shut=card.classList.toggle('folded'); t.setAttribute('aria-expanded',shut?'false':'true'); }; })(c,title);
+    title.onclick=flip;
+    title.onkeydown=function(ev){ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); this.click(); } };
+    title.setAttribute('aria-expanded','true');
+  }
+})();
 
 /* ─── UTILS ─── */
 function fmt(n){ return Math.round(Number(n)).toLocaleString('en-IN'); }

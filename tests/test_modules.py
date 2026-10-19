@@ -69,15 +69,15 @@ def test_dashboard_totals_follow_the_list_flags(client, db_conn, days, seed):
     assert post(type="Payment Received", mode="Cash", amount=1000)
     assert post(type="Payment Paid", mode="Cash", amount=300)
     assert post(type="Payment Received", mode="Bank", amount=5000, date=other)
-    assert post(type="Cash Deposit", mode="Bank", amount=700)              # moves cash<->bank: not in the bank balance
+    assert post(type="Cash Deposit", mode="Bank", amount=700)              # bank side of a cash deposit
     assert post(type="Sales", company="VT", mode="Cash", amount=200)
     assert post(type="Sale Return", company="VT", mode="Cash", amount=50)
     assert post(type="Sales", company="IRIS", mode="Cash", amount=999)     # not a sales company: no cash sales
     d = client.get("/payments/dashboard", headers=admin).json()
     delta = lambda k: round(d[k] - base[k], 2)  # noqa: E731  (other tests share the database)
-    assert delta("totalReceived") == 6000 and delta("totalPaid") == 300
-    assert delta("cashSales") == 150
-    assert delta("bankBalance") == 5000
+    assert delta("totalReceived") == 1000 and delta("totalPaid") == 300      # cash only: the bank receipt is not in these
+    assert delta("cashSales") == 0 and delta("bankSales") == 0               # the O2D tiles count only entries pushed from O2D
+    assert delta("bankBalance") == 5000 + 700
     assert delta("cashInHand") == 1000 - 300 + 200 - 50 + 999
     # a date range narrows it, and the cashier only ever sees today
     narrowed = client.get(f"/payments/dashboard?date_from={other}&date_to={other}", headers=admin).json()

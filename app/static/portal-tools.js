@@ -1080,62 +1080,54 @@ async function renderWhatsApp(panel) {
   panel.replaceChildren(h('p', { class: 'note', text: 'Loading…' }));
   let data;
   try { data = await api('/admin/whatsapp'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  const fill = (a, t) => t.replace(/\{(\w+)\}/g, (m, k) => (k in a.sample ? String(a.sample[k]) : m));
   const cards = data.alerts.map((a) => {
     const group = h('input', { type: 'text', id: 'wa_group_' + a.key, value: a.group_id, maxlength: '100', placeholder: 'e.g. 1234567890@g.us', 'aria-label': 'WhatsApp group ID', style: 'max-width:340px' });
     const on = h('input', { type: 'checkbox', id: 'wa_on_' + a.key, checked: a.enabled });
-    // alerts that go to people (not a group): who they reach
-    const has = (w) => a.recipients.includes(w);
-    const toAssignee = h('input', { type: 'checkbox', id: 'wa_to_assignee_' + a.key, checked: a.to_assignee });
-    const toEa = h('input', { type: 'checkbox', id: 'wa_to_ea_' + a.key, checked: a.to_ea });
-    const toAdmin = h('input', { type: 'checkbox', id: 'wa_to_admin_' + a.key, checked: a.to_admin });
-    const eaSel = h('select', { id: 'wa_ea_' + a.key, 'aria-label': 'EA', style: 'max-width:340px' },
-      h('option', { value: '', text: '-- nobody --' }),
-      ...(data.employees || []).map((e) => h('option', { value: String(e.key), text: e.name + (e.has_phone ? '' : '  (no WhatsApp number yet)'), selected: a.ea_employee_key === e.key })));
-    const adminNumbers = h('input', { type: 'text', id: 'wa_admin_numbers_' + a.key, value: a.admin_numbers || '', maxlength: '200',
-      placeholder: 'e.g. 919876543210, 919811122233', 'aria-label': 'Admin WhatsApp numbers', style: 'max-width:420px' });
     const text = h('textarea', { id: 'wa_template_' + a.key, rows: '10', maxlength: '2000', 'aria-label': 'Message template', style: 'width:100%;font-family:inherit' });
     text.value = a.template;
+    const preview = h('pre', { id: 'wa_preview_' + a.key, style: 'white-space:pre-wrap;word-break:break-word;background:#e7fbd8;border:1px solid #c8e8b4;border-radius:10px;padding:10px 12px;margin:0;font-family:inherit;font-size:13px;max-width:520px' });
+    const draw = () => { preview.textContent = fill(a, text.value); };
+    text.addEventListener('input', draw); draw();
     const msg = h('span', { class: 'msg', role: 'status' });
     const say = (t, bad) => { msg.className = 'msg' + (bad ? ' error' : ''); msg.textContent = t; };
     const chips = Object.entries(a.placeholders).map(([name, help]) => h('button', { type: 'button', class: 'btn small', title: help, text: '{' + name + '}',
-      onclick: () => { const i = text.selectionStart ?? text.value.length; text.setRangeText('{' + name + '}', i, text.selectionEnd ?? i, 'end'); text.focus(); } }));
+      onclick: () => { const i = text.selectionStart ?? text.value.length; text.setRangeText('{' + name + '}', i, text.selectionEnd ?? i, 'end'); text.focus(); draw(); } }));
     const save = async () => {
       say('Saving…');
-      const body = { group_id: group.value, enabled: on.checked, template: text.value };
-      if (a.personal) Object.assign(body, { group_id: '', to_assignee: toAssignee.checked, to_ea: toEa.checked, to_admin: toAdmin.checked,
-        ea_employee_key: eaSel.value ? Number(eaSel.value) : null, admin_numbers: adminNumbers.value });
-      try { await api('/admin/whatsapp/' + a.key, { method: 'PUT', body }); say('Saved.'); }
+      try { await api('/admin/whatsapp/' + a.key, { method: 'PUT', body: { group_id: group.value, enabled: on.checked, template: text.value } }); say('Saved.'); }
       catch (ex) { say(ex.message, true); }
     };
+    // posts the message below, filled with the sample details, to the group typed above - nothing has to be saved first
     const test = async () => {
-      say('Sending the test message…');
-      try { const r = await api('/admin/whatsapp/' + a.key + '/test', { method: 'POST' }); say(r.message, !r.success); }
+      say('Sending the sample message…');
+      try { const r = await api('/admin/whatsapp/' + a.key + '/test', { method: 'POST', body: { group_id: group.value, template: text.value } }); say(r.message, !r.success); }
       catch (ex) { say(ex.message, true); }
     };
-    // one heading per alert: click it to open its group, switch and wording (a switched-off alert says so on its heading)
+    const where = a.group_from_environment ? 'Empty here: the group from the server settings (WHATSAPP_GROUP_ID) is being used. Fill this in to take over.'
+      : a.group_source === 'fallback' ? 'Empty here: this alert uses the group of “' + a.group_from_label + '”. Fill this in to give it a group of its own.'
+      : a.group_from ? 'Empty = the group of “' + a.group_from_label + '”.' : '';
+    // one heading per alert: click it to open its group, switch and wording (a switched-off alert, or one with no group yet, says so on its heading)
     return collapsible('wa_card_' + a.key, a.label, a.when, h('div', { class: 'collapse-inner' },
-      a.personal ? null : h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' }), group,
-        a.group_from_environment ? h('div', { class: 'hint', text: 'Empty here: the group from the server settings (WHATSAPP_GROUP_ID) is being used. Fill this in to take over.' }) : null),
-      h('div', { class: 'field' }, h('label', {}, on, a.personal ? ' Send this alert (WhatsApp and the bell on the Delegation screen)' : ' Send this alert')),
-      a.personal ? h('div', { class: 'field' },
-        h('label', { text: 'Who is told' }),
-        has('assignee') ? h('div', {}, h('label', {}, toAssignee, ' The person it is for (their own WhatsApp number, from Dropdown values > Attendance employees)')) : null,
-        h('div', {}, h('label', {}, toEa, ' The EA')), h('div', { style: 'margin:4px 0 6px 22px' }, eaSel),
-        h('div', {}, h('label', {}, toAdmin, ' The admin (every admin sees it on the web; add WhatsApp numbers below)')),
-        h('div', { style: 'margin:4px 0 0 22px' }, adminNumbers),
-        h('div', { class: 'hint', text: 'Anyone told also gets a notification on the web (the bell on the Delegation screen). A person without a WhatsApp number on their employee record is told on the web only.' })) : null,
+      h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' + (a.group_label ? ' — ' + a.group_label : '') }), group, where ? h('div', { class: 'hint', text: where }) : null),
+      h('div', { class: 'field' }, h('label', {}, on, ' Send this alert' + (a.web_bell ? ' (to the group; it also shows on the web bell of the person and every admin)' : ''))),
       h('div', { class: 'field' }, h('label', { text: 'Message' }), text,
         h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap;gap:6px;align-items:center' }, h('span', { class: 'note', text: 'Insert:' }), ...chips),
-        h('div', { class: 'hint', text: 'Placeholders in { } are replaced with the order’s details when the message is sent.' })),
+        h('div', { class: 'hint', text: 'Placeholders in { } are replaced with the real details when the message is sent.' })),
+      h('div', { class: 'field' }, h('label', { text: 'How it looks in WhatsApp (sample details)' }), preview),
       h('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' },
         h('button', { class: 'btn primary', text: 'Save', onclick: save }),
-        h('button', { class: 'btn', text: a.personal ? 'Send a test message to the EA / admin numbers' : 'Send a test message', onclick: test }),
-        h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; } }), msg)),
-      { badge: a.enabled ? null : 'Off' });
+        h('button', { class: 'btn', text: 'Send a sample message to the group', onclick: test }),
+        h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; draw(); } }), msg)),
+      { badge: !a.enabled ? 'Off' : (a.group_effective ? null : 'No group yet') });
   });
+  const missing = data.alerts.filter((a) => a.enabled && !a.group_effective);
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to (the Delegation and Checklist alerts go to people instead: choose who below), and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing. Click an alert to open it.' }),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Every alert goes to a WhatsApp group. Type the group ID on its card, press “Send a sample message to the group” to see the message arrive there (the group ID and the wording are used as typed - no need to save first), then Save. Click an alert to open it.' }),
     data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp API key (WHATSAPP_API_KEY) is not set on the server, so nothing can be sent yet.' }),
+    h('div', { class: missing.length ? 'msg error' : 'note', role: 'status', id: 'wa_summary', style: 'margin-bottom:12px',
+      text: missing.length ? missing.length + ' of ' + data.alerts.length + ' alerts have no group yet and send nothing: ' + missing.map((a) => a.label).join(', ') + '.'
+        : 'All ' + data.alerts.length + ' alerts have a group.' }),
     ...cards);
 }
 
