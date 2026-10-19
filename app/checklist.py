@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, auth, db, modcommon as mc, roles
+from . import access, auth, db, modcommon as mc, notify, roles
 from .admin import audit
 
 router = APIRouter(prefix="/checklist", tags=["checklist"])
@@ -231,6 +231,15 @@ def mark(occurrence_key: int, body: MarkIn, user=Depends(ANY)):
         else:
             cur.execute("UPDATE fact_checklist_occurrence SET status = %s, marked_at = now(), marked_by_user_key = %s, remark = %s "
                         "WHERE occurrence_key = %s", (body.status, user["user_key"], remark or None, occurrence_key))
+        info = None
+        if body.status != "Pending":
+            cur.execute("SELECT c.title, u.display_name AS who, u.user_key FROM fact_checklist_occurrence o JOIN dim_checklist c ON c.checklist_key = o.checklist_key "
+                        "JOIN dim_user u ON u.user_key = o.assignee_user_key WHERE o.occurrence_key = %s", (occurrence_key,))
+            info = cur.fetchone()
+    if info:
+        notify.fire("chk_done", {"name": info["who"], "title": info["title"], "due": f"{o['due_date']:%d-%m-%Y}", "status": body.status,
+                                 "remark": remark or "-", "marked_by": user.get("display_name") or user["username"]}, assignee_user_key=info["user_key"],
+                    actor_user_key=user["user_key"])
     return {"ok": True, "status": body.status}
 
 
@@ -382,6 +391,13 @@ def _drop_future_untouched(cur, checklist_key: int, today: date):
                 "AND o.status = 'Pending' AND d.full_date >= %s", (checklist_key, today))
 
 
+def _tell_assigned(v: dict, by_user: dict) -> None:
+    """WhatsApp + the web bell for the person the checklist is for (and the EA / admin when Setup > WhatsApp says so)."""
+    notify.fire("chk_assigned", {"name": v["assignee"]["name"], "title": v["title"], "when": describe(v["frequency"], v["due_dow"], v["due_day"], v["due_month"]),
+                                 "assigned_by": by_user.get("display_name") or by_user["username"]}, assignee_user_key=v["assignee"]["user_key"],
+                                 actor_user_key=by_user["user_key"])
+
+
 @router.post("/checklists", status_code=201)
 def create(body: ChecklistIn, user=Depends(ANY)):
     _need_manager(user)
@@ -398,6 +414,7 @@ def create(body: ChecklistIn, user=Depends(ANY)):
             audit(cur, user, "checklist.create", v["title"], {"assignee": v["assignee"]["id"], "frequency": v["frequency"]})
     except Exception as exc:
         raise mc.date_fk_error(exc)
+    _tell_assigned(v, user)
     return {"key": key}
 
 
@@ -424,10 +441,13 @@ def update(checklist_key: int, body: ChecklistIn, user=Depends(ANY)):
                             (v["assignee"]["user_key"], checklist_key))
             _drop_future_untouched(cur, checklist_key, today)   # the schedule or person may have changed: future rows are rebuilt
             audit(cur, user, "checklist.update", v["title"], {"assignee": v["assignee"]["id"], "frequency": v["frequency"]})
+            handed_over = old["assignee_user_key"] != v["assignee"]["user_key"]
     except HTTPException:
         raise
     except Exception as exc:
         raise mc.date_fk_error(exc)
+    if handed_over:
+        _tell_assigned(v, user)
     return {"ok": True}
 
 
