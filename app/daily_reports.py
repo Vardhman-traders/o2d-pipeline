@@ -1,37 +1,49 @@
-"""Automatic daily delivery reports.
+"""Automatic daily reports, in two batches a day (IST):
 
-Every day at 7:30 PM IST the app builds one PDF per delivery person (the people offered on the Godown Dispatch screen) listing every
-order that person delivered that day, keeps the PDFs in the database (Reports page: download any day's), and posts a one-message
-summary to the WhatsApp group set under Setup > WhatsApp ("Daily delivery summary"). The same run also keeps the Reports card's pending
-reports (Godown / Shop Dispatch / Godown Dispatch pending, Awaiting receiving) and received & payments reports (Godown + Shop bank, Godown cash,
-Shop cash, all other transactions) - see DAILY_REPORT_KINDS.
+  7:30 PM  one PDF per delivery person (the people offered on the Godown Dispatch screen) listing every order that person delivered that
+           day, plus Godown / Shop received & payments (cash), (other mode), Godown + Shop (bank) and (all other transactions);
+  9:00 PM  Awaiting receiving, and the Godown / Shop Dispatch / Godown Dispatch pending-orders reports.
 
-How it runs: a small background thread inside the web service wakes every minute and does the day's work once, after 7:30 PM
-(also if the service was restarted later in the evening). `daily_report_run` plus a database lock make that safe if more than one
-copy of the service is running. Set VT_SCHEDULER=off to switch the thread off (the tests do). An admin can also press
-"Generate now" on the Reports page.
+The PDFs are kept in the database (Reports page: download any day's). After each batch ONE message goes to the Reports group set under
+Setup > WhatsApp ("Daily reports - 7:30 PM" / "9:00 PM"): every report with a download link that works without a login and expires after
+3 days (needs PUBLIC_BASE_URL, or Render's RENDER_EXTERNAL_URL; without it the message lists the reports and points to the portal). The
+7:30 PM batch also posts the one-message delivery summary ("Daily delivery summary").
+
+How it runs: a small background thread inside the web service wakes every minute and does each batch once, after its time (also if the
+service was restarted later in the evening). `daily_report_run` plus a database lock make that safe if more than one copy of the service
+is running. Set VT_SCHEDULER=off to switch the thread off (the tests do). An admin can also press "Generate now" on the Reports page.
 """
+import hashlib
+import hmac
 import logging
 import os
 import threading
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from . import access, db, o2d_reports, whatsapp
+from . import access, auth, db, o2d_reports, whatsapp
 
 log = logging.getLogger("daily_reports")
 IST = ZoneInfo("Asia/Kolkata")
-RUN_AT = time(19, 30)
 LOCK_ID = 7003
 RETRY_AFTER_FAILURE_S = 600
+LINK_DAYS = 3
+MESSAGE_LIMIT = 3300           # WhatsApp takes ~4,000 characters: a long list goes out as several messages
 router = APIRouter(prefix="/o2d/daily-reports", tags=["daily-reports"])
 
-# The reports of the Reports card that are also kept automatically every evening (in this order). The pending ones are a picture of
-# what is open at 7:30 PM; the received & payments ones cover the orders whose receiving was entered that day.
-DAILY_REPORT_KINDS = ("godown-pending", "shop-dispatch-pending", "godown-dispatch-pending", "receiving-pending",
-                      "received-bank", "godown-received-cash", "shop-received-cash", "received-other-all")
+# kinds = every order-based report kept for the batch (the Reports card's); whatsapp = the ones listed in the group message, in order
+BATCHES = {
+    "evening": {"at": time(19, 30), "label": "7:30 PM", "persons": True, "alert": "reports_evening",
+                "kinds": ("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other", "received-bank", "received-other-all"),
+                "whatsapp": ("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other")},
+    "night": {"at": time(21, 0), "label": "9:00 PM", "persons": False, "alert": "reports_night",
+              "kinds": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending"),
+              "whatsapp": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending")},
+}
+RUN_AT = BATCHES["evening"]["at"]
+DAILY_REPORT_KINDS = BATCHES["evening"]["kinds"] + BATCHES["night"]["kinds"]
 # who the automatic reports are built for: sees every (active) order, like an admin
 _SYSTEM_USER = {"role": "admin", "username": "automatic daily report", "display_name": "Automatic daily report"}
 
@@ -67,29 +79,42 @@ def build_pdf(person: str, day: date, rows: list[dict], generated_at: datetime) 
                                  f"Deliveries on {day:%d-%m-%Y}", "#1b7f8c")
 
 
-def generate(day: date, now: datetime | None = None) -> list[dict]:
-    """(Re)build and store the day's report for every delivery person. Returns [{person, orders}]."""
+def generate(day: date, now: datetime | None = None, batches: tuple = ("evening", "night")) -> list[dict]:
+    """(Re)build and store the day's reports of the given batches (all by default). Returns the delivery people's [{person, orders, cartage}]."""
     now = now or datetime.now(IST)
-    out = []
-    for person in people_for(day):
-        rows = rows_for(person, day)
-        if not rows:
-            continue
-        pdf = build_pdf(person, day, rows, now)
-        with db.cursor() as cur:
-            cur.execute("INSERT INTO daily_delivery_report (report_date, person_name, order_count, pdf, generated_at) VALUES (%s, %s, %s, %s, now()) "
-                        "ON CONFLICT (report_date, person_name) DO UPDATE SET order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, "
-                        "generated_at = now()", (day, person, len(rows), pdf))
-        out.append({"person": person, "orders": len(rows), "cartage": sum(float(r.get("cartage") or 0) for r in rows)})
-    generate_reports(day, now)
-    return out
+    persons: list[dict] = []
+    for b in batches:
+        got, _ = generate_batch(day, now, b)
+        persons += got
+    return persons
 
 
-def generate_reports(day: date, now: datetime) -> int:
-    """(Re)build and store the day's pending / received reports (DAILY_REPORT_KINDS). One failing report is logged and skipped so the
-    others (and the delivery-person reports) are still kept. Returns how many were stored."""
-    stored = 0
-    for kind in DAILY_REPORT_KINDS:
+def generate_batch(day: date, now: datetime, batch: str) -> tuple[list[dict], list[dict]]:
+    """One batch: (the delivery people reports built, every report stored as [{key, title, orders, kind}])."""
+    spec = BATCHES[batch]
+    persons, stored = [], []
+    if spec["persons"]:
+        for person in people_for(day):
+            rows = rows_for(person, day)
+            if not rows:
+                continue
+            pdf = build_pdf(person, day, rows, now)
+            with db.cursor() as cur:
+                cur.execute("INSERT INTO daily_delivery_report (report_date, person_name, order_count, pdf, generated_at) VALUES (%s, %s, %s, %s, now()) "
+                            "ON CONFLICT (report_date, person_name) DO UPDATE SET order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, "
+                            "generated_at = now() RETURNING report_key", (day, person, len(rows), pdf))
+                key = cur.fetchone()["report_key"]
+            persons.append({"person": person, "orders": len(rows), "cartage": sum(float(r.get("cartage") or 0) for r in rows)})
+            stored.append({"key": key, "title": f"Delivery - {person}", "orders": len(rows), "kind": None})
+    stored += generate_reports(day, now, spec["kinds"])
+    return persons, stored
+
+
+def generate_reports(day: date, now: datetime, kinds: tuple = DAILY_REPORT_KINDS) -> list[dict]:
+    """(Re)build and store pending / received reports. One failing report is logged and skipped so the others are still kept.
+    Returns [{key, title, orders, kind}] for each one stored."""
+    stored = []
+    for kind in kinds:
         spec = o2d_reports.REPORTS[kind]
         received = spec.get("date_field") == o2d_reports._RECEIVED_ON
         try:
@@ -101,10 +126,69 @@ def generate_reports(day: date, now: datetime) -> int:
         with db.cursor() as cur:
             cur.execute("INSERT INTO daily_delivery_report (report_date, person_name, order_count, pdf, generated_at, report_kind) "
                         "VALUES (%s, %s, %s, %s, now(), %s) ON CONFLICT (report_date, person_name) DO UPDATE SET "
-                        "order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, generated_at = now(), report_kind = EXCLUDED.report_kind",
-                        (day, spec["title"], count, pdf, kind))
-        stored += 1
+                        "order_count = EXCLUDED.order_count, pdf = EXCLUDED.pdf, generated_at = now(), report_kind = EXCLUDED.report_kind "
+                        "RETURNING report_key", (day, spec["title"], count, pdf, kind))
+            key = cur.fetchone()["report_key"]
+        stored.append({"key": key, "title": spec["title"], "orders": count, "kind": kind})
     return stored
+
+
+# ------------------------------------------------------------------ links that work without a login (for the WhatsApp message)
+def _base_url() -> str:
+    return (os.environ.get("PUBLIC_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+
+
+def _sign(report_key: int, exp: int) -> str:
+    return hmac.new(auth._secret().encode(), f"report:{report_key}:{exp}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def shared_link(report_key: int, now: datetime | None = None) -> str:
+    """A download link for one stored report: no login, valid LINK_DAYS days. Empty when the public address of the app is not known."""
+    base = _base_url()
+    if not base:
+        return ""
+    exp = int(((now or datetime.now(IST)) + timedelta(days=LINK_DAYS)).timestamp())
+    return f"{base}/o2d/daily-reports/shared/{report_key}.pdf?exp={exp}&sig={_sign(report_key, exp)}"
+
+
+def report_blocks(stored: list[dict], batch: str) -> list[str]:
+    """The numbered lines of the group message, each with its link: the delivery people first, then the batch's WhatsApp reports in order."""
+    spec = BATCHES[batch]
+    by_kind = {r["kind"]: r for r in stored if r["kind"]}
+    entries = [r for r in stored if r["kind"] is None] + [by_kind[k] for k in spec["whatsapp"] if k in by_kind]
+    blocks = []
+    for n, r in enumerate(entries, 1):
+        link = shared_link(r["key"])
+        blocks.append(f"{n}. {r['title']} ({r['orders']} order{'s' if r['orders'] != 1 else ''})" + (f"\n{link}" if link else ""))
+    return blocks
+
+
+def send_reports(day: date, batch: str, stored: list[dict]) -> dict:
+    """Post the batch's reports to the Reports group (one message, or several when the list is long). Never raises."""
+    spec = BATCHES[batch]
+    blocks = report_blocks(stored, batch)
+    if not blocks:
+        return {"skipped": True, "reason": "No reports in this batch."}
+    if not _base_url():
+        blocks.append("(Download them in the portal: O2D > Reports.)")
+    chunks, cur_len, cur = [], 0, []
+    for b in blocks:
+        if cur and cur_len + len(b) > MESSAGE_LIMIT:
+            chunks.append(cur)
+            cur, cur_len = [], 0
+        cur.append(b)
+        cur_len += len(b) + 2
+    chunks.append(cur)
+    out: dict = {}
+    for part in chunks:
+        try:
+            out = whatsapp.send_alert(spec["alert"], {"date": f"{day:%d-%m-%Y}", "time": spec["label"], "list": "\n\n".join(part)})
+        except Exception:  # the reports are saved; a failed message must not undo them
+            log.exception("Could not send the %s reports on WhatsApp", spec["label"])
+            return {"skipped": True, "reason": "WhatsApp failed."}
+        if out.get("skipped"):
+            break
+    return out
 
 
 def summary_text(done: list[dict]) -> str:
@@ -123,23 +207,28 @@ def send_summary(day: date, done: list[dict]) -> dict:
 
 
 def run_if_due(now: datetime | None = None) -> bool:
-    """Do today's run once, any time after 7:30 PM IST. True when this call did it."""
+    """Do today's batches once each, any time after their time (7:30 PM, 9:00 PM IST). True when this call did at least one."""
     now = now or datetime.now(IST)
-    if now.time() < RUN_AT:
-        return False
-    day = now.date()
-    with db.cursor() as cur:
-        cur.execute("SELECT pg_try_advisory_xact_lock(%s) AS ok", (LOCK_ID,))
-        if not cur.fetchone()["ok"]:
-            return False                                   # another copy of the service is already on it
-        cur.execute("SELECT 1 FROM daily_report_run WHERE report_date = %s", (day,))
-        if cur.fetchone():
-            return False
-        done = generate(day, now)
-        cur.execute("INSERT INTO daily_report_run (report_date, persons) VALUES (%s, %s) ON CONFLICT DO NOTHING", (day, len(done)))
-    send_summary(day, done)
-    log.info("Daily delivery reports for %s: %s person(s)", day, len(done))
-    return True
+    did = False
+    for batch, spec in BATCHES.items():
+        if now.time() < spec["at"]:
+            continue
+        day = now.date()
+        with db.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_xact_lock(%s) AS ok", (LOCK_ID,))
+            if not cur.fetchone()["ok"]:
+                return did                                 # another copy of the service is already on it
+            cur.execute("SELECT 1 FROM daily_report_run WHERE report_date = %s AND batch = %s", (day, batch))
+            if cur.fetchone():
+                continue
+            persons, stored = generate_batch(day, now, batch)
+            cur.execute("INSERT INTO daily_report_run (report_date, batch, persons) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (day, batch, len(persons)))
+        if batch == "evening":
+            send_summary(day, persons)
+        send_reports(day, batch, stored)
+        log.info("Daily %s reports for %s: %s report(s)", spec["label"], day, len(stored))
+        did = True
+    return did
 
 
 class Scheduler:
@@ -182,11 +271,25 @@ def list_reports(day: date | None = Query(default=None, alias="date"), user=Depe
         cur.execute("SELECT report_key, person_name, order_count, generated_at, report_kind FROM daily_delivery_report WHERE report_date = %s "
                     "ORDER BY report_kind IS NOT NULL, person_name", (day,))
         rows = cur.fetchall()
-        cur.execute("SELECT report_date FROM daily_report_run ORDER BY report_date DESC LIMIT 14")
+        cur.execute("SELECT DISTINCT report_date FROM daily_report_run ORDER BY report_date DESC LIMIT 14")
         days = [r["report_date"].isoformat() for r in cur.fetchall()]
-    return {"ok": True, "date": day.isoformat(), "days": days, "runsAt": "7:30 PM IST", "canGenerate": user["role"] == "admin",
+    return {"ok": True, "date": day.isoformat(), "days": days, "runsAt": "7:30 PM and 9:00 PM IST", "canGenerate": user["role"] == "admin",
             "reports": [{"key": r["report_key"], "person": r["person_name"], "orders": r["order_count"], "kind": r["report_kind"],
                          "generatedAt": r["generated_at"].astimezone(IST).strftime("%d-%m-%Y %H:%M")} for r in rows]}
+
+
+@router.get("/shared/{report_key}.pdf")
+def download_shared(report_key: int, exp: int = Query(), sig: str = Query()):
+    """The link in the WhatsApp message: no login, but only with the signature made for this report, and only until it expires."""
+    if exp < int(datetime.now(IST).timestamp()) or not hmac.compare_digest(_sign(report_key, exp), sig):
+        raise HTTPException(403, "This link has expired or is not valid. Open the report from the portal (O2D > Reports).")
+    with db.cursor() as cur:
+        cur.execute("SELECT report_date, person_name, pdf FROM daily_delivery_report WHERE report_key = %s", (report_key,))
+        r = cur.fetchone()
+    if not r:
+        raise HTTPException(404, "Report not found.")
+    name = "report_" + "".join(c if c.isalnum() else "_" for c in r["person_name"]) + f"_{r['report_date']:%Y%m%d}.pdf"
+    return Response(bytes(r["pdf"]), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @router.get("/{report_key}.pdf")
@@ -208,4 +311,4 @@ def generate_now(day: date | None = Query(default=None, alias="date"), user=Depe
     day = day or datetime.now(IST).date()
     done = generate(day)
     return {"ok": True, "date": day.isoformat(), "persons": len(done),
-            "message": f"Built the delivery reports ({len(done)} person(s)) and the {len(DAILY_REPORT_KINDS)} pending / received reports for {day:%d-%m-%Y}."}
+            "message": f"Built the delivery reports ({len(done)} person(s)) and the {len(DAILY_REPORT_KINDS)} pending / received reports for {day:%d-%m-%Y} (nothing is sent to WhatsApp from here)."}

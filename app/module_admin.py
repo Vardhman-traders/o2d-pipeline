@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, config, db, modcommon as mc, whatsapp
+from . import access, config, db, modcommon as mc
 from .admin import ADMIN, audit
 from .reconcile import _references
 
@@ -67,9 +67,7 @@ MASTERS: dict[str, dict[str, Any]] = {
                      "kind": "att_employee", "role": None, "where": "TRUE", "defaults": {},
                      "fields": [{"name": "role_title", "label": "Designation", "type": "text", "max": 100},
                                 {"name": "is_active", "label": "Active (shown on the check-in page)", "type": "bool"},
-                                {"name": "skip_whatsapp", "label": "No WhatsApp message for this person's check-in / check-out", "type": "bool"},
-                                {"name": "phone_number", "label": "WhatsApp number with country code, e.g. 919876543210 (Delegation and Checklist alerts go here)",
-                                 "type": "text", "max": 20, "phone": True}]},
+                                {"name": "skip_whatsapp", "label": "No WhatsApp message for this person's check-in / check-out", "type": "bool"}]},
     "checklist_category": {"label": "Checklist - categories", "table": "dim_checklist_category", "key": "category_key",
                            "name": "category_name", "kind": "checklist_category", "role": None, "where": "TRUE", "defaults": {}, "fields": []},
     "expense_account": {"label": "Regular expenses - accounts (the money float and its opening balance)", "table": "dim_expense_account",
@@ -192,11 +190,6 @@ def _values(spec, body: MasterIn, cur) -> dict:
                 raise HTTPException(422, f"{f['label']} must be between {f['min']} and {f['max']}.")
         elif f["type"] == "text":
             v = " ".join(str(v or "").split())[: f.get("max", 100)] or None
-            if v and f.get("phone"):
-                v = whatsapp.normalize_phone(v)
-                if not v:
-                    raise HTTPException(422, f"{f['label'].split(',')[0].split(' (')[0]}: enter a phone number with the country code, like 919876543210 "
-                                             "(a 10-digit Indian number gets 91 added).")
         elif f["type"] == "select":
             allowed = {o[0] for o in (_options(cur, *SOURCES[f["source"]], blank=f.get("blank")) if f.get("source") else f["options"])}
             v = None if v in ("", None) else v

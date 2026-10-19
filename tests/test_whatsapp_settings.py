@@ -58,9 +58,8 @@ def test_the_test_button_reports_the_providers_refusal_instead_of_saying_sent(cl
     client.put("/admin/whatsapp/delivery_day_summary", json={"group_id": "123@g.us", "enabled": True, "template": "x {date}"}, headers=admin)
     monkeypatch.setenv("WHATSAPP_API_KEY", "k")
     monkeypatch.setattr(whatsapp, "_http_post", lambda url, data, headers: (200, '{"success": false, "message": "group not found"}'))
-    monkeypatch.setattr(whatsapp, "send_text", lambda key, text, post=whatsapp._http_post, ignore_switch=False: {"code": 200, "body": '{"success": false, "message": "group not found"}'})
     r = client.post("/admin/whatsapp/delivery_day_summary/test", headers=admin).json()
     assert r["success"] is False and "group not found" in r["message"]
-    monkeypatch.setattr(whatsapp, "send_text", lambda key, text, post=whatsapp._http_post, ignore_switch=False: {"code": 200, "body": '{"success": true}'})
+    monkeypatch.setattr(whatsapp, "_http_post", lambda url, data, headers: (200, '{"success": true}'))
     r = client.post("/admin/whatsapp/delivery_day_summary/test", headers=admin).json()
     assert r["success"] is True and "accepted" in r["message"]

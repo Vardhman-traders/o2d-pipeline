@@ -151,6 +151,8 @@
         return res.blob().then(function (b) { return { ok: true, blob: b, filename: m ? m[1] : 'delivery_report.pdf' }; });
       });
     },
+    // the dispatch WhatsApp message of a save whose photos were uploaded afterwards: sent now, with the photos
+    sendDispatchAlert: write('POST', function (sl, viewAs) { return { path: '/o2d/orders/' + sl + '/whatsapp-send', body: { viewAs: viewAs } }; }),
     resendDispatchAlert: write('POST', function (sl) { return { path: '/o2d/orders/' + sl + '/whatsapp-resend' }; }),
     updateDispatchFields: write('PUT', function (sl, form) { return { path: '/o2d/orders/' + sl + '/dispatch', body: form }; }),
     // many orders, one transaction: all are saved or none (see /o2d/bulk/* in o2d_screens.py)

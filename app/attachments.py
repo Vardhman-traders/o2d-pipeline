@@ -99,6 +99,19 @@ def photo_counts(order_keys: list[int]) -> dict[int, int]:
         return {r["order_key"]: r["n"] for r in cur.fetchall()}
 
 
+WHATSAPP_LINK_SECONDS = 7 * 24 * 3600     # the longest a private-storage link may live: a WhatsApp message is read later than a screen is
+
+
+def photo_links(order_key: int, kind: str, seconds: int = WHATSAPP_LINK_SECONDS) -> list[str]:
+    """Download links for an order's photos of one kind (for a WhatsApp message). Nothing without photo storage or photos."""
+    if not configured():
+        return []
+    with db.cursor() as cur:
+        cur.execute("SELECT object_key FROM order_attachments WHERE order_key = %s AND kind = %s ORDER BY uploaded_at", (order_key, kind))
+        keys = [r["object_key"] for r in cur.fetchall()]
+    return [storage().generate_presigned_url("get_object", Params={"Bucket": _bucket(), "Key": k}, ExpiresIn=seconds) for k in keys]
+
+
 def list_photos(user, sl_no: int) -> list[dict]:
     order = _visible_order(user, sl_no)
     with db.cursor() as cur:

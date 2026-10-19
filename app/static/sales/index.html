@@ -2011,6 +2011,19 @@
     });
   }
   var CAM_SHOTS = {};
+  // true when this box holds photos that Save will upload (the WhatsApp dispatch message then waits for them, so it can carry the photo)
+  function photosChosen_(prefix) {
+    var input = document.getElementById(prefix + '_file');
+    return PHOTOS_ENABLED && !!((input && input.files && input.files.length) || (CAM_SHOTS[prefix] || []).length);
+  }
+  // after the photos are up: send the WhatsApp message that the save held back (errors never matter to the person saving)
+  function sendHeldAlerts_(slNos) {
+    return Promise.all((slNos || []).map(function (sl) {
+      return new Promise(function (resolve) {
+        VT.run.withSuccessHandler(function () { resolve(); }).withFailureHandler(function () { resolve(); }).sendDispatchAlert(CURRENT_TOKEN, sl, CURRENT_ROLE);
+      });
+    }));
+  }
   function camInfo_(prefix) {
     var pk = document.getElementById(prefix + '_file');
     var n = (CAM_SHOTS[prefix] || []).length + (pk && pk.files ? pk.files.length : 0), el = document.getElementById(prefix + '_camInfo');
@@ -2206,6 +2219,7 @@
       deliveryStatus: document.getElementById('dispatch_deliveryStatus').value,
       deliveredByWhom: document.getElementById('dispatch_deliveredByWhom').value,
       deliveredByDetail: document.getElementById('dispatch_deliveredByDetail').value,
+      photosFollow: photosChosen_('dispatchPhoto') || (CURRENT_ROLE === 'shop_dispatch' && photosChosen_('dispatchRecvPhoto')),
       viewAs: CURRENT_ROLE,
       cartage: document.getElementById('dispatch_cartage').value,
       dateOfReceiving: document.getElementById('dispatch_dateOfReceiving_iso').value,
@@ -2221,6 +2235,8 @@
         if (CURRENT_ROLE === 'shop_dispatch') jobs = jobs.then(function (p1) { return photoUploadAll_('dispatchRecvPhoto', slNo, 'receiving').then(function (p2) { return p1.concat(p2); }); });
         msg.textContent = 'Saved.';
         jobs.then(function (problems) {
+          return sendHeldAlerts_(res.alertPending ? [slNo] : []).then(function () { return problems; });
+        }).then(function (problems) {
           initDispatch();
           if (problems.length) { msg.className = 'status-msg error'; msg.textContent = 'Order saved, but a photo did not upload: ' + problems[0]; return; }
           dispatchCloseEdit();
@@ -2802,6 +2818,7 @@
           msg.className = 'status-msg error'; msg.textContent = tag + ': please fill in the details for "' + form.deliveredByWhom + '".'; return;
         }
         if (form.materialDeliveryDateTime) form.materialDeliveryDateTime = form.materialDeliveryDateTime.slice(0, 16);
+        if (kind === 'dispatch') form.photosFollow = sec.photos.some(function (ph) { return photosChosen_(ph.prefix); });
         items.push({ slNo: sec.sl, form: form });
       }
       if (!confirm('Save these details on ' + items.length + ' order' + (items.length === 1 ? '' : 's') + '? They are all saved together, or none if any one is refused.')) return;
@@ -2817,6 +2834,8 @@
             return photoUploadAll_(u[1].prefix, u[0], u[1].kind).then(function (p) { return acc.concat(p.map(function (m) { return 'Sl ' + u[0] + ': ' + m; })); });
           });
         }, Promise.resolve([])).then(function (problems) {
+          return sendHeldAlerts_(res.alertPending).then(function () { return problems; });
+        }).then(function (problems) {
           if (kind === 'dispatch') initDispatch(); else initReceiving();
           if (problems.length) { go.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Orders saved, but some photos did not upload - ' + problems[0]; return; }
           shut();

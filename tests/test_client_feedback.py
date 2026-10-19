@@ -51,7 +51,7 @@ def test_goods_return_is_subtracted_in_dashboards_exports_and_pdf_reports(client
         sl = add(client, h["shop"], day, dc)["slNo"]
         _status(client, h, sl, status)
         _dispatch(client, h, "godown_dispatch", sl)               # Goods Return is a normal godown-side status: it goes to Godown Dispatch
-        _receive(client, h, sl, today, amount)
+        _receive(client, h, sl, day, amount)                      # received that same day: the received & payments PDF filters on the date of receiving
     seen = {o["dcNo"]: o["amountReceived"] for o in client.get("/o2d/receiving", headers=h["receiving"]).json()["completed"]}
     assert seen[sale] == 100.0 and seen[ret] == -30.0                                                # the return shows as minus
 
@@ -169,4 +169,6 @@ def test_scheduler_runs_the_day_once_after_7_30_pm_only(client, people):
     later = base.replace(year=base.year + 3, hour=19, minute=29)
     assert daily_reports.run_if_due(later) is False
     assert daily_reports.run_if_due(later.replace(minute=31)) is True
-    assert daily_reports.run_if_due(later.replace(hour=22, minute=0)) is False
+    assert daily_reports.run_if_due(later.replace(minute=45)) is False                  # the 7:30 PM batch is done; the 9:00 PM one is not due yet
+    assert daily_reports.run_if_due(later.replace(hour=21, minute=5)) is True           # the second batch of the day
+    assert daily_reports.run_if_due(later.replace(hour=22, minute=0)) is False          # each batch runs once a day
