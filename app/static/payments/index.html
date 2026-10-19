@@ -778,7 +778,18 @@
         <label class="small-note" style="display:block;margin-bottom:8px;"><input type="checkbox" onchange="toggleShowMerged(this.checked)"> Show merged (last 30 days)</label>
         <div class="merge-wrap">
           <table id="mergeTable">
-            <thead><tr><th>Date</th><th>DC / Inv</th><th>Address</th><th>O2D payment</th><th>Company</th><th>Party</th><th>Cash</th><th>Bank</th><th>Total</th><th>Remarks</th><th>Status</th><th></th></tr></thead>
+            <thead><tr>
+              <th class="sortable" data-k="date" onclick="sortBy('merge','date')">Date<span class="si">⇅</span></th>
+              <th class="sortable" data-k="dc" onclick="sortBy('merge','dc')">DC / Inv<span class="si">⇅</span></th>
+              <th class="sortable" data-k="address" onclick="sortBy('merge','address')">Address<span class="si">⇅</span></th>
+              <th class="sortable" data-k="o2d" onclick="sortBy('merge','o2d')">O2D payment<span class="si">⇅</span></th>
+              <th class="sortable" data-k="company" onclick="sortBy('merge','company')">Company<span class="si">⇅</span></th>
+              <th class="sortable" data-k="party" onclick="sortBy('merge','party')">Party<span class="si">⇅</span></th>
+              <th class="sortable" data-k="cash" onclick="sortBy('merge','cash')">Cash<span class="si">⇅</span></th>
+              <th class="sortable" data-k="bank" onclick="sortBy('merge','bank')">Bank<span class="si">⇅</span></th>
+              <th class="sortable" data-k="total" onclick="sortBy('merge','total')">Total<span class="si">⇅</span></th>
+              <th class="sortable" data-k="remarks" onclick="sortBy('merge','remarks')">Remarks<span class="si">⇅</span></th>
+              <th class="sortable" data-k="status" onclick="sortBy('merge','status')">Status<span class="si">⇅</span></th><th></th></tr></thead>
             <tbody id="mergeBody"></tbody>
           </table>
         </div>
@@ -1437,12 +1448,12 @@ const TXN_SORT = {
   party: r => r.Party, amount: r => Number(r.Amount)||0, mode: r => r.Mode, createdby: r => r.CreatedBy,
   status: r => r.Status, remarks: r => r.Remarks,
 };
-const SORT = { txn:{ key:null, dir:1 }, exp:{ key:null, dir:1 }, ch:{ key:null, dir:1 } };
-const SORT_TABLE = { txn:'mainTable', exp:'expTable', ch:'chTable' };
+const SORT = { txn:{ key:null, dir:1 }, exp:{ key:null, dir:1 }, ch:{ key:null, dir:1 }, merge:{ key:null, dir:1 } };
+const SORT_TABLE = { txn:'mainTable', exp:'expTable', ch:'chTable', merge:'mergeTable' };
 function sortBy(tab, key){
   const s = SORT[tab];
   if (s.key === key) s.dir = -s.dir; else { s.key = key; s.dir = 1; }
-  if (tab === 'txn') renderCurrentView(); else if (tab === 'exp') expRedraw(); else chDraw();
+  if (tab === 'txn') renderCurrentView(); else if (tab === 'exp') expRedraw(); else if (tab === 'merge') renderMerge(); else chDraw();
 }
 function sortRows(tab, rows, getters){
   const s = SORT[tab], g = getters[s.key];
@@ -1598,20 +1609,21 @@ function loadDashboard_(){
         <div class="card card-cyan ${activeCardKey==='cashInHand'?'active-card':''}" onclick="filterCard('cashInHand')">
           <div class="label">💵 Cash in Hand</div><div class="value">${rupee(d.cashInHand)}</div>
         </div>
-        <div class="card card-blue ${activeCardKey==='bankBalance'?'active-card':''}" onclick="filterCard('bankBalance')">
-          <div class="label">🏦 Bank Balance</div><div class="value">${rupee(d.bankBalance)}</div>
-          <div class="card-sub">Bank / UPI / Cheque / Card</div>
-        </div>
         <div class="card card-green ${activeCardKey==='totalReceived'?'active-card':''}" onclick="filterCard('totalReceived')">
-          <div class="label">📥 Total Received</div><div class="value">${rupee(d.totalReceived)}</div>
-          <div class="card-sub">Payment Received only</div>
+          <div class="label">📥 Total Cash Received</div><div class="value">${rupee(d.totalReceived)}</div>
+          <div class="card-sub">Cash receipts (this dashboard)</div>
         </div>
         <div class="card card-red ${activeCardKey==='totalPaid'?'active-card':''}" onclick="filterCard('totalPaid')">
-          <div class="label">📤 Total Paid</div><div class="value">${rupee(d.totalPaid)}</div>
-          <div class="card-sub">Payment Paid + Expense</div>
+          <div class="label">📤 Total Cash Paid</div><div class="value">${rupee(d.totalPaid)}</div>
+          <div class="card-sub">Cash payments + expense</div>
         </div>
         <div class="card card-purple ${activeCardKey==='cashSales'?'active-card':''}" onclick="filterCard('cashSales')">
           <div class="label">🛒 Cash Sales</div><div class="value">${rupee(d.cashSales)}</div>
+          <div class="card-sub">Net sales from O2D</div>
+        </div>
+        <div class="card card-blue ${activeCardKey==='bankBalance'?'active-card':''}" onclick="filterCard('bankBalance')">
+          <div class="label">🏦 Total Bank All Transactions</div><div class="value">${rupee(d.bankBalance)}</div>
+          <div class="card-sub">Bank / UPI / Cheque / Card</div>
         </div>
 `;
     })
@@ -1718,7 +1730,13 @@ function renderMerge(){
   const kind = mergeKind();
   if (!kind) return;
   const body = document.getElementById('mergeBody');
-  const rows = MERGE.rows.filter(r => r.kind === kind);
+  const draftOf = r => (MERGE.drafts[r.key] || r);
+  const rows = sortRows('merge', MERGE.rows.filter(r => r.kind === kind), {
+    date: r => r.date, dc: r => r.dcNo, address: r => r.address, o2d: r => Number(r.orderAmount) || 0, company: r => draftOf(r).company,
+    party: r => draftOf(r).party, cash: r => Number(draftOf(r).cash) || 0, bank: r => Number(draftOf(r).bank) || 0,
+    total: r => (Number(draftOf(r).cash) || 0) + (Number(draftOf(r).bank) || 0), remarks: r => draftOf(r).remarks,
+    status: r => r.alreadyMerged ? 'Merged' : 'Waiting' });
+  paintSort('merge');
   document.getElementById('mergeTitle').textContent =
     `${MERGE_TITLES[kind]} - ${MERGE.showMerged ? 'merged in the last 30 days' : 'waiting to be merged into Payments'}`;
   document.getElementById('mergeReq').textContent = MERGE.required.length
@@ -1845,22 +1863,20 @@ const CARD_FILTERS = {
   // CHANGE 2: Bank Balance — only entries where Mode is a bank-type mode (not Cash)
   // Excludes Cash Deposit / Cash Withdrawn (those are internal cash transfers)
   bankBalance: {
-    label: 'Bank Balance',
-    test: r => {
-      return !modeIsCash(r.Mode) && typeIs(r.Type, 'affectsBank') && r.Status === 'Approved';
-    }
+    label: 'Total Bank All Transactions',
+    test: r => !modeIsCash(r.Mode) && r.Status === 'Approved'
   },
 
   // CHANGE 3: Total Received — only "Payment Received" type entries
   totalReceived: {
-    label: 'Total Received',
-    test: r => typeIs(r.Type, 'received') && r.Status === 'Approved'
+    label: 'Total Cash Received',
+    test: r => typeIs(r.Type, 'received') && modeIsCash(r.Mode) && r.Source !== 'O2D' && r.Status === 'Approved'
   },
 
   // CHANGE 4: Total Paid — only "Payment Paid" and "Expense" type entries
   totalPaid: {
-    label: 'Total Paid',
-    test: r => typeIs(r.Type, 'paid') && r.Status === 'Approved'
+    label: 'Total Cash Paid',
+    test: r => typeIs(r.Type, 'paid') && modeIsCash(r.Mode) && r.Source !== 'O2D' && r.Status === 'Approved'
   },
 
   cashInHand: {
@@ -1870,10 +1886,7 @@ const CARD_FILTERS = {
 
   cashSales: {
     label: 'Cash Sales',
-    test: r => {
-      return !!(COMPANY_META[r.Company] && COMPANY_META[r.Company].isSales) && modeIsCash(r.Mode) && r.Status === 'Approved'
-        && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect);
-    }
+    test: r => r.Source === 'O2D' && r.Status === 'Approved' && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect)
   },
 
   pendingEntries: {

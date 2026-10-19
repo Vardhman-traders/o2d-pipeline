@@ -45,6 +45,10 @@
     .vt-accent-coral { border-left-color: var(--vt-danger); }
     .vt-accent-berry { border-left-color: var(--vt-berry); }
     .vt-accent-leaf  { border-left-color: var(--vt-success); }
+    details.vt-collapse > summary { list-style: none; }
+    details.vt-collapse > summary::-webkit-details-marker { display: none; }
+    details.vt-collapse[open] > summary { border-bottom: 1px solid #e2e8f0; }
+    details.vt-collapse[open] > summary .vt-chev { transform: rotate(90deg); }
   </style>
 </head>
 <body class="text-slate-800">
@@ -139,7 +143,7 @@
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6 space-y-6">
       <div id="taskArea" class="space-y-6">
 
-      <div class="grid grid-cols-3 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+      <div id="scoreCards" class="grid grid-cols-3 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div class="text-center">
           <p class="text-xs text-slate-400 font-semibold uppercase">My Score</p>
           <p id="myScoreTotal" class="text-3xl vt-display font-bold vt-text-navy">0</p>
@@ -183,11 +187,11 @@
       </div>
 
       <!-- FOLLOW UP — always-visible section, not a tab -->
-      <div id="followUpSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-coral">
-        <div class="p-4 border-b flex justify-between items-center">
-          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-bell vt-text-navy mr-2"></i>Follow Up <span class="text-xs font-normal text-slate-400">— due today or overdue</span></h3>
+      <details id="followUpSection" class="vt-collapse hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-coral">
+        <summary class="p-4 flex justify-between items-center cursor-pointer select-none">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-chevron-right vt-chev text-slate-400 text-xs transition-transform"></i> <i class="fa-solid fa-bell vt-text-navy mx-2"></i>Follow Up <span class="text-xs font-normal text-slate-400">— due today or overdue</span></h3>
           <span id="followUpCount" class="px-2.5 py-1 text-xs font-bold rounded-full badge-overdue">0</span>
-        </div>
+        </summary>
         <div class="overflow-x-auto">
           <table class="w-full text-left text-sm text-slate-600">
             <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
@@ -200,14 +204,14 @@
             <tbody id="followUpList" class="divide-y divide-slate-100"></tbody>
           </table>
         </div>
-      </div>
+      </details>
 
       <!-- NEEDS REVIEW — always-visible section, not a tab -->
-      <div id="needsReviewSection" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-gold">
-        <div class="p-4 border-b flex justify-between items-center">
-          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-clipboard-check vt-text-navy mr-2"></i>Needs Review</h3>
+      <details id="needsReviewSection" class="vt-collapse hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-gold">
+        <summary class="p-4 flex justify-between items-center cursor-pointer select-none">
+          <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-chevron-right vt-chev text-slate-400 text-xs transition-transform"></i> <i class="fa-solid fa-clipboard-check vt-text-navy mx-2"></i>Needs Review</h3>
           <span id="needsReviewCount" class="px-2.5 py-1 text-xs font-bold rounded-full badge-today">0</span>
-        </div>
+        </summary>
         <div class="overflow-x-auto">
           <table class="w-full text-left text-sm text-slate-600">
             <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
@@ -220,7 +224,7 @@
             <tbody id="needsReviewList" class="divide-y divide-slate-100"></tbody>
           </table>
         </div>
-      </div>
+      </details>
 
       <!-- MAIN TABLE (tab-controlled: My Tasks / All Pending / All Tasks) -->
       <div id="viewTaskTable" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -742,7 +746,6 @@
       document.getElementById('userRoleDisplay').textContent = currentUser.role;
 
       var privileged = isPrivileged();
-      document.getElementById('managerPanel').classList.toggle('hidden', !privileged);
       document.getElementById('tabAllPendingBtn').classList.toggle('hidden', !privileged);
       document.getElementById('tabAllBtn').classList.toggle('hidden', !privileged);
       document.getElementById('tabMineBtn').classList.toggle('hidden', !pageOn_('deleg_mine'));
@@ -751,8 +754,6 @@
       document.getElementById('tabChkMineBtn').classList.toggle('hidden', !chkOn_('chk_mine'));
       document.getElementById('tabChkCalBtn').classList.toggle('hidden', !chkOn_('chk_calendar'));
       document.getElementById('tabChkManageBtn').classList.toggle('hidden', !chkOn_('chk_manage'));
-      document.getElementById('followUpSection').classList.toggle('hidden', !privileged);
-      document.getElementById('needsReviewSection').classList.toggle('hidden', !privileged);
       document.getElementById('weeklyStaffPickerWrap').classList.toggle('hidden', !privileged);
 
       if (privileged) {
@@ -765,8 +766,14 @@
       if (privileged || currentUser.canEdit) loadAssignableStaffDropdown();
       startBell();
 
-      switchTab(firstTab_());
+      var h = location.hash.replace('#', '');
+      var okHash = TAB_BTN[h] && !document.getElementById(TAB_BTN[h]).classList.contains('hidden');
+      switchTab(okHash ? h : firstTab_());
     }
+    window.addEventListener('popstate', function () {
+      var h = location.hash.replace('#', '');
+      if (currentUser && TAB_BTN[h] && h !== currentTab && !document.getElementById(TAB_BTN[h]).classList.contains('hidden')) switchTab(h);
+    });
 
     // ---- sub pages and scoring rules come from the server (Setup > Access, Setup > Module settings)
     var DELEG_PAGES = null, DELEG_SCORING = { revise: -3, extend: -5 };
@@ -868,10 +875,13 @@
     function chkCloseMark() { document.getElementById('chkMarkModal').classList.add('hidden'); }
 
     // ---- My checklist
+    var chkOpenSecs = {};
     function chkSection(title, items, tone, empty) {
-      return '<div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">' +
-        '<h4 class="font-bold text-sm ' + tone + '">' + title + ' <span class="text-slate-400 font-semibold">(' + items.length + ')</span></h4>' +
-        (items.length ? items.map(function (i) { return chkRow(i, false); }).join('') : '<p class="text-sm text-slate-400">' + empty + '</p>') + '</div>';
+      return '<details class="vt-collapse bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"' + (chkOpenSecs[title] ? ' open' : '') + ' ontoggle="chkOpenSecs[this.dataset.k] = this.open" data-k="' + escapeHtml(title) + '">' +
+        '<summary class="p-4 flex items-center justify-between cursor-pointer select-none"><h4 class="font-bold text-sm ' + tone + '">' +
+        '<i class="fa-solid fa-chevron-right vt-chev text-slate-400 text-xs mr-2 transition-transform"></i>' + title + '</h4>' +
+        '<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">' + items.length + '</span></summary>' +
+        '<div class="p-4 space-y-3">' + (items.length ? items.map(function (i) { return chkRow(i, false); }).join('') : '<p class="text-sm text-slate-400">' + empty + '</p>') + '</div></details>';
     }
     function chkLoadMine() {
       VT.run.withSuccessHandler(function (r) {
@@ -1037,17 +1047,18 @@
     }
 
     // ====================== TABS ======================
+    var TAB_BTN = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn',
+      chkmine: 'tabChkMineBtn', chkcal: 'tabChkCalBtn', chkmanage: 'tabChkManageBtn' };
     function switchTab(tab) {
       currentTab = tab;
+      if (location.hash !== '#' + tab) { try { history.pushState(null, '', '#' + tab); } catch (e) { /* hash is a convenience */ } }
       var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabScoreboardBtn', 'tabChkMineBtn', 'tabChkCalBtn', 'tabChkManageBtn'];
       ids.forEach(function (id) {
         var el = document.getElementById(id);
         el.classList.remove('vt-tab-active');
         el.classList.add('border-transparent', 'text-slate-500');
       });
-      var activeMap = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn',
-        chkmine: 'tabChkMineBtn', chkcal: 'tabChkCalBtn', chkmanage: 'tabChkManageBtn' };
-      var activeBtn = document.getElementById(activeMap[tab]);
+      var activeBtn = document.getElementById(TAB_BTN[tab]);
       activeBtn.classList.add('vt-tab-active');
       activeBtn.classList.remove('border-transparent', 'text-slate-500');
 
@@ -1058,6 +1069,10 @@
       document.getElementById('viewScoreboard').classList.toggle('hidden', tab !== 'scoreboard');
       document.getElementById('viewWeekly').classList.toggle('hidden', tab !== 'week');
       document.getElementById('adminSearchBar').classList.toggle('hidden', !(tab === 'all' && isPrivileged()));
+      document.getElementById('scoreCards').classList.toggle('hidden', tab !== 'mine');
+      document.getElementById('managerPanel').classList.toggle('hidden', !(tab === 'mine' && isPrivileged()));
+      document.getElementById('followUpSection').classList.toggle('hidden', !(tab === 'allpending' && isPrivileged()));
+      document.getElementById('needsReviewSection').classList.toggle('hidden', !(tab === 'allpending' && isPrivileged()));
 
       var titles = { mine: 'My Tasks', allpending: 'All Pending Tasks', all: 'All Tasks', week: 'My Week', scoreboard: 'Scoreboard' };
       document.getElementById('taskTableTitle').textContent = titles[tab] || 'Tasks';

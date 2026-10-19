@@ -234,11 +234,12 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
         cur.execute(f"""
             SELECT
               COALESCE(SUM(CASE WHEN m.is_cash THEN {sign} * t.amount END), 0) AS cash_in_hand,
-              COALESCE(SUM(CASE WHEN NOT m.is_cash AND tt.affects_bank THEN {sign} * t.amount END), 0) AS bank_balance,
-              COALESCE(SUM(CASE WHEN tt.counts_as_received THEN t.amount END), 0) AS received,
-              COALESCE(SUM(CASE WHEN tt.counts_as_paid THEN t.amount END), 0) AS paid,
-              COALESCE(SUM(CASE WHEN c.is_sales_company AND m.is_cash THEN tt.sales_effect * t.amount END), 0) AS cash_sales
-            FROM fact_payment_txn t
+              COALESCE(SUM(CASE WHEN NOT m.is_cash THEN {sign} * t.amount END), 0) AS bank_balance,
+              COALESCE(SUM(CASE WHEN tt.counts_as_received AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS received,
+              COALESCE(SUM(CASE WHEN tt.counts_as_paid AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS paid,
+              COALESCE(SUM(CASE WHEN from_o2d THEN tt.sales_effect * t.amount END), 0) AS cash_sales
+            FROM (SELECT t.*, EXISTS (SELECT 1 FROM payment_push pp WHERE pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key) AS from_o2d
+                  FROM fact_payment_txn t) t
             JOIN dim_date d ON d.date_key = t.txn_date_key JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
             JOIN dim_company c ON c.company_key = t.company_key JOIN dim_payment_mode m ON m.mode_key = t.mode_key
             WHERE {' AND '.join(where)}""", params)
