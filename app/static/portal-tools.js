@@ -1083,6 +1083,16 @@ async function renderWhatsApp(panel) {
   const cards = data.alerts.map((a) => {
     const group = h('input', { type: 'text', id: 'wa_group_' + a.key, value: a.group_id, maxlength: '100', placeholder: 'e.g. 1234567890@g.us', 'aria-label': 'WhatsApp group ID', style: 'max-width:340px' });
     const on = h('input', { type: 'checkbox', id: 'wa_on_' + a.key, checked: a.enabled });
+    // alerts that go to people (not a group): who they reach
+    const has = (w) => a.recipients.includes(w);
+    const toAssignee = h('input', { type: 'checkbox', id: 'wa_to_assignee_' + a.key, checked: a.to_assignee });
+    const toEa = h('input', { type: 'checkbox', id: 'wa_to_ea_' + a.key, checked: a.to_ea });
+    const toAdmin = h('input', { type: 'checkbox', id: 'wa_to_admin_' + a.key, checked: a.to_admin });
+    const eaSel = h('select', { id: 'wa_ea_' + a.key, 'aria-label': 'EA', style: 'max-width:340px' },
+      h('option', { value: '', text: '-- nobody --' }),
+      ...(data.employees || []).map((e) => h('option', { value: String(e.key), text: e.name + (e.has_phone ? '' : '  (no WhatsApp number yet)'), selected: a.ea_employee_key === e.key })));
+    const adminNumbers = h('input', { type: 'text', id: 'wa_admin_numbers_' + a.key, value: a.admin_numbers || '', maxlength: '200',
+      placeholder: 'e.g. 919876543210, 919811122233', 'aria-label': 'Admin WhatsApp numbers', style: 'max-width:420px' });
     const text = h('textarea', { id: 'wa_template_' + a.key, rows: '10', maxlength: '2000', 'aria-label': 'Message template', style: 'width:100%;font-family:inherit' });
     text.value = a.template;
     const msg = h('span', { class: 'msg', role: 'status' });
@@ -1091,7 +1101,10 @@ async function renderWhatsApp(panel) {
       onclick: () => { const i = text.selectionStart ?? text.value.length; text.setRangeText('{' + name + '}', i, text.selectionEnd ?? i, 'end'); text.focus(); } }));
     const save = async () => {
       say('Saving…');
-      try { await api('/admin/whatsapp/' + a.key, { method: 'PUT', body: { group_id: group.value, enabled: on.checked, template: text.value } }); say('Saved.'); }
+      const body = { group_id: group.value, enabled: on.checked, template: text.value };
+      if (a.personal) Object.assign(body, { group_id: '', to_assignee: toAssignee.checked, to_ea: toEa.checked, to_admin: toAdmin.checked,
+        ea_employee_key: eaSel.value ? Number(eaSel.value) : null, admin_numbers: adminNumbers.value });
+      try { await api('/admin/whatsapp/' + a.key, { method: 'PUT', body }); say('Saved.'); }
       catch (ex) { say(ex.message, true); }
     };
     const test = async () => {
@@ -1101,20 +1114,27 @@ async function renderWhatsApp(panel) {
     };
     // one heading per alert: click it to open its group, switch and wording (a switched-off alert says so on its heading)
     return collapsible('wa_card_' + a.key, a.label, a.when, h('div', { class: 'collapse-inner' },
-      h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' }), group,
+      a.personal ? null : h('div', { class: 'field' }, h('label', { text: 'WhatsApp group ID' }), group,
         a.group_from_environment ? h('div', { class: 'hint', text: 'Empty here: the group from the server settings (WHATSAPP_GROUP_ID) is being used. Fill this in to take over.' }) : null),
-      h('div', { class: 'field' }, h('label', {}, on, ' Send this alert')),
+      h('div', { class: 'field' }, h('label', {}, on, a.personal ? ' Send this alert (WhatsApp and the bell on the Delegation screen)' : ' Send this alert')),
+      a.personal ? h('div', { class: 'field' },
+        h('label', { text: 'Who is told' }),
+        has('assignee') ? h('div', {}, h('label', {}, toAssignee, ' The person it is for (their own WhatsApp number, from Dropdown values > Attendance employees)')) : null,
+        h('div', {}, h('label', {}, toEa, ' The EA')), h('div', { style: 'margin:4px 0 6px 22px' }, eaSel),
+        h('div', {}, h('label', {}, toAdmin, ' The admin (every admin sees it on the web; add WhatsApp numbers below)')),
+        h('div', { style: 'margin:4px 0 0 22px' }, adminNumbers),
+        h('div', { class: 'hint', text: 'Anyone told also gets a notification on the web (the bell on the Delegation screen). A person without a WhatsApp number on their employee record is told on the web only.' })) : null,
       h('div', { class: 'field' }, h('label', { text: 'Message' }), text,
         h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap;gap:6px;align-items:center' }, h('span', { class: 'note', text: 'Insert:' }), ...chips),
         h('div', { class: 'hint', text: 'Placeholders in { } are replaced with the order’s details when the message is sent.' })),
       h('div', { class: 'row', style: 'gap:10px;align-items:center;flex-wrap:wrap' },
         h('button', { class: 'btn primary', text: 'Save', onclick: save }),
-        h('button', { class: 'btn', text: 'Send a test message', onclick: test }),
+        h('button', { class: 'btn', text: a.personal ? 'Send a test message to the EA / admin numbers' : 'Send a test message', onclick: test }),
         h('button', { class: 'btn', text: 'Restore the standard wording', onclick: () => { text.value = a.default_template; } }), msg)),
       { badge: a.enabled ? null : 'Off' });
   });
   panel.replaceChildren(
-    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to, and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing. Click an alert to open it.' }),
+    h('p', { class: 'note', style: 'margin-bottom:12px', text: 'Which WhatsApp group each alert goes to (the Delegation and Checklist alerts go to people instead: choose who below), and what it says. “Send a test message” posts a clearly marked test to the saved group, so you can check a group without a real order. Save before testing. Click an alert to open it.' }),
     data.credentials_set ? null : h('div', { class: 'msg error', role: 'alert', style: 'margin-bottom:12px', text: 'The WhatsApp API key (WHATSAPP_API_KEY) is not set on the server, so nothing can be sent yet.' }),
     ...cards);
 }

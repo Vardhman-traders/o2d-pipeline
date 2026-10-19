@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, checklist, db, modcommon as mc, roles
+from . import access, attachments, auth, checklist, db, modcommon as mc, notify, roles
+from .admin import audit
 
 router = APIRouter(prefix="/delegation", tags=["delegation"])
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -58,6 +59,17 @@ def _need_manager(user) -> str:
     return who
 
 
+def _may_edit_tasks(user) -> bool:
+    """The admin always; anyone else only with the page "Delegation - Edit tasks" at full (not View only) access - Setup > Access."""
+    return user["role"] == "admin" or access.effective_access(user).get("deleg_edit") == "edit"
+
+
+def _need_editor(user):
+    _who(user)
+    if not _may_edit_tasks(user):
+        raise HTTPException(403, "Only an admin, or someone given \"Delegation - Edit tasks\" in Setup > Access, can edit a task.")
+
+
 def _need_page(user, page: str):
     held = access.effective_access(user)
     if user["role"] != "admin" and page not in held:
@@ -95,6 +107,7 @@ def me(user=Depends(ANY)):
     return {"success": True, "id": user["username"], "name": user["display_name"], "role": who,
             "pages": sorted(p for p in PAGES + checklist.PAGES if user["role"] == "admin" or p in held),
             "canWrite": user["role"] == "admin" or not access.is_view_only(user, "deleg_manage"),
+            "canEditTasks": _may_edit_tasks(user),
             "photosEnabled": attachments.configured(),
             "scoring": {k: v for k, v in _settings().items() if k in ("on_time", "late", "revise", "extend")}}
 
@@ -141,7 +154,8 @@ def staff(user=Depends(ANY)):
 
 
 def _need_manager_or_week(user):
-    if not _privileged(_who(user)):
+    """Who may see the list of staff: managers and admins, and anyone allowed to edit tasks (the edit form offers the same list)."""
+    if not (_privileged(_who(user)) or _may_edit_tasks(user)):
         raise HTTPException(403, "Only a manager or admin can do this.")
 
 
@@ -160,16 +174,28 @@ def assign(body: AssignIn, user=Depends(ANY)):
     if not body.staffId or not desc or not body.dueDate:
         return "All fields including deadline are required!"
     due = mc.parse_date(body.dueDate, "Deadline")
+    if due < mc.today_ist():
+        return "The deadline cannot be in the past."
     try:
         with db.cursor() as cur:
             person = _staff_by_username(cur, body.staffId)
             if not person:
                 return "Staff not found!"
+            if person["user_key"] not in {s["user_key"] for s in assignable_staff()}:   # the people the screen offers: staff, not managers / admins
+                return "That person cannot be given tasks - tasks go to staff who use Delegation (not to managers)."
             cur.execute("INSERT INTO fact_task (staff_user_key, assigned_by_user_key, description, assigned_date_key, due_date_key) "
-                        "VALUES (%s, %s, %s, %s, %s)", (person["user_key"], user["user_key"], desc, mc.date_key(mc.today_ist()), mc.date_key(due)))
+                        "VALUES (%s, %s, %s, %s, %s) RETURNING task_no", (person["user_key"], user["user_key"], desc, mc.date_key(mc.today_ist()), mc.date_key(due)))
+            task_no = cur.fetchone()["task_no"]
     except pgerr.ForeignKeyViolation as e:
         raise mc.date_fk_error(e)
+    _tell_assigned(person, desc, due, user, task_no)
     return f"Task assigned to {person['display_name']} — due {due.isoformat()}!"
+
+
+def _tell_assigned(person: dict, desc: str, due: date, by_user: dict, task_no: str) -> None:
+    """WhatsApp + the web bell for the person the task is for (and the EA / admin when Setup > WhatsApp says so)."""
+    notify.fire("deleg_assigned", {"name": person["display_name"], "task": desc, "due": f"{due:%d-%m-%Y}", "task_id": task_no,
+                                   "assigned_by": by_user.get("display_name") or by_user["username"]}, assignee_user_key=person["user_key"], actor_user_key=by_user["user_key"])
 
 
 class PhotoIn(BaseModel):
@@ -212,7 +238,61 @@ def complete(task_no: str, body: PhotoIn, user=Depends(ANY)):
                     "extra_work_notes = COALESCE(NULLIF(%s, ''), extra_work_notes), updated_at = now() WHERE task_key = %s",
                     (mc.date_key(today), score, body.notes.strip(), r["task_key"]))
     extra = _attach(user, r["task_key"], "proof", body.photo)
+    notify.fire("deleg_done", {"name": r["staff_name"], "task": r["description"], "due": f"{r['due_date']:%d-%m-%Y}", "task_id": task_no,
+                               "timing": "on time" if today <= r["due_date"] else "late", "score": score, "notes": body.notes.strip() or "-"},
+                assignee_user_key=r["staff_user_key"], actor_user_key=user["user_key"])
     return (f"Task submitted! +{score} points." if score > 0 else f"Task submitted — {score} points.") + extra
+
+
+class EditIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    staffId: str = ""
+    desc: str = ""
+    dueDate: str = ""
+
+
+@router.put("/tasks/{task_no}")
+def edit_task(task_no: str, body: EditIn, user=Depends(ANY)):
+    """Change a task's wording, the person it is for or its deadline - the admin, or anyone given "Delegation - Edit tasks" (Setup > Access).
+    The person can only be changed while the task is still pending (a finished task keeps its owner and its points). Points, revision and
+    extension counts are never touched here. A deadline cannot be moved into the past."""
+    _need_editor(user)
+    desc = body.desc.strip()
+    if not desc or not body.dueDate:
+        return "Task detail and deadline are required!"
+    due = mc.parse_date(body.dueDate, "Deadline")
+    try:
+        with db.cursor() as cur:
+            cur.execute(TASK_SELECT + " WHERE t.task_no = %s FOR UPDATE OF t", (task_no,))
+            r = cur.fetchone()
+            if not r:
+                return "Task Not Found"
+            person = r if not body.staffId or body.staffId.lower() == r["staff_id"].lower() else None
+            reassigned = person is None
+            if reassigned:
+                if r["status"] != "Pending":
+                    return "Only a task that is still pending can be given to someone else."
+                person = _staff_by_username(cur, body.staffId)
+                if not person:
+                    return "Staff not found!"
+                if person["user_key"] not in {s["user_key"] for s in assignable_staff()}:
+                    return "That person cannot be given tasks - tasks go to staff who use Delegation (not to managers)."
+            if due != r["due_date"] and due < mc.today_ist():
+                return "The deadline cannot be moved into the past."
+            changes = {k: v for k, v in (("description", [r["description"], desc] if desc != r["description"] else None),
+                                         ("due", [r["due_date"].isoformat(), due.isoformat()] if due != r["due_date"] else None),
+                                         ("staff", [r["staff_id"], person["username"] if reassigned else r["staff_id"]] if reassigned else None)) if v}
+            if not changes:
+                return "Nothing was changed."
+            new_key = person["user_key"] if reassigned else r["staff_user_key"]
+            cur.execute("UPDATE fact_task SET description = %s, due_date_key = %s, staff_user_key = %s, updated_at = now() WHERE task_key = %s",
+                        (desc, mc.date_key(due), new_key, r["task_key"]))
+            audit(cur, user, "delegation.edit", task_no, changes)
+    except pgerr.ForeignKeyViolation as e:
+        raise mc.date_fk_error(e)
+    if reassigned:      # it is a new task for the new person
+        _tell_assigned(person, desc, due, user, task_no)
+    return "Task updated" + (f" and given to {person['display_name']}." if reassigned else ".")
 
 
 class ReviewIn(BaseModel):
@@ -238,8 +318,9 @@ def review(task_no: str, body: ReviewIn, user=Depends(ANY)):
             cur.execute("UPDATE fact_task SET revision_count = revision_count + 1, status = 'Pending', score = NULL, remark = %s, "
                         "updated_at = now() WHERE task_key = %s", (body.remark.strip() or "Sent back for revision", r["task_key"]))
             return f"Sent back for revision — {s['revise']} points applied."
-        cur.execute("UPDATE fact_task SET status = %s, remark = %s, updated_at = now() WHERE task_key = %s",
-                    (body.status, body.remark.strip(), r["task_key"]))
+        # Approved keeps the points earned at submission; Rejected earns nothing (no score, so it is not counted on the scoreboard)
+        cur.execute("UPDATE fact_task SET status = %s, remark = %s, score = CASE WHEN %s = 'Rejected' THEN NULL ELSE score END, "
+                    "updated_at = now() WHERE task_key = %s", (body.status, body.remark.strip(), body.status, r["task_key"]))
     return f"Task {body.status} successfully!"
 
 
@@ -256,6 +337,8 @@ def extend(task_no: str, body: ExtendIn, user=Depends(ANY)):
     if not body.newDueDate:
         return "Task and new deadline are required!"
     new_due = mc.parse_date(body.newDueDate, "New deadline")
+    if new_due < mc.today_ist():
+        return "The new deadline cannot be in the past."
     s = _settings()
     try:
         with db.cursor() as cur:
@@ -265,12 +348,21 @@ def extend(task_no: str, body: ExtendIn, user=Depends(ANY)):
                 return "Task Not Found"
             if r["status"] != "Pending":
                 return "Only a still-pending task can have its deadline revised."
-            remark = body.remark.strip() or f"Missed deadline ({r['due_date'].isoformat()}) — revised to {new_due.isoformat()}, {s['extend']} pts"
-            cur.execute("UPDATE fact_task SET due_date_key = %s, extension_count = extension_count + 1, remark = %s, updated_at = now() "
-                        "WHERE task_key = %s", (mc.date_key(new_due), remark, r["task_key"]))
+            if r["due_date"] < mc.today_ist():       # the deadline was missed: the extension costs the penalty
+                remark = body.remark.strip() or f"Missed deadline ({r['due_date'].isoformat()}) — revised to {new_due.isoformat()}, {s['extend']} pts"
+                cur.execute("UPDATE fact_task SET due_date_key = %s, extension_count = extension_count + 1, remark = %s, updated_at = now() "
+                            "WHERE task_key = %s", (mc.date_key(new_due), remark, r["task_key"]))
+                penalty = True
+            else:                                    # moved before it was missed: nobody is penalised for that
+                remark = body.remark.strip() or f"Deadline moved from {r['due_date'].isoformat()} to {new_due.isoformat()}"
+                cur.execute("UPDATE fact_task SET due_date_key = %s, remark = %s, updated_at = now() WHERE task_key = %s",
+                            (mc.date_key(new_due), remark, r["task_key"]))
+                penalty = False
     except pgerr.ForeignKeyViolation as e:
         raise mc.date_fk_error(e)
-    return f"Deadline revised to {new_due.isoformat()} — {s['extend']} points applied."
+    if penalty:
+        return f"Deadline revised to {new_due.isoformat()} — {s['extend']} points applied."
+    return f"Deadline moved to {new_due.isoformat()} — no penalty, the old deadline had not been missed."
 
 
 # ------------------------------------------------------------------ scores
@@ -374,6 +466,8 @@ class PlanIn(BaseModel):
 
 @router.post("/weekly-plan")
 def save_plan(body: PlanIn, user=Depends(ANY)):
+    if min(body.green, body.yellow, body.red) < 0 or max(body.green, body.yellow, body.red) > 100:
+        return "ERROR: Each share must be between 0% and 100%."
     if round(body.green + body.yellow + body.red) != 100:
         return "ERROR: Green + Yellow + Red must add up to 100%."
     ws = mc.parse_date(body.weekStart, "Week")

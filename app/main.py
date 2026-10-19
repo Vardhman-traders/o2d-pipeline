@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, challans, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
                o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles, data_tools,
-               timeline, doc_numbers, whatsapp, daily_reports)
+               timeline, doc_numbers, whatsapp, daily_reports, notify)
 
 
 @asynccontextmanager
@@ -557,6 +557,7 @@ app.include_router(attendance.router)
 app.include_router(data_tools.router)
 app.include_router(module_admin.router)
 app.include_router(whatsapp.router)
+app.include_router(notify.router)
 app.include_router(daily_reports.router)
 app.include_router(o2d_reports.router)
 app.include_router(admin.router)

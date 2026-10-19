@@ -53,6 +53,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "deleg_week": ("Delegation", "Delegation - My week (planned vs actual)"),
     "deleg_scoreboard": ("Delegation", "Delegation - Scoreboard"),
     "deleg_manage": ("Delegation", "Delegation - Manager (assign, review, follow up, all tasks)"),
+    "deleg_edit": ("Delegation", "Delegation - Edit tasks (change a task's wording, person or deadline; the admin always can; View only = no)"),
     # ---- Checklist (a part of the Delegation screen; each page below is one switch)
     "chk_mine": ("Checklist", "Checklist - My checklist (mark my items Done / Not Done)"),
     "chk_calendar": ("Checklist", "Checklist - Compliance calendar (my own items; a manager sees everyone's)"),

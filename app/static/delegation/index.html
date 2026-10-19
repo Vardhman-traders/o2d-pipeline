@@ -103,6 +103,16 @@
           </div>
         </div>
         <div class="flex items-center gap-4">
+          <div class="relative">
+            <button id="bellBtn" onclick="toggleBell()" class="relative p-2 text-slate-500 hover:text-indigo-700" title="Notifications" aria-label="Notifications"><i class="fa-solid fa-bell text-lg"></i><span id="bellBadge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center"></span></button>
+            <div id="bellPanel" class="hidden absolute right-0 mt-2 w-80 max-w-[90vw] bg-white border border-slate-200 rounded-xl shadow-2xl z-50">
+              <div class="flex justify-between items-center px-4 py-2.5 border-b">
+                <span class="font-bold text-slate-800 text-sm">Notifications</span>
+                <button onclick="readAllNotes()" class="text-xs font-semibold text-indigo-600 hover:underline">Mark all read</button>
+              </div>
+              <div id="bellList" class="max-h-96 overflow-y-auto"></div>
+            </div>
+          </div>
           <div class="text-right">
             <p id="userNameDisplay" class="text-sm font-semibold text-slate-900"></p>
             <span id="userRoleDisplay" class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full badge-role"></span>
@@ -492,6 +502,32 @@
   </div>
 
   <!-- MODAL: REVISE (EXTEND) A MISSED DEADLINE — from Follow Up -->
+  <!-- EDIT A TASK (the admin, or anyone given "Delegation - Edit tasks" in Setup > Access) -->
+  <div id="editTaskModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-slate-800"><i class="fa-solid fa-pen-to-square vt-text-navy mr-2"></i>Edit Task <span id="editTaskLabel" class="text-xs font-normal text-slate-400"></span></h3>
+        <button onclick="closeEditTask()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <input type="hidden" id="editTaskId">
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Staff Member</label>
+        <select id="editTaskStaff" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></select>
+        <p id="editTaskStaffNote" class="text-[11px] text-slate-400 mt-1"></p>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Task Detail *</label>
+        <textarea id="editTaskDesc" rows="3" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-1">Deadline *</label>
+        <input type="date" id="editTaskDue" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+      </div>
+      <button onclick="submitEditTask()" class="w-full py-2.5 vt-btn font-semibold rounded-xl">Save Changes</button>
+      <p id="editTaskMsg" class="text-xs text-center font-medium min-h-[16px]"></p>
+    </div>
+  </div>
+
   <div id="extendModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
       <div class="flex justify-between items-center border-b pb-3">
@@ -674,7 +710,7 @@
         setLoginMsg((res && res.message) ? res.message : 'Invalid User ID or Password.', true);
         return;
       }
-      currentUser = { id: res.id, name: res.name, role: res.role };
+      currentUser = { id: res.id, name: res.name, role: res.role, canEdit: !!res.canEditTasks };
       document.getElementById('loginSection').classList.add('hidden');
       document.getElementById('dashboardSection').classList.remove('hidden');
       initDashboardForRole();
@@ -726,7 +762,8 @@
         weeklyStaffId = currentUser.id;
       }
 
-      if (privileged) loadAssignableStaffDropdown();
+      if (privileged || currentUser.canEdit) loadAssignableStaffDropdown();
+      startBell();
 
       switchTab(firstTab_());
     }
@@ -1110,6 +1147,10 @@
         actions = '<button onclick="openExtendModal(\'' + t.taskId + '\')" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600">Revise Date</button>';
       } else {
         actions = '<span class="text-slate-300">—</span>';
+      }
+      if (currentUser.canEdit) {
+        var editBtn = '<button onclick="openEditTask(\'' + t.taskId + '\')" class="px-2.5 py-1.5 border border-slate-300 text-slate-700 bg-white text-xs font-semibold rounded-lg hover:bg-slate-50"><i class="fa-solid fa-pen mr-1"></i>Edit</button>';
+        actions = '<div class="flex flex-col items-end gap-1.5">' + (actions.indexOf('text-slate-300') !== -1 && actions.length < 60 ? '' : actions) + editBtn + '</div>';
       }
 
       var notesHtml = '';
@@ -1540,7 +1581,69 @@
 
     // ====================== ON LOAD ======================
     // Sign-in lives in the portal. The page's own sign-in path runs with whoever the portal session is.
-    function logout() { window.VT.toPortal(); }
+    function logout() { stopBell(); window.VT.toPortal(); }
+
+    // ====================== EDIT A TASK ======================
+    function openEditTask(taskId) {
+      var t = allTasksCache.filter(function (x) { return x.taskId === taskId; })[0];
+      if (!t) { showToast('Task not found - refresh the page.', 'error'); return; }
+      document.getElementById('editTaskId').value = taskId;
+      document.getElementById('editTaskLabel').textContent = taskId;
+      document.getElementById('editTaskDesc').value = t.taskDesc;
+      document.getElementById('editTaskDue').value = t.dueDate;
+      document.getElementById('editTaskMsg').textContent = '';
+      var sel = document.getElementById('editTaskStaff');
+      var base = document.getElementById('assignName');
+      var opts = base ? Array.prototype.slice.call(base.options).filter(function (o) { return o.value; }) : [];
+      if (!opts.some(function (o) { return o.value === t.assignedId; })) opts.unshift({ value: t.assignedId, text: t.assignedName });
+      sel.innerHTML = opts.map(function (o) { return '<option value="' + escapeHtml(o.value) + '">' + escapeHtml(o.text) + '</option>'; }).join('');
+      sel.value = t.assignedId;
+      var pending = t.status === 'Pending';
+      sel.disabled = !pending;
+      document.getElementById('editTaskStaffNote').textContent = pending ? 'Changing the person gives the task to them as a new task (they are told).' : 'The person can only be changed while the task is still pending.';
+      document.getElementById('editTaskModal').classList.remove('hidden');
+    }
+    function closeEditTask() { document.getElementById('editTaskModal').classList.add('hidden'); }
+    function submitEditTask() {
+      var msg = document.getElementById('editTaskMsg');
+      var desc = document.getElementById('editTaskDesc').value.trim(), due = document.getElementById('editTaskDue').value;
+      if (!desc || !due) { msg.textContent = 'Task detail and deadline are required.'; msg.className = 'text-xs text-center font-medium min-h-[16px] text-rose-500'; return; }
+      msg.textContent = 'Saving...'; msg.className = 'text-xs text-center font-medium min-h-[16px] text-slate-500';
+      VT.run.withSuccessHandler(function (r) {
+        var ok = typeof r === 'string' && r.indexOf('Task updated') === 0;
+        msg.textContent = r; msg.className = 'text-xs text-center font-medium min-h-[16px] ' + (ok ? 'text-emerald-600' : 'text-rose-500');
+        if (ok) { showToast(r); closeEditTask(); loadDashboard(); }
+      }).withFailureHandler(function (e) { msg.textContent = e.message; msg.className = 'text-xs text-center font-medium min-h-[16px] text-rose-500'; })
+        .editTask(document.getElementById('editTaskId').value, document.getElementById('editTaskStaff').value, desc, due);
+    }
+
+    // ====================== NOTIFICATIONS (the bell) ======================
+    var bellTimer = null, bellUnread = -1;
+    function startBell() { stopBell(); loadBell(); bellTimer = setInterval(loadBell, 45000); }
+    function stopBell() { if (bellTimer) { clearInterval(bellTimer); bellTimer = null; } bellUnread = -1; }
+    function toggleBell() { document.getElementById('bellPanel').classList.toggle('hidden'); }
+    document.addEventListener('click', function (e) {
+      var panel = document.getElementById('bellPanel');
+      if (panel && !panel.classList.contains('hidden') && !e.target.closest('#bellBtn') && !e.target.closest('#bellPanel')) panel.classList.add('hidden');
+    });
+    function loadBell() {
+      VT.run.withSuccessHandler(function (d) {
+        if (!d) return;
+        var badge = document.getElementById('bellBadge');
+        badge.textContent = d.unread > 99 ? '99+' : d.unread;
+        badge.classList.toggle('hidden', !d.unread);
+        if (bellUnread >= 0 && d.unread > bellUnread) showToast('You have ' + (d.unread - bellUnread) + ' new notification' + (d.unread - bellUnread === 1 ? '' : 's') + '.');
+        bellUnread = d.unread;
+        var list = document.getElementById('bellList');
+        list.innerHTML = d.items.length ? d.items.map(function (n) {
+          return '<button onclick="readNote(' + n.id + ')" class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 ' + (n.read ? '' : 'bg-indigo-50/50') + '">' +
+            '<div class="text-sm ' + (n.read ? 'text-slate-600' : 'font-semibold text-slate-900') + '">' + escapeHtml(n.title) + '</div>' +
+            '<div class="text-[11px] text-slate-400 mt-0.5">' + escapeHtml(new Date(n.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ' &middot; ' + escapeHtml(n.module) + '</div></button>';
+        }).join('') : '<p class="p-4 text-sm text-slate-400 text-center">Nothing yet.</p>';
+      }).withFailureHandler(function () { /* the bell is a convenience: a missed refresh is not an error */ }).getNotifications();
+    }
+    function readNote(id) { VT.run.withSuccessHandler(loadBell).readNotification(id); }
+    function readAllNotes() { VT.run.withSuccessHandler(loadBell).readAllNotifications(); }
     document.getElementById('loginSection').classList.add('hidden');
     window.VT.boot('delegation', function () {
       VT.run.withSuccessHandler(function (res) {

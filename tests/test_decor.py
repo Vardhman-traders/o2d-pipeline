@@ -146,3 +146,75 @@ def test_decor_lists_are_set_up_in_setup(client, db_conn, seed):
     assert stages[-1] == name                                  # a new stage goes to the end of its type
     assert client.put("/admin/module-settings", json={"key": "decor_quote_terms", "value": "Pay on time\nNo returns"}, headers=admin).status_code == 200
     assert rpc(client, admin, "getConfig")["quoteTerms"] == "Pay on time\nNo returns"
+
+
+def test_nobody_sees_anyone_elses_decor_data(client, db_conn, seed):
+    """Only the person who made an entry - or an administrator - can see or touch it. Owner-page holders are not exempt."""
+    admin = login(client, db_conn, "admin")
+    asha, _ = staff(client, db_conn)
+    boss, _ = staff(client, db_conn, page="decor_owner")      # holds the Owner page but is not an administrator
+    ravi, _ = staff(client, db_conn)
+
+    code = rpc(client, asha, "addClient", name="Asha Client", mobile="9000000001", amount=50000, productType="Wallpaper")["clientId"]
+    pay = rpc(client, asha, "addPayment", clientId=code, amount=1000, mode="Cash", stage="Stage 1 - Visit")
+    assert pay["ok"]
+    assert rpc(client, asha, "addExpense", clientId=code, type="Labour", amount=200)["ok"]
+    assert rpc(client, asha, "addItem", clientId=code, product="Border", amount=10)["ok"]
+    d = rpc(client, asha, "getClientDetail", clientId=code)
+    pay_id, exp_id, item_id = d["payments"][0]["rowIndex"], d["expenses"][0]["rowIndex"], d["items"][0]["rowIndex"]
+    qn = rpc(client, asha, "saveQuotation", client="Q", subtotal=1, grand=1, items=[])["performaNo"]
+
+    for who in (ravi, boss):
+        assert rpc(client, who, "getClients") == {"ok": True, "active": [], "completed": [], "hidden": []}
+        for action in ("getClientDetail", "getPartyLedger", "getPaymentsList", "getExpensesList", "getItems", "getPhotos"):
+            assert rpc(client, who, action, clientId=code)["ok"] is False, action
+        assert rpc(client, who, "getAgingReport")["buckets"] == {"b0": [], "b30": [], "b60": [], "b90": []}
+        assert rpc(client, who, "getMonthlyCollection")["monthly"] == {}
+        assert rpc(client, who, "getGPData")["sites"] == []
+        assert rpc(client, who, "getAllPhotos")["photos"] == []
+        assert rpc(client, who, "getQuotations")["list"] == []
+        assert qn not in str(rpc(client, who, "getQuotations"))
+        assert len(rpc(client, who, "getConfig")["staff"]) == 1          # no other person's name
+        # nothing of theirs can reach it by writing either
+        assert rpc(client, who, "addPayment", clientId=code, amount=5)["ok"] is False
+        assert rpc(client, who, "addExpense", clientId=code, type="x", amount=5)["ok"] is False
+        assert rpc(client, who, "addItem", clientId=code, product="x", amount=5)["ok"] is False
+        assert rpc(client, who, "savePhotoLink", clientId=code, photoUrl="http://x")["ok"] is False
+    for action in ("getAllBusinessLedger", "getFixedExp", "saveFixedExp", "saveStagePcts"):
+        assert rpc(client, boss, action, month=1, year=2026)["msg"] == "Not authorized", action
+
+    # the Owner page gives edit/delete buttons - on their own clients only; ids guessed from outside do nothing
+    assert rpc(client, boss, "editPayment", clientId=code, rowIndex=pay_id, amount=9)["ok"] is False
+    assert rpc(client, boss, "deletePayment", clientId=code, rowIndex=pay_id)["ok"] is False
+    assert rpc(client, boss, "editExpense", clientId=code, rowIndex=exp_id, amount=9)["ok"] is False
+    assert rpc(client, boss, "deleteExpense", clientId=code, rowIndex=exp_id)["ok"] is False
+    assert rpc(client, boss, "deleteItem", clientId=code, rowIndex=item_id)["ok"] is False
+    for action in ("reviseAmount", "markCompleted", "markActive", "hideClient", "deleteClient"):
+        assert rpc(client, boss, action, clientId=code, newAmount=1)["ok"] is False, action
+    mine = rpc(client, boss, "addClient", name="Boss Client", mobile="9000000002", amount=100, productType="Texture")["clientId"]
+    assert [c["clientId"] for c in rpc(client, boss, "getClients")["active"]] == [mine]
+    assert rpc(client, boss, "markCompleted", clientId=mine)["ok"]
+    assert [c["clientId"] for c in rpc(client, asha, "getClients")["active"]] == [code]        # and Asha cannot see Boss's
+
+    # still intact, and the administrator sees both people's work
+    after = rpc(client, asha, "getClientDetail", clientId=code)
+    assert len(after["payments"]) == 1 and after["payments"][0]["amount"] == 1000 and len(after["items"]) == 1
+    seen = {c["clientId"] for c in rpc(client, admin, "getClients")["active"] + rpc(client, admin, "getClients")["completed"]}
+    assert {code, mine} <= seen
+    assert qn in str(rpc(client, admin, "getQuotations")) and len(rpc(client, admin, "getConfig")["staff"]) > 1
+    assert rpc(client, admin, "getAllBusinessLedger")["ok"]
+
+
+def test_assigned_client_is_visible_to_the_assignee_only(client, db_conn, seed):
+    admin = login(client, db_conn, "admin")
+    asha, asha_name = staff(client, db_conn)
+    ravi, _ = staff(client, db_conn)
+    code = rpc(client, admin, "addClient", name="Assigned", mobile="9000000003", amount=500, productType="Wallpaper")["clientId"]
+    assert rpc(client, asha, "getClientDetail", clientId=code)["ok"] is False
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE dim_decor_client SET assigned_to = %s WHERE client_code = %s", (asha_name, code))
+    db_conn.commit()
+    assert rpc(client, asha, "addPayment", clientId=code, amount=50)["ok"]
+    assert [c["clientId"] for c in rpc(client, asha, "getClients")["active"]] == [code]
+    assert rpc(client, ravi, "getClientDetail", clientId=code)["ok"] is False
+    assert rpc(client, ravi, "addPayment", clientId=code, amount=50)["ok"] is False

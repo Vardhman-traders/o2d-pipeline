@@ -755,6 +755,7 @@
             <tr>
               <th class="sortable" data-k="date" onclick="sortBy('txn','date')">Date<span class="si">⇅</span></th>
               <th class="sortable" data-k="company" onclick="sortBy('txn','company')">Co.<span class="si">⇅</span></th>
+              <th class="sortable" data-k="source" onclick="sortBy('txn','source')">Src<span class="si">⇅</span></th>
               <th class="sortable" data-k="type" onclick="sortBy('txn','type')">Type<span class="si">⇅</span></th>
               <th class="sortable" data-k="invoice" onclick="sortBy('txn','invoice')">Inv.<span class="si">⇅</span></th>
               <th class="sortable" data-k="party" onclick="sortBy('txn','party')">Party<span class="si">⇅</span></th>
@@ -767,7 +768,7 @@
             </tr>
           </thead>
           <tbody id="txnBody">
-            <tr><td colspan="11"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>
+            <tr><td colspan="12"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -1425,13 +1426,14 @@ const COL_VAL = {
   party    : r => String(r.Party||'—'),
   amount   : r => rupee(r.Amount),
   mode     : r => r.Mode,
+  source   : r => r.Source,
   createdby: r => r.CreatedBy,
   status   : r => r.Status,
   remarks  : r => String(r.Remarks||'—'),
 };
 // what each column sorts by
 const TXN_SORT = {
-  date: r => r.Date, company: r => r.Company, type: r => r.Type, invoice: r => String(r.Invoice||'').trim(),
+  date: r => r.Date, company: r => r.Company, source: r => r.Source, type: r => r.Type, invoice: r => String(r.Invoice||'').trim(),
   party: r => r.Party, amount: r => Number(r.Amount)||0, mode: r => r.Mode, createdby: r => r.CreatedBy,
   status: r => r.Status, remarks: r => r.Remarks,
 };
@@ -1624,12 +1626,12 @@ function loadTransactions_(silent){
   const companyFilter = document.getElementById('companyFilter').value || 'All Companies';
   const range = getDateRange();
   const tbody = document.getElementById('txnBody');
-  if (!silent) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>`;
+  if (!silent) tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></td></tr>`;
   VT.run
     .withSuccessHandler(res => {
       const dbg = document.getElementById('txnDebugLine');
       if (res && res.ok === false) {
-        if (!silent) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">Error: ${esc(res.error)}</div></td></tr>`;
+        if (!silent) tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state">Error: ${esc(res.error)}</div></td></tr>`;
         return;
       }
       const rows = (res && res.rows) ? res.rows : [];
@@ -1642,7 +1644,7 @@ function loadTransactions_(silent){
     })
     .withFailureHandler(err => {
       if (!silent) document.getElementById('txnBody').innerHTML =
-        `<tr><td colspan="11"><div class="empty-state">Could not load: ${esc(err.message)}</div></td></tr>`;
+        `<tr><td colspan="12"><div class="empty-state">Could not load: ${esc(err.message)}</div></td></tr>`;
     })
     .getTransactions(currentUser.role, currentUser.username, companyFilter, range.from, range.to);
 }
@@ -1744,7 +1746,7 @@ function renderMerge(){
 
     const company = document.createElement('select'); company.disabled = locked;
     company.innerHTML = '<option value="">— company —</option>' +
-      companiesCache.map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
+      companiesCache.filter(c => (COMPANY_META[c] || {}).isSales).map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
     td(company);
     const party = input('text', d.party, v => { d.party = v; }, { placeholder: 'Party', autocomplete: 'off' });
     const dl = document.createElement('datalist'); dl.id = 'dl_' + row.key; party.setAttribute('list', dl.id);
@@ -1942,7 +1944,7 @@ function renderRows(rows){
 
   const tbody = document.getElementById('txnBody');
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">🔍</div>No entries found for this filter.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">🔍</div>No entries found for this filter.</div></td></tr>`;
     if (wrap) { wrap.scrollTop = saveT; wrap.scrollLeft = saveL; }
     return;
   }
@@ -1979,6 +1981,9 @@ function renderRows(rows){
     if (canEdit) {
       actionParts.push(`<button class="btn btn-edit btn-sm" title="Edit" onclick="openEditModal('${esc(r.TxnID)}')">✏️</button>`);
     }
+    if (currentUser.role === 'Admin') {
+      actionParts.push(`<button class="btn btn-reject btn-sm" title="Delete entry" onclick="deleteTxn('${esc(r.TxnID)}')">🗑</button>`);
+    }
     const action = actionParts.length
       ? `<div class="row-actions">${actionParts.join('')}</div>`
       : (r.ApprovedBy
@@ -1992,6 +1997,7 @@ function renderRows(rows){
     return `<tr>
       <td title="${esc(fmtDate(r.Date))}">${highlight(fmtDate(r.Date))}${backdatedFlag}</td>
       <td title="${esc(r.Company)}">${highlight(r.Company)}</td>
+      <td title="${r.Source === 'O2D' ? 'Came from the O2D dashboard' : 'Punched in directly on the Payments dashboard'}"><span class="small-note">${esc(r.Source || '')}</span></td>
       <td title="${esc(r.Type)}">${highlight(abbrevType(r.Type))}</td>
       <td title="Invoice: ${esc(r.Invoice||'—')}">${invDisplay}</td>
       <td class="c-party" title="${esc(r.Party||'—')}">${highlight(r.Party || '—')}</td>
@@ -2012,6 +2018,10 @@ function renderRows(rows){
 // ============================================================
 // APPROVE / REJECT
 // ============================================================
+function deleteTxn(txnId){
+  if (!confirm('Delete entry ' + txnId + ' for good? An entry that came from O2D will show again on the Sales / Sales Return tab so it can be merged again.')) return;
+  VT.run.withSuccessHandler(() => refreshAll(true)).withFailureHandler(e => alert(e.message)).payDeleteTxn(txnId);
+}
 function decide(txnId, decision){
   const idx = lastTxnRows.findIndex(r => r.TxnID === txnId);
   if (idx !== -1) {

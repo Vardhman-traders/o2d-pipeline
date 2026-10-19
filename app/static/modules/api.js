@@ -70,6 +70,10 @@
     updateTaskStatus: function (taskId, notes, photo) { return ask('POST', '/delegation/tasks/' + encodeURIComponent(taskId) + '/complete', { notes: notes, photo: photo }); },
     managerReview: function (taskId, status, remark) { return ask('POST', '/delegation/tasks/' + encodeURIComponent(taskId) + '/review', { status: status, remark: remark }); },
     extendTaskDeadline: function (taskId, newDueDate, remark) { return ask('POST', '/delegation/tasks/' + encodeURIComponent(taskId) + '/extend', { newDueDate: newDueDate, remark: remark }); },
+    editTask: function (taskId, staffId, desc, dueDate) { return ask('PUT', '/delegation/tasks/' + encodeURIComponent(taskId), { staffId: staffId, desc: desc, dueDate: dueDate }); },
+    getNotifications: get('/notifications'),
+    readNotification: function (id) { return ask('POST', '/notifications/' + id + '/read'); },
+    readAllNotifications: function () { return ask('POST', '/notifications/read-all'); },
     getScoreboard: get('/delegation/scoreboard'),
     getWeeklyReview: function (staffId, anchor) { return ask('GET', '/delegation/weekly' + qs({ staff_id: staffId, anchor: anchor })); },
     saveWeeklyPlan: function (staffId, staffName, weekStart, weekEnd, g, y, r) { return ask('POST', '/delegation/weekly-plan', { staffId: staffId, weekStart: weekStart, green: g, yellow: y, red: r }); },
@@ -204,9 +208,10 @@
       a.className = out.className;
       a.title = 'Back to the portal home';
       a.setAttribute('aria-label', 'Back to the portal home');
-      a.innerHTML = out.id === 'logoutBtn' || out.querySelector('i') ? '&#8962;' : '&#8962; Home';
+      a.innerHTML = '&#8962; Home';
       a.style.cssText = out.style.cssText;
-      if (out.querySelector('i')) a.className = 'p-2 text-slate-500 hover:text-indigo-700 text-lg';
+      // a page whose log-out control is just an icon gets a Home button that is written out, not a bare symbol
+      if (out.querySelector('i')) a.className = 'px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-indigo-700 hover:border-indigo-300 text-sm font-semibold';
       a.addEventListener('click', function () { window.location.href = '/'; });
       out.parentNode.insertBefore(a, out);
     } else {
