@@ -132,7 +132,8 @@
   fns.getEmployeeSalaryView = function (name) { return attPublic('getEmployeeSalaryView', [name, salaryPass[String(name).toLowerCase().trim()] || '']); };
   ['verifyOwnerPassword', 'getTodayAttendance', 'manualCheckout', 'getAllSalaries', 'setEmployeeSalary', 'getAllAdvances', 'addAdvancePayment',
    'deleteAdvance', 'getSalaryReport', 'getMonthlyReport', 'getAbsentStreak', 'getEmployeeStreak', 'getAllEmployees', 'addEmployee',
-   'deleteEmployee', 'getAllPINs', 'setEmployeePIN', 'getWorkPlaces', 'setEmployeePlaces'].forEach(function (n) {
+   'deleteEmployee', 'getAllPINs', 'setEmployeePIN', 'getWorkPlaces', 'setEmployeePlaces', 'getMonthlyAll', 'getSalaryAll', 'correctAttendance',
+   'deleteAttendance'].forEach(function (n) {
     fns[n] = function () { return attOwner(n, Array.prototype.slice.call(arguments)); };
   });
 

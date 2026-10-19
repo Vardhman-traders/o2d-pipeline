@@ -474,8 +474,8 @@ def notify_attendance(row_index, name):
 
 
 def _month_records(cur, emp_key: int, year: int, month: int) -> dict[int, dict]:
-    cur.execute("SELECT work_date, check_in_time, check_out_time, checkout_source, final_status, hours_worked_min, l.location_name "
-                "FROM fact_attendance a LEFT JOIN dim_att_location l ON l.location_key = a.location_key "
+    cur.execute("SELECT work_date, check_in_time, check_out_time, checkout_source, final_status, hours_worked_min, l.location_name, "
+                "a.corrected_at, a.correction_note FROM fact_attendance a LEFT JOIN dim_att_location l ON l.location_key = a.location_key "
                 "WHERE a.employee_key = %s AND extract(year FROM work_date) = %s AND extract(month FROM work_date) = %s", (emp_key, year, month))
     return {r["work_date"].day: r for r in cur.fetchall()}
 
@@ -557,7 +557,7 @@ def _marked_row(r: dict, rules: Rules, urls: dict) -> dict:
     return {"name": r["employee_name"], "time": _hhmm(r["check_in_time"]), "site": r["location_name"] or "",
             "checkinStatus": rules.checkin_status(_mins(r["check_in_time"])), "finalStatus": r["final_status"], "checkedOut": out,
             "checkoutTime": _hhmm(r["check_out_time"]) if out else "—", "hoursWorked": _hours_text(r["hours_worked_min"]) if out else "—",
-            "photoIn": urls.get(r["photo_in_key"], ""), "photoOut": urls.get(r["photo_out_key"], "")}
+            "corrected": r.get("corrected_at") is not None, "photoIn": urls.get(r["photo_in_key"], ""), "photoOut": urls.get(r["photo_out_key"], "")}
 
 
 def _signed(keys: list[int]) -> dict[int, str]:
@@ -584,7 +584,7 @@ def get_today_attendance(user):
     off = rules.is_off(today)
     absent = [] if off else [{"name": e["employee_name"], "role": e["role_title"] or ""} for e in emps if e["employee_key"] not in seen]
     clock = lambda m: _to12h(f"{m // 60:02d}:{m % 60:02d}").lstrip("0").replace(":00 ", " ")  # noqa: E731
-    return {"status": "ok", "date": _dmy(today), "isWeeklyOff": off, "marked": marked, "absent": absent, "totalEmployees": len(emps),
+    return {"status": "ok", "date": _dmy(today), "dateIso": today.isoformat(), "isWeeklyOff": off, "marked": marked, "absent": absent, "totalEmployees": len(emps),
             "rules": {"absentBefore": clock(rules.absent_before), "halfBefore": clock(rules.half_before), "fullUntil": clock(rules.full_until),
                       "lateAfter": clock(rules.late_after)}}
 
@@ -644,8 +644,8 @@ def get_all_salaries(user):
                                               "setBy": r["display_name"] or "Owner"} for r in cur.fetchall()]}
 
 
-def get_salary_report(user, name, year, month, override=None):
-    rules = Rules()
+def get_salary_report(user, name, year, month, override=None, rules: Rules | None = None):
+    rules = rules or Rules()
     try:
         year, month = int(year), int(month)
         if not (1 <= month <= 12):
@@ -850,6 +850,8 @@ def get_all_pins(user):
 
 # --- reports
 def _fmt_month_days(year: int, month: int) -> int:
+    if not (1 <= month <= 12 and 2000 <= year <= 2100):
+        raise ValueError("month / year out of range")
     return (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
 
 
@@ -857,12 +859,17 @@ def get_monthly_report(user, name, year, month):
     rules = Rules()
     try:
         year, month = int(year), int(month)
-        n = _fmt_month_days(year, month)
+        _fmt_month_days(year, month)
     except (TypeError, ValueError):
         return {"status": "error", "msg": "Year and month are not valid."}
     with db.cursor() as cur:
         emp = _find_employee(cur, name, active_only=False)
         recs = _month_records(cur, emp["employee_key"], year, month) if emp else {}
+    return _monthly_from(rules, recs, year, month)
+
+
+def _monthly_from(rules: Rules, recs: dict, year: int, month: int) -> dict:
+    n = _fmt_month_days(year, month)
     today, days = mc.today_ist(), []
     stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "weeklyOff": 0, "incomplete": 0}
     for d in range(1, n + 1):
@@ -885,10 +892,162 @@ def get_monthly_report(user, name, year, month):
         else:
             status = "Absent"
             stats["absent"] += 1
-        days.append({"day": d, "dayName": JS_DAYS[dow], "status": status, "time": t_in, "checkoutTime": t_out, "hoursWorked": hrs})
+        days.append({"day": d, "dayName": JS_DAYS[dow], "date": dt.isoformat(), "status": status, "time": t_in, "checkoutTime": t_out,
+                     "hoursWorked": hrs, "hasRecord": rec is not None, "site": (rec["location_name"] or "") if rec else "",
+                     "corrected": bool(rec and rec.get("corrected_at")), "note": (rec.get("correction_note") or "") if rec else ""})
     stats["totalWorkingDays"] = n - stats["weeklyOff"]
     stats["paidDays"] = stats["present"] + stats["late"] + stats["halfDay"] * 0.5
     return {"status": "ok", "days": days, "stats": stats}
+
+
+def get_monthly_all(user, year, month):
+    """Every active employee's month in one answer (the Excel export of the whole team): per employee the day-wise status, times and totals."""
+    rules = Rules()
+    try:
+        year, month = int(year), int(month)
+        _fmt_month_days(year, month)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Year and month are not valid."}
+    out = []
+    with db.cursor() as cur:
+        cur.execute("SELECT employee_key, employee_name, role_title FROM dim_att_employee WHERE is_active ORDER BY lower(employee_name)")
+        emps = cur.fetchall()
+        for e in emps:
+            rep = _monthly_from(rules, _month_records(cur, e["employee_key"], year, month), year, month)
+            out.append({"name": e["employee_name"], "role": e["role_title"] or "", "stats": rep["stats"], "days": rep["days"]})
+    return {"status": "ok", "year": year, "month": month, "employees": out}
+
+
+def get_salary_all(user, year, month):
+    """The whole team's salary sheet for a month: one row per active employee (employees with no salary set are listed as such)."""
+    rules = Rules()
+    try:
+        year, month = int(year), int(month)
+        _fmt_month_days(year, month)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Year and month are not valid."}
+    with db.cursor() as cur:
+        cur.execute("SELECT employee_name, role_title FROM dim_att_employee WHERE is_active ORDER BY lower(employee_name)")
+        emps = cur.fetchall()
+    rows = []
+    for e in emps:
+        r = get_salary_report(user, e["employee_name"], year, month, None, rules)
+        if r.get("status") != "ok":
+            rows.append({"name": e["employee_name"], "role": e["role_title"] or "", "salarySet": False})
+            continue
+        s = r["stats"]
+        rows.append({"name": e["employee_name"], "role": e["role_title"] or "", "salarySet": True, "monthlySalary": r["monthlySalary"],
+                     "perDay": r["perDaySalary"], "present": s["present"], "late": s["late"], "halfDay": s["halfDay"], "absent": s["absent"],
+                     "sandwich": s["sandwich"], "incomplete": s["incomplete"], "weeklyOff": s["weeklyOff"], "deductionDays": r["totalDeductionDays"],
+                     "deductionAmount": r["deductionAmount"], "advance": r["totalAdvance"], "netSalary": r["netSalary"], "paidDays": r["totalPaidDays"]})
+    return {"status": "ok", "year": year, "month": month, "baseDays": rules.base_days, "rows": rows}
+
+
+# --- the admin corrects a wrongly punched day (only an admin; every change is in the audit log and marked on the day)
+CORRECTABLE = ("Present", "Late", "Half Day", "Absent")
+
+
+def _admin_only(user) -> None:
+    if user["role"] != "admin":
+        raise HTTPException(403, "Only the admin can correct attendance.")
+
+
+def _parse_hhmm(text, what: str, required: bool) -> time | None:
+    text = str(text or "").strip()
+    if not text:
+        if required:
+            raise HTTPException(422, f"{what} is required.")
+        return None
+    try:
+        h, m = (int(x) for x in text.split(":")[:2])
+        return time(h, m)
+    except (ValueError, TypeError):
+        raise HTTPException(422, f"{what} is not a valid time (use HH:MM).")
+
+
+def _day_of(text) -> date:
+    try:
+        d = date.fromisoformat(str(text or "").strip())
+    except ValueError:
+        raise HTTPException(422, "The date is not valid.")
+    if d > mc.today_ist():
+        raise HTTPException(422, "Attendance cannot be set for a future day.")
+    return d
+
+
+def _snapshot(r: dict | None) -> dict | None:
+    return None if r is None else {"in": _hhmm(r["check_in_time"]), "out": _hhmm(r["check_out_time"]), "status": r["final_status"],
+                                   "site": r.get("location_name") or ""}
+
+
+def correct_attendance(user, data):
+    """data: {name, date, checkIn, checkOut?, status? (blank = worked out from the times by the rules), site?, reason}. Updates the day, or adds it
+    when the person has no punch that day. A correction never sends a WhatsApp message."""
+    _admin_only(user)
+    data = data or {}
+    rules = Rules()
+    day = _day_of(data.get("date"))
+    t_in = _parse_hhmm(data.get("checkIn"), "Check-in time", True)
+    t_out = _parse_hhmm(data.get("checkOut"), "Check-out time", False)
+    reason = " ".join(str(data.get("reason") or "").split())[:200]
+    if not reason:
+        raise HTTPException(422, "Write the reason for the correction (it is kept with the day).")
+    forced = str(data.get("status") or "").strip()
+    if forced and forced not in CORRECTABLE:
+        raise HTTPException(422, "Status must be Present, Late, Half Day or Absent (or left blank).")
+    in_min, out_min = _mins(t_in), _mins(t_out)
+    if t_out is not None and out_min < in_min:
+        raise HTTPException(422, "Check-out cannot be before check-in.")
+    hours_min = _hours(in_min, out_min)[1] if t_out is not None else None
+    status = forced or (rules.final_status(in_min, out_min) if t_out is not None else "Incomplete")
+    with db.cursor() as cur:
+        emp = _find_employee(cur, data.get("name"), active_only=False)
+        if not emp:
+            raise HTTPException(404, "Employee not found")
+        loc_key = None
+        site = str(data.get("site") or "").strip()
+        if site:
+            cur.execute("SELECT location_key FROM dim_att_location WHERE lower(btrim(location_name)) = lower(%s)", (site,))
+            loc = cur.fetchone()
+            if not loc:
+                raise HTTPException(422, "Choose the place from the list.")
+            loc_key = loc["location_key"]
+        existing = _today_row(cur, emp["employee_key"], day)
+        source = "Manual (Owner)" if t_out is not None else None
+        if existing:
+            cur.execute("UPDATE fact_attendance SET check_in_time = %s, check_out_time = %s, checkout_source = %s, hours_worked_min = %s, final_status = %s, "
+                        "location_key = COALESCE(%s, location_key), corrected_at = now(), corrected_by_user_key = %s, correction_note = %s, updated_at = now() "
+                        "WHERE attendance_key = %s", (t_in, t_out, source, hours_min, status, loc_key, user["user_key"], reason, existing["attendance_key"]))
+        else:
+            cur.execute("INSERT INTO fact_attendance (employee_key, work_date, check_in_time, check_out_time, checkout_source, hours_worked_min, final_status, "
+                        "location_key, wa_status, corrected_at, corrected_by_user_key, correction_note) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s)",
+                        (emp["employee_key"], day, t_in, t_out, source, hours_min, status, loc_key, WA["SKIPPED"], user["user_key"], reason))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'attendance.correct', %s, %s)",
+                    (user["user_key"], user["username"], f"{emp['employee_name']} {day.isoformat()}",
+                     Json({"before": _snapshot(existing), "after": {"in": _hhmm(t_in), "out": _hhmm(t_out), "status": status, "site": site}, "reason": reason})))
+    return {"status": "ok", "created": existing is None, "finalStatus": status, "hoursWorked": _hours_text(hours_min) if t_out is not None else "—"}
+
+
+def delete_attendance(user, data):
+    """data: {name, date, reason}. Removes a punch made by mistake - the day then counts like any day with no punch (absent, or the weekly off)."""
+    _admin_only(user)
+    data = data or {}
+    day = _day_of(data.get("date"))
+    reason = " ".join(str(data.get("reason") or "").split())[:200]
+    if not reason:
+        raise HTTPException(422, "Write the reason (it is kept in the audit log).")
+    with db.cursor() as cur:
+        emp = _find_employee(cur, data.get("name"), active_only=False)
+        if not emp:
+            raise HTTPException(404, "Employee not found")
+        row = _today_row(cur, emp["employee_key"], day)
+        if not row:
+            raise HTTPException(404, "There is no attendance on that day.")
+        cur.execute("DELETE FROM fact_attendance WHERE attendance_key = %s", (row["attendance_key"],))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'attendance.delete', %s, %s)",
+                    (user["user_key"], user["username"], f"{emp['employee_name']} {day.isoformat()}", Json({"before": _snapshot(row), "reason": reason})))
+    return {"status": "ok"}
 
 
 def _working_days_back(rules: Rules, count: int, limit: int) -> list[date]:
@@ -971,6 +1130,10 @@ OWNER = {
     "deleteAdvance": lambda u, a: delete_advance(u, a[1]),
     "getSalaryReport": lambda u, a: get_salary_report(u, a[1], a[2], a[3], a[4] if len(a) > 4 else None),
     "getMonthlyReport": lambda u, a: get_monthly_report(u, a[1], a[2], a[3]),
+    "getMonthlyAll": lambda u, a: get_monthly_all(u, a[1], a[2]),
+    "getSalaryAll": lambda u, a: get_salary_all(u, a[1], a[2]),
+    "correctAttendance": lambda u, a: correct_attendance(u, a[1]),
+    "deleteAttendance": lambda u, a: delete_attendance(u, a[1]),
     "getAbsentStreak": lambda u, a: get_absent_streak(u, a[1]),
     "getEmployeeStreak": lambda u, a: get_employee_streak(u, a[1]),
     "getAllEmployees": lambda u, a: get_all_employees(u),
@@ -985,7 +1148,7 @@ OWNER = {
 
 @router.post("/owner/rpc")
 def owner_rpc(body: RpcIn, user=Depends(OWNER_DEP)):
-    if body.action in ("manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces"):
+    if body.action in ("correctAttendance", "deleteAttendance", "manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces"):
         access.require_edit(user, OWNER_PAGE)
     fn = OWNER.get(body.action)
     if not fn:
@@ -1000,7 +1163,7 @@ def owner_rpc(body: RpcIn, user=Depends(OWNER_DEP)):
 
 @router.get("/owner/me")
 def owner_me(user=Depends(OWNER_DEP)):
-    return {"ok": True, "name": user["display_name"]}
+    return {"ok": True, "name": user["display_name"], "role": user["role"], "canCorrect": user["role"] == "admin"}
 
 
 # ------------------------------------------------------------------ the 8 PM auto check-out and the five-minute WhatsApp retry
