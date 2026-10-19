@@ -237,7 +237,8 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
               COALESCE(SUM(CASE WHEN NOT m.is_cash THEN {sign} * t.amount END), 0) AS bank_balance,
               COALESCE(SUM(CASE WHEN tt.counts_as_received AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS received,
               COALESCE(SUM(CASE WHEN tt.counts_as_paid AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS paid,
-              COALESCE(SUM(CASE WHEN from_o2d THEN tt.sales_effect * t.amount END), 0) AS cash_sales
+              COALESCE(SUM(CASE WHEN from_o2d AND m.is_cash THEN tt.sales_effect * t.amount END), 0) AS cash_sales,
+              COALESCE(SUM(CASE WHEN from_o2d AND NOT m.is_cash THEN tt.sales_effect * t.amount END), 0) AS bank_sales
             FROM (SELECT t.*, EXISTS (SELECT 1 FROM payment_push pp WHERE pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key) AS from_o2d
                   FROM fact_payment_txn t) t
             JOIN dim_date d ON d.date_key = t.txn_date_key JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
@@ -266,7 +267,7 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
     else:
         label = "Filtered Summary" if (df or dt) else "Overall Summary"
     return {"cashInHand": float(s["cash_in_hand"]), "bankBalance": float(s["bank_balance"]),
-            "totalReceived": float(s["received"]), "totalPaid": float(s["paid"]), "cashSales": float(s["cash_sales"]),
+            "totalReceived": float(s["received"]), "totalPaid": float(s["paid"]), "cashSales": float(s["cash_sales"]), "bankSales": float(s["bank_sales"]),
             "pendingEntries": pending, "pendingByType": {"all": pending, **by_type}, "scopeLabel": label, "rawCount": raw}
 
 

@@ -273,6 +273,8 @@
     .card-red::before{background:#fff;}
     .card-purple {background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;}
     .card-purple::before{background:#fff;}
+    .card-orange {background:linear-gradient(135deg,#ea580c,#fb923c);color:#fff;}
+    .card-orange::before{background:#fff;}
 
     /* ===== TRANSACTION LIST PANEL ===== */
     .list-panel{
@@ -1618,8 +1620,12 @@ function loadDashboard_(){
           <div class="card-sub">Cash payments + expense</div>
         </div>
         <div class="card card-purple ${activeCardKey==='cashSales'?'active-card':''}" onclick="filterCard('cashSales')">
-          <div class="label">🛒 Cash Sales</div><div class="value">${rupee(d.cashSales)}</div>
-          <div class="card-sub">Net sales from O2D</div>
+          <div class="label">🛒 Cash O2D</div><div class="value">${rupee(d.cashSales)}</div>
+          <div class="card-sub">Cash receipts from O2D</div>
+        </div>
+        <div class="card card-orange ${activeCardKey==='bankSales'?'active-card':''}" onclick="filterCard('bankSales')">
+          <div class="label">🏧 Bank O2D</div><div class="value">${rupee(d.bankSales)}</div>
+          <div class="card-sub">Other modes from O2D</div>
         </div>
         <div class="card card-blue ${activeCardKey==='bankBalance'?'active-card':''}" onclick="filterCard('bankBalance')">
           <div class="label">🏦 Total Bank All Transactions</div><div class="value">${rupee(d.bankBalance)}</div>
@@ -1885,8 +1891,13 @@ const CARD_FILTERS = {
   },
 
   cashSales: {
-    label: 'Cash Sales',
-    test: r => r.Source === 'O2D' && r.Status === 'Approved' && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect)
+    label: 'Cash O2D',
+    test: r => r.Source === 'O2D' && modeIsCash(r.Mode) && r.Status === 'Approved' && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect)
+  },
+
+  bankSales: {
+    label: 'Bank O2D',
+    test: r => r.Source === 'O2D' && !modeIsCash(r.Mode) && r.Status === 'Approved' && !!(TYPE_META[r.Type] && TYPE_META[r.Type].salesEffect)
   },
 
   pendingEntries: {
