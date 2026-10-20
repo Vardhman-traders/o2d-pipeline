@@ -24,7 +24,7 @@ SITE_PAGE = {"godown": "po_godown", "shop": "po_shop"}
 
 SELECT = """
 SELECT e.purchase_key, s.site_slug, p.party_name AS vendor, md.full_date AS material_date, idt.full_date AS invoice_date,
-       e.invoice_no, e.invoice_amount, e.remarks
+       e.invoice_no, e.invoice_amount, e.remarks, e.legacy_photo_urls
 FROM fact_purchase_entry e
 JOIN dim_purchase_site s ON s.site_key = e.site_key
 JOIN dim_party p ON p.party_key = e.vendor_party_key
@@ -104,7 +104,7 @@ def _entry(r: dict, photos: dict) -> dict:
             "vendorName": r["vendor"], "materialReceivedDate": mc.iso(r["material_date"]) or "",
             "invoiceDate": mc.iso(r["invoice_date"]) or "", "invoiceNumber": r["invoice_no"] or "",
             "invoiceAmount": float(r["invoice_amount"]) if r["invoice_amount"] is not None else "",
-            "remarks": r["remarks"] or "", "photos": " | ".join(photos.get(r["purchase_key"], []))}
+            "remarks": r["remarks"] or "", "photos": " | ".join(photos.get(r["purchase_key"], []) + ([r["legacy_photo_urls"]] if r.get("legacy_photo_urls") else []))}
 
 
 # ------------------------------------------------------------------ reading

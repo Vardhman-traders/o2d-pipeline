@@ -351,7 +351,7 @@ class RowsIn(BaseModel):
 def _clean_rows(rows: list[dict], ent: dict) -> list[dict]:
     bulk.check_row_cap(len(rows))
     return bulk.canonical_rows([{k: ("" if v is None else str(v).strip()) if k != "_row" else v
-                                 for k, v in r.items()} for r in rows], ent["columns"])
+                                 for k, v in r.items()} for r in rows], ent["columns"], ent.get("aliases"))
 
 
 @router.get("/bulk/batches")
@@ -442,14 +442,14 @@ async def validate_upload(entity: str, request: Request, filename: str = "", adm
     ent = _entity(entity)
     raw = await request.body()
     rows, names = bulk.read_table(raw)
-    problem = bulk.header_problem(names, ent["required"], ent["columns"])
+    problem = bulk.header_problem(names, ent["required"], ent["columns"], ent.get("aliases"))
     if problem:
         return {"format_error": problem, "columns": ent["columns"], "help": ent["help"], "label": ent["label"]}
     if not rows:
         return {"format_error": "No data rows found. Fill in the template below its header row (rows marked EXAMPLE "
                                 "are ignored).", "columns": ent["columns"], "help": ent["help"], "label": ent["label"]}
     bulk.check_row_cap(len(rows))
-    return _public(ent["validate"](bulk.canonical_rows(rows, ent["columns"])), ent)
+    return _public(ent["validate"](bulk.canonical_rows(rows, ent["columns"], ent.get("aliases"))), ent)
 
 
 @router.post("/bulk/{entity}/revalidate")
