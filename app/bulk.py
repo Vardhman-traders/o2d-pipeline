@@ -7,6 +7,7 @@ Nothing here touches the database; the per-entity rules live in bulk_entities.py
 """
 import csv
 import io
+import re
 import zipfile
 from datetime import date, datetime
 
@@ -78,9 +79,23 @@ def read_table(raw: bytes) -> tuple[list[dict], list[str]]:
     return kept, names
 
 
-def header_problem(names: list[str], required: list[str], expected: list[str]) -> str | None:
+def _norm(s: str) -> str:
+    """'Client ID', 'ClientID' and 'client_id' are the same header."""
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+def _header_lookup(expected: list[str], aliases: dict | None) -> dict:
+    """{normalised header: the template's spelling}. `aliases` maps other spellings (an old sheet's headers) to a template column."""
+    look = {_norm(c): c for c in expected}
+    for a, c in (aliases or {}).items():
+        look.setdefault(_norm(a), c)
+    return look
+
+
+def header_problem(names: list[str], required: list[str], expected: list[str], aliases: dict | None = None) -> str | None:
     """A message when the file clearly is not the template (none of the required columns present)."""
-    have = {n.lower() for n in names}
+    look = _header_lookup(expected, aliases)
+    have = {look.get(_norm(n), n).lower() for n in names}
     missing = [c for c in required if c.lower() not in have]
     if required and len(missing) == len(required):
         return ("This file doesn't match the template. Expected columns such as: " + ", ".join(expected) +
@@ -90,16 +105,16 @@ def header_problem(names: list[str], required: list[str], expected: list[str]) -
     return None
 
 
-def canonical_rows(rows: list[dict], expected: list[str]) -> list[dict]:
-    """Re-key each row by the template's exact header spelling (matching case-insensitively)."""
-    lookup = {c.lower(): c for c in expected}
+def canonical_rows(rows: list[dict], expected: list[str], aliases: dict | None = None) -> list[dict]:
+    """Re-key each row by the template's exact header spelling (case, spaces and punctuation ignored; `aliases` for old headers)."""
+    look = _header_lookup(expected, aliases)
     out = []
     for r in rows:
         row = {"_row": r.get("_row")}
         for k, v in r.items():
             if k == "_row":
                 continue
-            row[lookup.get(k.lower(), k)] = v
+            row[look.get(_norm(k), k)] = v
         for c in expected:
             row.setdefault(c, "")
         out.append(row)

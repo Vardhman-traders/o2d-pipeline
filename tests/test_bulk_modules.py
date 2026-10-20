@@ -1,6 +1,7 @@
 # ruff: noqa: F811
 """Bulk upload for Payments, Delegation tasks and Purchase entries: templates, validation messages, import, undo."""
 import uuid
+from zoneinfo import ZoneInfo
 
 from tests.test_admin_tools import client, confirm, d, login, seed, upload  # noqa: F401  (fixtures + helpers)
 
@@ -84,7 +85,7 @@ def test_purchases_validate_duplicates_import_and_undo(client, db_conn, seed):
 # ---------------------------------------------------------------- VT Decor and Attendance
 def test_decor_and_attendance_templates_are_admin_only(client, db_conn, seed):
     admin, shop = login(client, db_conn), login(client, db_conn, "shop")
-    for entity in ("decor_clients", "decor_payments", "decor_expenses", "att_employees", "att_attendance", "att_advances"):
+    for entity in ("decor_clients", "decor_payments", "decor_expenses", "decor_items", "decor_photos", "decor_quotations", "att_employees", "att_attendance", "att_advances"):
         assert client.get(f"/admin/bulk/{entity}/template.csv", headers=admin).status_code == 200
         assert client.get(f"/admin/bulk/{entity}/template.xlsx", headers=admin).status_code == 200
         assert client.get(f"/admin/bulk/{entity}/template.csv", headers=shop).status_code == 403
@@ -130,6 +131,127 @@ def test_decor_clients_payments_expenses_import_and_undo(client, db_conn, seed):
     assert client.post(f"/admin/bulk/batches/{exps['batch_id']}/undo", headers=admin).json()["removed"] == 1
     assert client.post(f"/admin/bulk/batches/{pays['batch_id']}/undo", headers=admin).json()["removed"] == 2
     assert client.post(f"/admin/bulk/batches/{clients['batch_id']}/undo", headers=admin).json()["removed"] == 1
+
+
+def test_decor_import_accepts_the_old_sheets_layout_and_keeps_client_ids(client, db_conn, seed):
+    """The old Master / PaymentsLog / ItemsLog sheets: legacy headers, Client ID kept, Added By, timestamps as dates, items leave the contract alone."""
+    admin = login(client, db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(max(client_key), 0) FROM dim_decor_client")
+        base = cur.fetchone()[0] + 500
+    a, b, c = f"C{base + 1}", f"C{base + 2}", f"c{base + 3}"
+    head = "ClientID,Name,Mobile,Address,Product,Amount,Date,Notes,Status,Assigned To,Added By,ProductType\n"
+    rep = upload(client, admin, "decor_clients", (head +
+        f"{a},Old Sharma,9811000091,Pitampura,Wall,100000,2026-03-04 10:15:00,,Active,,owner,\n"        # empty type = Wallpaper
+        f"{b},Old Sharma,9811000091,Rohini,Paint,5000,{d(-9)},,Completed,owner,,Paint Work\n"            # same name+mobile, other ID: fine
+        f"{a},Clash,9811000092,,,1,,,,,,Texture\n"                                                       # ID repeated in the file
+        f"{c},Nobody,9811000093,,,1,,,,,ghost.user,Texture\n").encode())                                # Added By becomes Assigned To: not a member
+    assert rep["total"] == 4 and rep["valid"] == 2, rep["errors"]
+    errs = " | ".join(e["error"] for e in rep["errors"])
+    assert "is also on row" in errs and "ghost.user" in errs
+    done = confirm(client, admin, "decor_clients", rep["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT client_code, contract_amount, start_date, status, added_by, assigned_to, t.type_name FROM dim_decor_client x "
+                    "JOIN dim_decor_product_type t ON t.type_key = x.product_type_key WHERE import_batch_id = %s ORDER BY client_key", (done["batch_id"],))
+        rows = cur.fetchall()
+    assert [r[0] for r in rows] == [f"C{base + 1}", f"C{base + 2}"]
+    assert rows[0][2].isoformat() == "2026-03-04" and rows[0][6] == "Wallpaper" and rows[0][4] == "owner"
+    assert rows[1][3] == "Completed" and rows[1][5] == "owner"
+
+    # a client added without an ID afterwards is given a code past the imported ones
+    nxt = upload(client, admin, "decor_clients", (head + ",Fresh Client,9811000094,,,,,,,,,Texture\n").encode())
+    nxt_done = confirm(client, admin, "decor_clients", nxt["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT client_key FROM dim_decor_client WHERE import_batch_id = %s", (nxt_done["batch_id"],))
+        assert cur.fetchone()[0] > base + 2
+
+    # payments, expenses and items use the old column names and a timestamp for the date
+    pay = upload(client, admin, "decor_payments", ("Timestamp,ClientID,ClientName,Stage,Amount,Mode,Date,PNum,Remarks\n"
+                                                  f"2026-03-05 11:00:00,{a},Old Sharma,Stage 1 - Visit,40000,Cash,05-03-2026 11:00,UTR9,adv\n"
+                                                  f"2026-03-05 11:00:00,c{base + 1},Old Sharma,,500,Cash,,,\n").encode())
+    assert pay["valid"] == 2, pay["errors"]
+    pays = confirm(client, admin, "decor_payments", pay["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT ref_no, pay_date FROM fact_decor_payment WHERE import_batch_id = %s AND ref_no IS NOT NULL", (pays["batch_id"],))
+        ref, day = cur.fetchone()
+    assert ref == "UTR9" and day.isoformat() == "2026-03-05"
+    itm = upload(client, admin, "decor_items", ("Timestamp,ClientID,ClientName,Product,Amount,Date,Notes,ItemIndex\n"
+                                               f"x,{a},Old Sharma,Roll A,60000,04-03-2026,,\n"
+                                               f"x,{a},Old Sharma,Roll B,40000,04-03-2026,,\n"
+                                               f"x,{b},Old Sharma,Paint,5000,,,3\n").encode())
+    assert itm["valid"] == 3, itm["errors"]
+    items = confirm(client, admin, "decor_items", itm["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT c.client_code, i.item_index FROM fact_decor_item i JOIN dim_decor_client c USING (client_key) "
+                    "WHERE i.import_batch_id = %s ORDER BY i.item_key", (items["batch_id"],))
+        assert cur.fetchall() == [(a, 1), (a, 2), (b, 3)]
+        cur.execute("SELECT contract_amount FROM dim_decor_client WHERE client_code = %s", (a,))
+        assert float(cur.fetchone()[0]) == 100000.0                        # items did not change the contract
+    ph = upload(client, admin, "decor_photos", ("timestamp,client_id,client_name,stage,caption,photo_url,drive_file_id\n"
+                                               f"x,{a},Old Sharma,Expense Challan,[Challan] Material,https://lh3.googleusercontent.com/d/abc,abc\n"
+                                               f"x,{a},Old Sharma,,Wall,not-a-link,\n").encode())
+    assert ph["valid"] == 1 and "https://" in ph["errors"][0]["error"]
+    phs = confirm(client, admin, "decor_photos", ph["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT kind, legacy_url FROM fact_decor_photo WHERE import_batch_id = %s", (phs["batch_id"],))
+        assert cur.fetchone() == ("challan", "https://lh3.googleusercontent.com/d/abc")
+    no = f"VT-9{base}"
+    qt = upload(client, admin, "decor_quotations", ("timestamp,quot_id,created_by,client,mobile,addr,gstin,date,subtotal,cgst_pct,sgst_pct,grand,items_json\n"
+        f'x,{no},owner,Priyanka,9999392616,Gurugram,,2026-09-20 00:00:00,227500,0,0,227500,"[{{""desc"":""Paint"",""qty"":6500,""mrp"":35,""amt"":227500}}]"\n'
+        f"x,{no},owner,Dup,1,,,,1,0,0,1,[]\n"
+        "x,VT-9999999,owner,Bad,1,,,,1,0,0,1,{not json\n").encode())
+    assert qt["total"] == 3 and qt["valid"] == 1, qt["errors"]
+    qts = confirm(client, admin, "decor_quotations", qt["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT quote_date, grand_total, items->0->>'desc' FROM fact_decor_quotation WHERE import_batch_id = %s", (qts["batch_id"],))
+        row = cur.fetchone()
+    assert row[0] == "2026-09-20" and float(row[1]) == 227500.0 and row[2] == "Paint"
+    assert client.post(f"/admin/bulk/batches/{qts['batch_id']}/undo", headers=admin).status_code == 200
+    assert client.post(f"/admin/bulk/batches/{phs['batch_id']}/undo", headers=admin).status_code == 200
+    for batch in (items, pays, nxt_done, done):                            # undo in reverse order
+        assert client.post(f"/admin/bulk/batches/{batch['batch_id']}/undo", headers=admin).status_code == 200
+
+
+def test_payments_and_purchases_accept_the_old_sheets_layout(client, db_conn, seed):
+    """Old Transactions sheet: Txn ID kept, saved amount not divided again, Pending/Rejected kept; old Purchase sheet: Drive photo links kept."""
+    admin = login(client, db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(max(txn_key), 0) FROM fact_payment_txn")
+        base = cur.fetchone()[0] + 700
+        cur.execute("SELECT username FROM dim_user WHERE role = 'admin' ORDER BY user_key LIMIT 1")
+        adm = cur.fetchone()[0]
+    head = "TxnID,Date,Type,Company,Party,Mode,Amount,AccountName,Invoice,Remarks,CreatedBy,CreatedAt,Status,IsBackdated,ApprovedBy,ApprovedAt\n"
+    rep = upload(client, admin, "payments", (head +
+        f"TXN-{base:04d},{d(-9)},Payment Received,VT,Old Party,Cash,250.5,,INV1,old,{adm},{d(-9)} 10:00:00,Approved,No,{adm},{d(-9)} 10:05:00\n"
+        f"TXN-{base + 1:04d},{d(-8)},Expense,VT,,PENDING,12,,,wait,{adm},{d(-8)} 09:00:00,Pending,No,,\n"
+        f"TXN-{base + 2:04d},{d(-7)},Expense,VT,,Cash,5,,,no,{adm},{d(-7)} 09:00:00,Rejected,No,{adm},{d(-7)} 09:30:00\n"
+        f"TXN-{base:04d},{d(-6)},Expense,VT,,Cash,5,,,dup id,,,,,,\n"
+        f"TXN-9999999,{d(-6)},Expense,VT,,Cash,5,,,ghost,nobody.here,,,,,\n"
+        f",{d(-5)},Expense,VT,,Cash,10000,,,typed,,,,,,\n").encode())
+    assert rep["total"] == 6 and rep["valid"] == 4, rep["errors"]
+    errs = " | ".join(e["error"] for e in rep["errors"])
+    assert "also on row" in errs and "nobody.here" in errs
+    done = confirm(client, admin, "payments", rep["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT txn_no, amount, status, created_at, approved_by_user_key IS NOT NULL, approved_at IS NOT NULL FROM fact_payment_txn "
+                    "WHERE import_batch_id = %s ORDER BY txn_key", (done["batch_id"],))
+        rows = cur.fetchall()
+    assert [r[0] for r in rows[:3]] == [f"TXN-{base:04d}", f"TXN-{base + 1:04d}", f"TXN-{base + 2:04d}"]
+    assert float(rows[0][1]) == 250.5 and rows[0][3].astimezone(ZoneInfo("Asia/Kolkata")).hour == 10      # saved amount kept as it is
+    assert (rows[1][2], rows[1][4], rows[1][5]) == ("Pending", False, False)
+    assert rows[2][2] == "Rejected" and rows[2][5]
+    assert float(rows[3][1]) == 100.0 and rows[3][0] > f"TXN-{base + 2:04d}"                        # typed amount divided by 100, next free number
+    assert client.post(f"/admin/bulk/batches/{done['batch_id']}/undo", headers=admin).status_code == 200
+
+    pur = upload(client, admin, "purchases", ("Source,Vendor name,Material received date,Invoice date,Invoice number,Invoice amount,Remarks,Photos\n"
+        f"godown,Old Vendor,{d(-9)},{d(-9)},OV-1,5000,x,https://drive.google.com/uc?export=view&id=a | https://drive.google.com/uc?export=view&id=b\n"
+        f"shop,Old Vendor,{d(-9)},{d(-9)},OV-2,5,x,not-a-link\n").encode())
+    assert pur["valid"] == 1 and "https://" in pur["errors"][0]["error"]
+    purs = confirm(client, admin, "purchases", pur["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT legacy_photo_urls FROM fact_purchase_entry WHERE import_batch_id = %s", (purs["batch_id"],))
+        assert cur.fetchone()[0].count("drive.google.com") == 2
+    assert client.post(f"/admin/bulk/batches/{purs['batch_id']}/undo", headers=admin).status_code == 200
 
 
 def test_attendance_employees_records_and_advances_import_and_undo(client, db_conn, seed):
