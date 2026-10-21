@@ -15,6 +15,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
 from . import access, auth, config, db, payments, roles
@@ -23,7 +24,10 @@ from . import modcommon as mc
 router = APIRouter(prefix="/payments/merge", tags=["payments-merge"])
 PAGES = payments.PAGES
 ANY = auth.require_roles(*roles.ALL_ROLES)
-KINDS = {"sales": "pay_merge_sales_type", "return": "pay_merge_return_type"}
+KINDS = {"sales": "pay_merge_sales_type", "return": "pay_merge_return_type",
+         "decor_in": "pay_merge_decor_in_type", "decor_out": "pay_merge_decor_out_type"}
+TYPE_DEFAULTS = {"sales": "Sales", "return": "Sale Return", "decor_in": "Payment Received", "decor_out": "Expense"}
+DECOR_KINDS = ("decor_in", "decor_out")      # VT Decor payments / expenses staged by database triggers (migration 050)
 CENT = Decimal("0.01")
 CHANGED = "Updated from O2D after the order changed - please review"
 BECAME_ZERO = "This part became 0 in O2D after the order changed"
@@ -96,11 +100,12 @@ PUSH_SELECT = """
 SELECT p.push_key, p.order_key, p.company_key, p.cash_txn_key, p.bank_txn_key, p.kind, p.status, p.txn_date,
        p.party_name, p.cash_amount, p.bank_amount, p.remarks, p.order_amount, p.pushed_at, p.merged_at,
        p.edited_after_merge, p.merged_kind, p.merged_cash, p.merged_bank,
-       c.company_name, o.sl_no, o.dc_inv_no, o.shipping_location, ps.status_name AS payment_status,
-       ps.payments_split, pu.display_name AS pushed_by, mu.display_name AS merged_by,
+       c.company_name, o.sl_no, COALESCE(o.dc_inv_no, p.decor_label) AS dc_inv_no, COALESCE(o.shipping_location, p.decor_info) AS shipping_location,
+       COALESCE(ps.status_name, CASE WHEN p.kind IN ('decor_in', 'decor_out') THEN 'VT Decor' END) AS payment_status,
+       COALESCE(p.decor_split, ps.payments_split) AS payments_split, pu.display_name AS pushed_by, mu.display_name AS merged_by,
        ct.txn_no AS cash_txn_no, bt.txn_no AS bank_txn_no
 FROM payment_push p
-JOIN fact_orders o ON o.order_key = p.order_key
+LEFT JOIN fact_orders o ON o.order_key = p.order_key
 LEFT JOIN dim_payment_status ps ON ps.payment_status_key = o.payment_status_key
 LEFT JOIN dim_company c ON c.company_key = p.company_key
 LEFT JOIN dim_user pu ON pu.user_key = p.pushed_by_user_key
@@ -140,7 +145,7 @@ def queue(status: str = Query(default="awaiting"), user=Depends(ANY)):
                     "OR p.merged_at > now() - interval '30 days') ORDER BY p.pushed_at, p.push_key LIMIT 1000",
                     (status, status))
         rows = [_item(r) for r in cur.fetchall()]
-    return {"ok": True, "rows": rows, "counts": {"sales": counts.get("sales", 0), "return": counts.get("return", 0)},
+    return {"ok": True, "rows": rows, "counts": {k: counts.get(k, 0) for k in KINDS},
             "required": required_fields(), "canWrite": not access.is_view_only(user, *PAGES)}
 
 
@@ -211,7 +216,7 @@ def save_row(push_key: int, body: MergeIn, user=Depends(ANY)):
 
 def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
     kind = row["kind"]
-    type_name = _text(KINDS[kind], "Sales" if kind == "sales" else "Sale Return")
+    type_name = _text(KINDS[kind], TYPE_DEFAULTS[kind])
     modes = ("dim_payment_mode", "mode_key", "mode_name")
     out = {"type_key": mc.lookup_key(cur, "dim_txn_type", "txn_type_key", "type_name", type_name),
            "company_key": mc.lookup_key(cur, "dim_company", "company_key", "company_name", body.company),
@@ -223,7 +228,7 @@ def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
     if out["company_key"] is None:
         raise HTTPException(422, "Please choose a company from the list.")
     cur.execute("SELECT is_sales_company FROM dim_company WHERE company_key = %s", (out["company_key"],))
-    if not cur.fetchone()["is_sales_company"]:
+    if kind not in DECOR_KINDS and not cur.fetchone()["is_sales_company"]:
         raise HTTPException(422, "Sales and Sales Return can only be merged for a sales company (VT or Asian).")
     if None in (out["cash_mode"], out["bank_mode"]):
         raise HTTPException(422, "The Cash / Bank payment modes are not set up. "
@@ -235,8 +240,8 @@ def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
 def _write_leg(cur, existing_key, amount: Decimal, mode_key: int, f: dict, row: dict, day: date, body: MergeIn,
                user: dict, today: date):
     """Create, update or (when the amount is now nothing) retire one Payments entry. Returns its txn_key (or None)."""
-    account = (row["shipping_location"] or "").strip()[:150] or None
-    invoice = (row["dc_inv_no"] or "").strip()[:80] or None
+    account = (row["shipping_location"] or "").strip()[:150] or None      # a VT Decor row: client and stage / expense type
+    invoice = (row["dc_inv_no"] or "").strip()[:80] or None               # a VT Decor row: the client code
     remarks = body.remarks.strip() or None
     if existing_key is None:
         if amount <= 0:
@@ -295,4 +300,6 @@ def merge_row(push_key: int, body: MergeIn, user=Depends(ANY)):
             nos = [r["txn_no"] for r in cur.fetchall()]
     except HTTPException as e:
         return {"ok": True, "success": False, "message": e.detail}
+    except pgerr.ForeignKeyViolation as e:
+        return {"ok": True, "success": False, "message": mc.date_fk_error(e).detail}
     return {"ok": True, "success": True, "txnIds": nos}

@@ -312,3 +312,27 @@ def test_party_list_upload_rejects_duplicates_and_undoes(client, db_conn, seed):
     again = upload(client, admin, "parties", f"Party Name\nSHARMA {u}\n".encode())
     assert "already in the party list" in again["errors"][0]["error"]
     assert client.post(f"/admin/bulk/batches/{res['batch_id']}/undo", headers=admin).json()["removed"] == 2
+
+
+def test_party_templates_payments_type_company_party_and_purchase_vendors(client, db_conn, seed):
+    admin = login(client, db_conn)
+    u = uuid.uuid4().hex[:6]
+    # Payments > Parties: the Type, Company, Party template (Type and Company are checked when given)
+    head = client.get("/admin/bulk/parties/template.csv", headers=admin).text.lstrip(chr(0xFEFF)).splitlines()[0]
+    assert head.strip() == "Type,Company,Party"
+    rep = upload(client, admin, "parties", f"Type,Company,Party\nExpense,VT,Rao {u}\n,,Mehta {u}\nNo such type,VT,Bad {u}\n".encode())
+    assert rep["valid"] == 2 and "Type 'No such type' not found" in rep["errors"][0]["error"]
+    res = confirm(client, admin, "parties", rep["rows"])
+    assert _count(db_conn, "dim_party", res["batch_id"]) == 2
+    # Purchase > Parties: one column, Party Name, into the vendor list
+    head = client.get("/admin/bulk/vendors/template.csv", headers=admin).text.lstrip(chr(0xFEFF)).splitlines()[0]
+    assert head.strip() == "Party Name"
+    rep = upload(client, admin, "vendors", f"Party Name\nAsian {u}\nasian  {u}\nKansai {u}\n".encode())
+    assert rep["valid"] == 2 and "Duplicate of row" in rep["errors"][0]["error"]
+    res = confirm(client, admin, "vendors", rep["rows"])
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM dim_party WHERE import_batch_id = %s AND party_kind = 'vendor' AND review_status = 'approved'", (res["batch_id"],))
+        n = cur.fetchone()
+    assert (n["count"] if isinstance(n, dict) else n[0]) == 2
+    assert upload(client, admin, "vendors", f"Party Name\nASIAN {u}\n".encode())["errors"][0]["error"].endswith("already in the vendor list")
+    assert client.post(f"/admin/bulk/batches/{res['batch_id']}/undo", headers=admin).json()["removed"] == 2

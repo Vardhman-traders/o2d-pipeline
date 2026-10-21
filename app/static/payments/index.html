@@ -776,7 +776,7 @@
       </div>
       <div id="mergePanel" style="display:none;">
         <h4 id="mergeTitle" style="margin:12px 0 4px;"></h4>
-        <p class="small-note" style="margin-bottom:8px;">Orders the cashier confirmed on O2D. Add what O2D does not know and merge: each row becomes a Pending entry (Cash and / or Bank) for the accountant to approve. <span id="mergeReq"></span></p>
+        <p class="small-note" style="margin-bottom:8px;">Orders the cashier confirmed on O2D, and money entered on the VT Decor dashboard. Add what the source does not know and merge: each row becomes a Pending entry (Cash and / or Bank) for the accountant to approve. <span id="mergeReq"></span></p>
         <label class="small-note" style="display:block;margin-bottom:8px;"><input type="checkbox" onchange="toggleShowMerged(this.checked)"> Show merged (last 30 days)</label>
         <div class="merge-wrap">
           <table id="mergeTable">
@@ -822,6 +822,7 @@
           </div>
           <p id="chMsg" style="color:var(--red);font-size:13px;min-height:18px;margin:4px 0;"></p>
           <button class="btn btn-sm" id="chSave" style="background:var(--teal);color:#fff;" onclick="chUpload()">⬆ Upload</button>
+          <button class="btn btn-sm" id="chCancelEdit" style="display:none;" onclick="chEditCancel()">Cancel edit</button>
         </div>
       </div>
       <div class="list-panel">
@@ -841,7 +842,7 @@
               <th class="sortable" data-k="ref" onclick="sortBy('ch','ref')">Challan no.<span class="si">⇅</span></th>
               <th class="sortable" data-k="note" onclick="sortBy('ch','note')">Note<span class="si">⇅</span></th>
               <th class="sortable" data-k="by" onclick="sortBy('ch','by')">Uploaded by<span class="si">⇅</span></th>
-              <th class="sortable" data-k="at" onclick="sortBy('ch','at')">Uploaded on<span class="si">⇅</span></th></tr></thead>
+              <th class="sortable" data-k="at" onclick="sortBy('ch','at')">Uploaded on<span class="si">⇅</span></th><th>Actions</th></tr></thead>
             <tbody id="chBody"></tbody>
           </table>
         </div>
@@ -1670,15 +1671,19 @@ function loadTransactions_(silent){
 // ============================================================
 // SALES / SALES RETURN TABS (rows pushed from the O2D Cashier dashboard, waiting to be merged into Payments)
 // ============================================================
-const MERGE = { rows: [], counts: { sales: 0, return: 0 }, required: [], canWrite: true, showMerged: false, drafts: {}, parties: {} };
-const MERGE_TITLES = { sales: 'Sales', return: 'Sales Return' };
+const MERGE = { rows: [], counts: { sales: 0, return: 0, decor_in: 0, decor_out: 0 }, required: [], canWrite: true, showMerged: false, drafts: {}, parties: {} };
+const MERGE_TITLES = { sales: 'Sales', return: 'Sales Return', decor_in: 'VT Decor Received', decor_out: 'VT Decor Expenses' };
+const isDecorKind = k => k === 'decor_in' || k === 'decor_out';
 
 function mergeKind(){ return String(activeStatusTab).startsWith('merge:') ? String(activeStatusTab).slice(6) : null; }
 
 function updateMergeTabLabels(){
   const s = document.getElementById('tabMergeSales'), r = document.getElementById('tabMergeReturn');
+  const di = document.getElementById('tabMergeDecorIn'), do_ = document.getElementById('tabMergeDecorOut');
   if (s) s.textContent = `Sales (${MERGE.counts.sales})`;
   if (r) r.textContent = `Sales Return (${MERGE.counts.return})`;
+  if (di) di.textContent = `VT Decor Received (${MERGE.counts.decor_in || 0})`;
+  if (do_) do_.textContent = `VT Decor Expenses (${MERGE.counts.decor_out || 0})`;
 }
 
 function applyMergeVisibility(){
@@ -1724,7 +1729,7 @@ function mergeMsg(row, text, bad){
 function loadMergeParties(row, listEl){
   const d = mergeDraft(row);
   if (!d.company) return;
-  const type = MERGE_TITLES[row.kind] === 'Sales' ? 'Sales' : 'Sale Return';
+  const type = isDecorKind(row.kind) ? '' : (MERGE_TITLES[row.kind] === 'Sales' ? 'Sales' : 'Sale Return');
   const k = d.company + '|' + type;
   const fill = names => { listEl.innerHTML = names.map(n => `<option value="${esc(n)}">`).join(''); };
   if (MERGE.parties[k]) { fill(MERGE.parties[k]); return; }
@@ -1750,7 +1755,7 @@ function renderMerge(){
   body.innerHTML = '';
   if (!rows.length) {
     body.innerHTML = `<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">✅</div>${
-      MERGE.showMerged ? 'Nothing merged in the last 30 days.' : 'Nothing waiting. Orders appear here when the cashier confirms them.'}</div></td></tr>`;
+      MERGE.showMerged ? 'Nothing merged in the last 30 days.' : isDecorKind(kind) ? 'Nothing waiting. Entries appear here when they are added in VT Decor.' : 'Nothing waiting. Orders appear here when the cashier confirms them.'}</div></td></tr>`;
     return;
   }
   const money = n => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1770,7 +1775,7 @@ function renderMerge(){
 
     const company = document.createElement('select'); company.disabled = locked;
     company.innerHTML = '<option value="">— company —</option>' +
-      companiesCache.filter(c => (COMPANY_META[c] || {}).isSales).map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
+      companiesCache.filter(c => isDecorKind(row.kind) || (COMPANY_META[c] || {}).isSales).map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
     td(company);
     const party = input('text', d.party, v => { d.party = v; }, { placeholder: 'Party', autocomplete: 'off' });
     const dl = document.createElement('datalist'); dl.id = 'dl_' + row.key; party.setAttribute('list', dl.id);
@@ -1799,7 +1804,7 @@ function renderMerge(){
     if (row.alreadyMerged) {
       const t = document.createElement('div');
       t.className = row.editedAfterMerge ? 'merge-tag merge-tag-warn' : 'merge-tag';
-      t.textContent = row.editedAfterMerge ? 'Already merged - edited in O2D' : 'Merged';
+      t.textContent = row.editedAfterMerge ? (isDecorKind(row.kind) ? 'Already merged - changed in VT Decor' : 'Already merged - edited in O2D') : 'Merged';
       tag.appendChild(t);
       const was = document.createElement('div'); was.className = 'small-note';
       was.textContent = `was Cash ${money(row.wasCash)} / Bank ${money(row.wasBank)}` + (row.txnNos.length ? ' · ' + row.txnNos.join(', ') : '');
@@ -1838,7 +1843,8 @@ function buildStatusTabs(){
   const opts = [['all', 'All entries'], ['Pending', 'Pending'], ['Approved', 'Approved']];
   if (currentUser.role === 'Admin') opts.push(['Rejected', 'Rejected']);
   sel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('') +
-    '<option id="tabMergeSales" value="merge:sales">Sales</option><option id="tabMergeReturn" value="merge:return">Sales Return</option>';
+    '<option id="tabMergeSales" value="merge:sales">Sales</option><option id="tabMergeReturn" value="merge:return">Sales Return</option>' +
+    '<option id="tabMergeDecorIn" value="merge:decor_in">VT Decor Received</option><option id="tabMergeDecorOut" value="merge:decor_out">VT Decor Expenses</option>';
   updateMergeTabLabels();
   activeStatusTab = 'all';
   sel.value = 'all';
@@ -1889,6 +1895,7 @@ const CARD_FILTERS = {
     label: 'Cash in Hand',
     test: r => modeIsCash(r.Mode) && r.Status === 'Approved'
   },
+
 
   cashSales: {
     label: 'Cash O2D',
@@ -2021,7 +2028,7 @@ function renderRows(rows){
     return `<tr>
       <td title="${esc(fmtDate(r.Date))}">${highlight(fmtDate(r.Date))}${backdatedFlag}</td>
       <td title="${esc(r.Company)}">${highlight(r.Company)}</td>
-      <td title="${r.Source === 'O2D' ? 'Came from the O2D dashboard' : 'Punched in directly on the Payments dashboard'}"><span class="small-note">${esc(r.Source || '')}</span></td>
+      <td title="${r.Source === 'O2D' ? 'Came from the O2D dashboard' : r.Source === 'VT Decor' ? 'Came from the VT Decor dashboard' : 'Punched in directly on the Payments dashboard'}"><span class="small-note">${esc(r.Source || '')}</span></td>
       <td title="${esc(r.Type)}">${highlight(abbrevType(r.Type))}</td>
       <td title="Invoice: ${esc(r.Invoice||'—')}">${invDisplay}</td>
       <td class="c-party" title="${esc(r.Party||'—')}">${highlight(r.Party || '—')}</td>
@@ -2152,7 +2159,7 @@ function exportFilteredPDF(){
     th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;}th{background:#0f2d52;color:#fff;}
     tfoot td{font-weight:bold;border-top:2px solid #0f2d52;}</style></head><body>
     <h1>${esc(title)}</h1>
-    <p class="meta">Vardhman Traders — Generated ${esc(generatedAt)} — ${rows.length} entr${rows.length===1?'y':'ies'}</p>
+    <p class="meta">VT — Generated ${esc(generatedAt)} — ${rows.length} entr${rows.length===1?'y':'ies'}</p>
     <table><thead><tr><th>#</th><th>Date</th><th>Company</th><th>Type</th><th>Invoice</th><th>Party</th><th>Amount</th><th>Mode</th><th>Remarks</th><th>Status</th></tr></thead>
     <tbody>${tableRows}</tbody>
     <tfoot><tr><td colspan="7">Net Total</td><td style="text-align:right;">${totalAmount<0?'-':''}${rupee(Math.abs(totalAmount))}</td><td colspan="3"></td></tr></tfoot>
@@ -2506,7 +2513,7 @@ async function expExportPdf(){
     .filter(Boolean).join(' · ');
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;left:0;top:0;width:1000px;background:#fff;color:#111;padding:16px;z-index:99999;box-sizing:border-box;';
-  host.innerHTML = '<h2 style="margin:0 0 4px;font-size:20px">Vardhman Traders - Regular expenses</h2>' +
+  host.innerHTML = '<h2 style="margin:0 0 4px;font-size:20px">VT - Regular expenses</h2>' +
     '<div style="font-size:13px;color:#555;margin-bottom:14px">' + esc(expLast.summary.account) + ' · ' + esc(p.from) + ' to ' + esc(p.to) +
     (filters ? ' · ' + esc(filters) : '') + ' · generated ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST</div>';
   ['expCards', null, 'expStatementPanel'].forEach(function(id){
@@ -2645,29 +2652,60 @@ function chDraw(){
     const file = !c.url ? '<span style="color:var(--muted)">—</span>' : c.isPdf
       ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">📄 Open PDF</a>`
       : `<a href="${esc(c.url)}" target="_blank" rel="noopener"><img src="${esc(c.url)}" alt="Challan" style="height:56px;border-radius:6px;border:1px solid var(--line);"></a>`;
-    return `<tr><td>${file}</td><td>${esc(c.date)}</td><td>${esc(c.reference || '—')}</td><td>${esc(c.note || '—')}</td><td>${esc(c.uploadedBy || '—')}</td><td>${esc(c.uploadedAt)}</td></tr>`;
-  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">${chRows.length ? 'No challans match these filters.' : 'No challans uploaded yet.'}</td></tr>`;
+    return `<tr><td>${file}</td><td>${esc(c.date)}</td><td>${esc(c.reference || '—')}</td><td>${esc(c.note || '—')}</td><td>${esc(c.uploadedBy || '—')}</td><td>${esc(c.uploadedAt)}</td>`
+      + `<td style="white-space:nowrap">${c.canEdit ? `<button class="btn btn-sm" onclick="chEdit(${c.key})">✏️ Edit</button> ` : ''}${c.canDelete ? `<button class="btn btn-sm" style="color:var(--red)" onclick="chDelete(${c.key})">🗑 Delete</button>` : ''}</td></tr>`;
+  }).join('') : `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">${chRows.length ? 'No challans match these filters.' : 'No challans uploaded yet.'}</td></tr>`;
   paintSort('ch');
+}
+let CH_EDIT = null;   // the key of the challan being edited, or null when the form uploads a new one
+function chFormReset(){
+  CH_EDIT = null;
+  document.getElementById('chFile').value = '';
+  CH_CAM = null; document.getElementById('chCam').value = ''; document.getElementById('chCamInfo').textContent = '';
+  document.getElementById('chRef').value = '';
+  document.getElementById('chNote').value = '';
+  document.getElementById('chDate').value = todayISO();
+  document.getElementById('chSave').textContent = '⬆ Upload';
+  document.getElementById('chCancelEdit').style.display = 'none';
+  document.getElementById('chMsg').textContent = '';
+}
+function chEditCancel(){ chFormReset(); }
+function chEdit(key){
+  const c = chRows.find(x => x.key === key);
+  if (!c) return;
+  chFormReset();
+  CH_EDIT = key;
+  document.getElementById('chDate').value = c.date;
+  document.getElementById('chRef').value = c.reference;
+  document.getElementById('chNote').value = c.note;
+  document.getElementById('chSave').textContent = '💾 Save changes';
+  document.getElementById('chCancelEdit').style.display = '';
+  document.getElementById('chMsg').style.color = 'var(--muted)';
+  document.getElementById('chMsg').textContent = 'Editing this challan. Choose a new file only if you want to replace the picture.';
+  document.getElementById('chForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function chDelete(key){
+  const c = chRows.find(x => x.key === key);
+  if (!c || !confirm('Delete the challan ' + (c.reference ? c.reference + ' ' : '') + 'of ' + c.date + ' for good? The picture is removed too.')) return;
+  VT.run.withSuccessHandler(function(){ if (CH_EDIT === key) chFormReset(); chLoad(); })
+    .withFailureHandler(function(e){ alert(e.message); }).chDelete(key);
 }
 function chUpload(){
   const msg = document.getElementById('chMsg'), f = document.getElementById('chFile').files[0] || CH_CAM;
-  msg.textContent = '';
-  if (!f) { msg.textContent = 'Choose the photo or PDF of the challan.'; return; }
-  if (f.size > 15 * 1024 * 1024) { msg.textContent = 'That file is too large.'; return; }
+  msg.style.color = 'var(--red)'; msg.textContent = '';
+  const editing = CH_EDIT, idle = editing ? '💾 Save changes' : '⬆ Upload';
+  if (!f && !editing) { msg.textContent = 'Choose the photo or PDF of the challan.'; return; }
+  if (f && f.size > 15 * 1024 * 1024) { msg.textContent = 'That file is too large.'; return; }
   const btn = document.getElementById('chSave');
-  btn.disabled = true; btn.textContent = 'Uploading…';
-  VT.shrinkImage(f).then(function(data){
-    VT.run.withSuccessHandler(function(){
-      btn.disabled = false; btn.textContent = '⬆ Upload';
-      document.getElementById('chFile').value = '';
-      CH_CAM = null; document.getElementById('chCam').value = ''; document.getElementById('chCamInfo').textContent = '';
-      document.getElementById('chRef').value = '';
-      document.getElementById('chNote').value = '';
-      chLoad();
-    }).withFailureHandler(function(e){ btn.disabled = false; btn.textContent = '⬆ Upload'; msg.textContent = e.message; })
-      .chUpload({ date: document.getElementById('chDate').value, reference: document.getElementById('chRef').value,
-                  note: document.getElementById('chNote').value, data: data });
-  }).catch(function(e){ btn.disabled = false; btn.textContent = '⬆ Upload'; msg.textContent = e.message; });
+  btn.disabled = true; btn.textContent = editing ? 'Saving…' : 'Uploading…';
+  (f ? VT.shrinkImage(f) : Promise.resolve('')).then(function(data){
+    const body = { date: document.getElementById('chDate').value, reference: document.getElementById('chRef').value,
+                   note: document.getElementById('chNote').value, data: data };
+    const call = VT.run.withSuccessHandler(function(){
+      btn.disabled = false; chFormReset(); chLoad();
+    }).withFailureHandler(function(e){ btn.disabled = false; btn.textContent = idle; msg.textContent = e.message; });
+    if (editing) call.chEdit(editing, body); else call.chUpload(body);
+  }).catch(function(e){ btn.disabled = false; btn.textContent = idle; msg.textContent = e.message; });
 }
 
 function rupee(n){

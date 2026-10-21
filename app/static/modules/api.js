@@ -77,7 +77,9 @@
     getScoreboard: get('/delegation/scoreboard'),
     getWeeklyReview: function (staffId, anchor) { return ask('GET', '/delegation/weekly' + qs({ staff_id: staffId, anchor: anchor })); },
     saveWeeklyPlan: function (staffId, staffName, weekStart, weekEnd, g, y, r) { return ask('POST', '/delegation/weekly-plan', { staffId: staffId, weekStart: weekStart, green: g, yellow: y, red: r }); },
-    logExtraWork: function (userId, userName, role, desc, photo) { return ask('POST', '/delegation/extra-work', { desc: desc, photo: photo }); },
+    logExtraWork: function (userId, userName, role, desc, photo, hours, date) { return ask('POST', '/delegation/extra-work', { desc: desc, photo: photo, hours: hours === undefined ? '' : hours, date: date || '' }); },
+    getExtraWork: function (staffId, status) { return ask('GET', '/delegation/extra-work' + qs({ staff_id: staffId, status: status })); },
+    reviewExtraWork: function (id, status, points, remark) { return ask('POST', '/delegation/extra-work/' + id + '/review', { status: status, points: points, remark: remark }); },
 
     // ---------------------------------------------------------------- Checklist (a part of the Delegation screen)
     chkMe: get('/checklist/me'),
@@ -100,6 +102,8 @@
     // ---------------------------------------------------------------- Upload challan (a tab of the Payments screen)
     chList: function (from, to) { return ask('GET', '/payments/challans' + qs({ date_from: from, date_to: to })); },
     chUpload: function (body) { return ask('POST', '/payments/challans', body); },
+    chEdit: function (key, body) { return ask('PUT', '/payments/challans/' + key, body); },
+    chDelete: function (key) { return ask('DELETE', '/payments/challans/' + key); },
 
     // ---------------------------------------------------------------- Purchase
     login_purchase: function () { return ask('GET', '/purchase/me'); },

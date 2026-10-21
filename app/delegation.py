@@ -79,6 +79,7 @@ def _need_page(user, page: str):
 def _settings() -> dict:
     return {"on_time": mc.int_setting("deleg_on_time_score", 10), "late": mc.int_setting("deleg_late_score", -5),
             "revise": mc.int_setting("deleg_revise_penalty", -3), "extend": mc.int_setting("deleg_extend_penalty", -5),
+            "extra_entry": mc.int_setting("deleg_extra_entry_score", 5), "extra_hour": mc.int_setting("deleg_extra_hour_score", 0),
             "week_start": mc.int_setting("deleg_week_start_dow", 6)}
 
 
@@ -109,7 +110,7 @@ def me(user=Depends(ANY)):
             "canWrite": user["role"] == "admin" or not access.is_view_only(user, "deleg_manage"),
             "canEditTasks": _may_edit_tasks(user),
             "photosEnabled": attachments.configured(),
-            "scoring": {k: v for k, v in _settings().items() if k in ("on_time", "late", "revise", "extend")}}
+            "scoring": {k: v for k, v in _settings().items() if k in ("on_time", "late", "revise", "extend", "extra_entry", "extra_hour")}}
 
 
 # ------------------------------------------------------------------ tasks
@@ -367,12 +368,22 @@ def extend(task_no: str, body: ExtendIn, user=Depends(ANY)):
 
 # ------------------------------------------------------------------ scores
 def scoreboard_rows(cur, user_key: int | None = None) -> list[dict]:
-    cur.execute("""SELECT u.username AS id, u.display_name AS name, u.role, COALESCE(SUM(t.score), 0) AS total,
-                          COUNT(*) FILTER (WHERE t.score > 0) AS on_time, COUNT(*) FILTER (WHERE t.score <= 0) AS late
-                   FROM fact_task t JOIN dim_user u ON u.user_key = t.staff_user_key
-                   WHERE t.score IS NOT NULL AND (%s::int IS NULL OR t.staff_user_key = %s)
-                   GROUP BY u.user_key ORDER BY total DESC, lower(u.display_name)""", (user_key, user_key))
-    return [{"id": r["id"], "name": r["name"], "role": r["role"], "totalScore": int(r["total"]), "onTime": r["on_time"], "late": r["late"]}
+    """One row per person: points from tasks (on time / late) plus points from approved extra work. Someone with only extra work is listed too."""
+    cur.execute("""WITH task AS (
+                       SELECT t.staff_user_key AS uk, SUM(t.score) AS pts, COUNT(*) FILTER (WHERE t.score > 0) AS on_time,
+                              COUNT(*) FILTER (WHERE t.score <= 0) AS late
+                       FROM fact_task t WHERE t.score IS NOT NULL GROUP BY t.staff_user_key),
+                   extra AS (
+                       SELECT e.user_key AS uk, SUM(COALESCE(e.points, 0)) AS pts, COUNT(*) AS n, SUM(COALESCE(e.hours, 0)) AS hrs
+                       FROM fact_extra_work e WHERE e.status = 'Approved' GROUP BY e.user_key)
+                   SELECT u.username AS id, u.display_name AS name, u.role, COALESCE(task.pts, 0) AS task_pts, COALESCE(extra.pts, 0) AS extra_pts,
+                          COALESCE(task.on_time, 0) AS on_time, COALESCE(task.late, 0) AS late, COALESCE(extra.n, 0) AS extra_n,
+                          COALESCE(extra.hrs, 0) AS extra_hours
+                   FROM dim_user u LEFT JOIN task ON task.uk = u.user_key LEFT JOIN extra ON extra.uk = u.user_key
+                   WHERE (task.uk IS NOT NULL OR extra.uk IS NOT NULL) AND (%s::int IS NULL OR u.user_key = %s)
+                   ORDER BY COALESCE(task.pts, 0) + COALESCE(extra.pts, 0) DESC, lower(u.display_name)""", (user_key, user_key))
+    return [{"id": r["id"], "name": r["name"], "role": r["role"], "totalScore": int(r["task_pts"]) + int(r["extra_pts"]), "taskScore": int(r["task_pts"]),
+             "extraScore": int(r["extra_pts"]), "extraCount": r["extra_n"], "extraHours": float(r["extra_hours"]), "onTime": r["on_time"], "late": r["late"]}
             for r in cur.fetchall()]
 
 
@@ -389,7 +400,8 @@ def my_score(user=Depends(ANY)):
     _who(user)
     with db.cursor() as cur:
         rows = scoreboard_rows(cur, user["user_key"])
-    return rows[0] if rows else {"id": user["username"], "totalScore": 0, "onTime": 0, "late": 0}
+    return rows[0] if rows else {"id": user["username"], "totalScore": 0, "taskScore": 0, "extraScore": 0, "extraCount": 0, "extraHours": 0,
+                                 "onTime": 0, "late": 0}
 
 
 # ------------------------------------------------------------------ the week (Green / Yellow / Red)
@@ -485,20 +497,111 @@ def save_plan(body: PlanIn, user=Depends(ANY)):
     return f"Plan saved for the week of {ws.isoformat()}!"
 
 
-# ------------------------------------------------------------------ extra work (a staff member's own log)
+# ------------------------------------------------------------------ extra work (logged by staff, approved by a manager, counted in the scorecard)
 class ExtraIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
     desc: str = ""
     photo: str = ""
+    hours: float | str = ""
+    date: str = ""
 
 
 @router.post("/extra-work")
 def extra_work(body: ExtraIn, user=Depends(ANY)):
+    """Anyone with Delegation access logs their own extra work (what, how many hours, optional photo). It waits for a manager / admin; only an
+    approved entry adds points to the scorecard."""
     _who(user)
     if not body.desc.strip():
         return "Work details are required!"
+    hours = None
+    if str(body.hours).strip() != "":
+        try:
+            hours = round(float(body.hours), 2)
+        except ValueError:
+            return "Hours must be a number."
+        if not 0 <= hours <= 24:
+            return "Hours must be between 0 and 24."
+    day = mc.parse_date(body.date, "Date") or mc.today_ist()
+    if day > mc.today_ist():
+        return "The date cannot be in the future."
+    try:
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO fact_extra_work (user_key, work_date_key, description, hours) VALUES (%s, %s, %s, %s) RETURNING extra_key",
+                        (user["user_key"], mc.date_key(day), body.desc.strip(), hours))
+            key = cur.fetchone()["extra_key"]
+    except pgerr.ForeignKeyViolation as e:
+        raise mc.date_fk_error(e)
+    return "Extra work logged - it counts towards your score once a manager approves it." + _attach(user, key, "extra_work", body.photo)
+
+
+def _extra_row(r: dict, photos: dict) -> dict:
+    urls = photos.get(r["extra_key"]) or []
+    return {"id": r["extra_key"], "staffId": r["staff_id"], "staffName": r["staff_name"], "date": r["work_date"].isoformat(),
+            "desc": r["description"], "hours": float(r["hours"]) if r["hours"] is not None else None, "status": r["status"],
+            "points": r["points"], "remark": r["remark"] or "", "decidedBy": r["decided_by"] or "", "photoUrl": urls[-1] if urls else "",
+            "loggedAt": r["created_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M")}
+
+
+@router.get("/extra-work")
+def extra_work_list(staff_id: str = "", status: str = "", user=Depends(ANY)):
+    """Staff see their own entries; a manager or admin sees everyone's (optionally one person's, or one status)."""
+    who = _who(user)
+    where, params = ["TRUE"], []
+    if not _privileged(who):
+        where.append("e.user_key = %s"); params.append(user["user_key"])
+    elif staff_id:
+        where.append("lower(u.username) = lower(%s)"); params.append(staff_id)
+    if status in ("Pending", "Approved", "Rejected"):
+        where.append("e.status = %s"); params.append(status)
     with db.cursor() as cur:
-        cur.execute("INSERT INTO fact_extra_work (user_key, work_date_key, description) VALUES (%s, %s, %s) RETURNING extra_key",
-                    (user["user_key"], mc.date_key(mc.today_ist()), body.desc.strip()))
-        key = cur.fetchone()["extra_key"]
-    return "Extra work logged successfully!" + _attach(user, key, "extra_work", body.photo)
+        cur.execute("SELECT e.extra_key, u.username AS staff_id, u.display_name AS staff_name, d.full_date AS work_date, e.description, e.hours, e.status, "
+                    "e.points, e.remark, e.created_at, dby.display_name AS decided_by FROM fact_extra_work e JOIN dim_user u ON u.user_key = e.user_key "
+                    "JOIN dim_date d ON d.date_key = e.work_date_key LEFT JOIN dim_user dby ON dby.user_key = e.decided_by_user_key "
+                    "WHERE " + " AND ".join(where) + " ORDER BY e.extra_key DESC LIMIT 3000", params)
+        rows = cur.fetchall()
+    totals = {"approved": 0, "pending": 0, "points": 0, "hours": 0.0}
+    for r in rows:
+        if r["status"] == "Pending":
+            totals["pending"] += 1
+        elif r["status"] == "Approved":
+            totals["approved"] += 1
+            totals["points"] += r["points"] or 0
+            totals["hours"] += float(r["hours"] or 0)
+    photos = attachments.file_urls("delegation", [r["extra_key"] for r in rows], "extra_work")
+    s = _settings()
+    return {"success": True, "canReview": _privileged(who) and (user["role"] == "admin" or not access.is_view_only(user, "deleg_manage")),
+            "scoring": {"entry": s["extra_entry"], "hour": s["extra_hour"]}, "totals": totals, "rows": [_extra_row(r, photos) for r in rows]}
+
+
+class ExtraReviewIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    status: str = ""
+    points: int | str = ""      # blank = worked out from the settings (points per entry + points per hour x hours)
+    remark: str = ""
+
+
+@router.post("/extra-work/{extra_key}/review")
+def extra_work_review(extra_key: int, body: ExtraReviewIn, user=Depends(ANY)):
+    _need_manager(user)
+    if body.status not in ("Approved", "Rejected"):
+        return "Invalid decision."
+    s = _settings()
+    with db.cursor() as cur:
+        cur.execute("SELECT extra_key, hours FROM fact_extra_work WHERE extra_key = %s FOR UPDATE", (extra_key,))
+        r = cur.fetchone()
+        if not r:
+            return "That extra work entry was not found."
+        points = None
+        if body.status == "Approved":
+            if str(body.points).strip() != "":
+                try:
+                    points = int(body.points)
+                except ValueError:
+                    return "Points must be a whole number."
+                if not -1000 <= points <= 1000:
+                    return "Points must be between -1000 and 1000."
+            else:
+                points = int(round(s["extra_entry"] + s["extra_hour"] * float(r["hours"] or 0)))
+        cur.execute("UPDATE fact_extra_work SET status = %s, points = %s, remark = %s, decided_by_user_key = %s, decided_at = now() WHERE extra_key = %s",
+                    (body.status, points, body.remark.strip()[:500] or None, user["user_key"], extra_key))
+    return f"Extra work approved - {points:+d} point(s) added to the score." if body.status == "Approved" else "Extra work rejected - no points."

@@ -49,6 +49,9 @@ ORDER_COLS = [("Order date", "order_received_date", 22, "L"), ("DC / Inv No", "d
 _STATUS = "lower(btrim(COALESCE(ds.status_name, '')))"
 _SHOP = "ds.dispatch_route = 'shop'"             # same split the two dispatch screens use: the status's "Goes to" setting
 _GODOWN_SIDE = "ds.dispatch_route = 'godown'"
+# Godown Receiving lists every delivered order that is not on the shop side (route godown, "stays with the godown", or no status), so the
+# received & payments reports split the same way: shop = route 'shop', godown = everything else. Nothing falls between the two.
+_GODOWN_RECEIVING = "ds.dispatch_route IS DISTINCT FROM 'shop'"
 _AWAITING_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No", "dc_inv_no", 21, "L"), ("Address", "shipping_location", 58, "L"),
                   ("Delivered on", "material_delivery_datetime", 30, "L"), ("Delivered by", "delivered_by_full", 50, "L"),
                   ("Payment status", "payment_status", 28, "L"), ("Cartage (Rs)", "cartage", 24, "R")]
@@ -58,7 +61,7 @@ _RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No"
                   ("Amount received (Rs)", "amount_received", 30, "R")]
 _DISPATCH_COLS = ORDER_COLS + [("Ready by", "ready_by", 24, "L"), ("Delivery status", "delivery_status", 24, "L")]
 def _received_report(side: str, label: str, mode: str, color: str) -> dict:
-    side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_SIDE), (_CASH if mode == "cash" else f"NOT ({_CASH})")
+    side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_RECEIVING), (_CASH if mode == "cash" else f"NOT ({_CASH})")
     what = "paid in cash" if mode == "cash" else "paid by any mode except cash (bank + other)"
     return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Not cash - bank + other'})",
             "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED, "date_field": _RECEIVED_ON,
@@ -159,7 +162,7 @@ def build_pdf(title: str, sections: list[dict], created_by: str, generated_at: d
     head_r = ParagraphStyle("head_r", parent=head, alignment=2)
 
     company = ParagraphStyle("company", parent=base["Title"], fontSize=24, leading=28, alignment=0, textColor=colors.HexColor(color), spaceAfter=0)
-    story = [Table([[Paragraph("Vardhman Traders", company),
+    story = [Table([[Paragraph("VT", company),
                      Paragraph(f"<b>Date:</b> {generated_at.astimezone(IST):%d-%m-%Y}<br/><b>Time:</b> {generated_at.astimezone(IST):%H:%M} IST",
                                ParagraphStyle("dt", parent=cell_r, fontSize=11, leading=14))]],
                    colWidths=[(sum(c[2] for c in sections[0]["columns"]) if sections else 260) * mm - 50 * mm, 50 * mm], hAlign="LEFT",
@@ -209,7 +212,7 @@ def build_pdf(title: str, sections: list[dict], created_by: str, generated_at: d
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#666666"))
         canvas.drawRightString(landscape(A4)[0] - 10 * mm, 7 * mm, f"Page {d.page}")
-        canvas.drawString(10 * mm, 7 * mm, "Vardhman Traders - O2D")
+        canvas.drawString(10 * mm, 7 * mm, "VT - O2D")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)

@@ -262,5 +262,22 @@ def test_challan_upload_list_and_access(client, db_conn, days, seed, monkeypatch
         assert one["note"] == "two boxes" and one["uploadedBy"] == who_name.title() and one["date"] == modcommon.today_ist().isoformat()
         assert body["canWrite"] is False
         assert len(client.get(f"/payments/challans?date_from={future}", headers=looker).json()["rows"]) == 0
+
+        # edit: the uploader edits their own, never deletes; a view-only person and a stranger can do neither; the admin does both
+        boss = login(client, db_conn, "admin")
+        mine = client.get("/payments/challans", headers=who).json()["rows"]
+        assert all(r["canEdit"] and not r["canDelete"] for r in mine)
+        assert not any(r["canEdit"] for r in client.get("/payments/challans", headers=looker).json()["rows"])
+        k = next(r for r in mine if r["reference"] == "CH-77")["key"]
+        assert client.put(f"/payments/challans/{k}", headers=who, json={"date": modcommon.today_ist().isoformat(), "reference": "CH-78", "note": "fixed"}).status_code == 200
+        assert client.put(f"/payments/challans/{k}", headers=looker, json={"reference": "x"}).status_code == 403
+        assert client.put(f"/payments/challans/{k}", headers=who, json={"date": future}).status_code == 422
+        assert client.put(f"/payments/challans/{k}", headers=boss, json={"data": photo, "reference": "CH-79"}).status_code == 200      # admin, new file
+        after = next(r for r in client.get("/payments/challans", headers=boss).json()["rows"] if r["key"] == k)
+        assert after["reference"] == "CH-79" and after["canDelete"] is True
+        assert client.delete(f"/payments/challans/{k}", headers=who).status_code == 403
+        assert client.delete(f"/payments/challans/{k}", headers=boss).status_code == 200
+        assert client.delete(f"/payments/challans/{k}", headers=boss).status_code == 404
+        assert len(client.get("/payments/challans", headers=boss).json()["rows"]) == 1
     finally:
         attachments.set_storage(None)

@@ -108,8 +108,9 @@ def test_check_in_out_flow_with_location_photo_and_whatsapp(client, db_conn, see
         mine = next(m for m in today["marked"] if m["name"] == name)
         assert mine["checkedOut"] and mine["photoIn"].startswith("https://acct.r2.cloudflarestorage.com/bkt/attendance/")
         assert any(m["name"] == quiet and not m["checkedOut"] for m in today["marked"])
-        assert own(client, boss, "manualCheckout", quiet, "13:00")["status"] == "ok"
-        assert own(client, boss, "manualCheckout", quiet, "13:00")["status"] == "already_checkout"
+        assert own(client, boss, "manualCheckout", quiet, "13:00")["status"] == "error"          # only the admin checks someone out by hand
+        assert own(client, admin, "manualCheckout", quiet, "13:00")["status"] == "ok"
+        assert own(client, admin, "manualCheckout", quiet, "13:00")["status"] == "already_checkout"
         assert client.post("/attendance/owner/rpc", json={"action": "getTodayAttendance", "args": []}, headers=user(client, db_conn, "godown")[0]).status_code == 403
     finally:
         attachments.set_storage(None)

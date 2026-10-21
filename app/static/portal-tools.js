@@ -583,21 +583,22 @@ async function renderAccessRequests(panel) {
 // what the picker shows: one chip per module, its uploads underneath
 const IMPORT_GROUPS = [
   { id: 'o2d', label: 'Orders & members', icon: '📋', items: [['orders', 'Orders'], ['users', 'Members']] },
-  { id: 'pay', label: 'Payments', icon: '💳', items: [['payments', 'Payments dashboard import'], ['parties', 'Parties']] },
+  { id: 'pay', label: 'Payments', icon: '💳', items: [['parties', 'Parties'], ['payments', 'Payments dashboard import']] },
   { id: 'deleg', label: 'Delegation', icon: '✅', items: [['tasks', 'Tasks'], ['checklists', 'Checklists']] },
-  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['purchases', 'Purchase dashboard import']] },
+  { id: 'purchase', label: 'Purchase', icon: '🧾', items: [['vendors', 'Parties (vendors)'], ['purchases', 'Purchase dashboard import']] },
   { id: 'decor', label: 'VT Decor', icon: '🎨', items: [['decor_clients', 'Clients'], ['decor_payments', 'Payments'], ['decor_expenses', 'Expenses'], ['decor_items', 'Items'], ['decor_photos', 'Photos & challans'], ['decor_quotations', 'Quotations']] },
   { id: 'att', label: 'Attendance', icon: '🕘', items: [['att_employees', 'Employees'], ['att_attendance', 'Attendance records'], ['att_advances', 'Salary advances']] },
 ].map((g) => ({ ...g, items: g.items.map(([id, label]) => ({ id, label })) }));
 const IMPORT_KINDS = IMPORT_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label]));
-const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', parties: 'payment parties', tasks: 'tasks', purchases: 'purchase entries', purchases_pf: 'purchase entries (Payments layout)',
+const IMPORT_LABEL = { orders: 'orders', users: 'members', payments: 'payment entries', parties: 'payment parties', vendors: 'purchase parties (vendors)', tasks: 'tasks', purchases: 'purchase entries', purchases_pf: 'purchase entries (Payments layout)',
   decor_clients: 'VT Decor clients', decor_payments: 'VT Decor payments', decor_expenses: 'VT Decor expenses', decor_items: 'VT Decor items', decor_photos: 'VT Decor photo links', decor_quotations: 'VT Decor quotations',
   att_employees: 'attendance employees', att_attendance: 'attendance records', att_advances: 'salary advances', checklists: 'checklists' };
 const IMPORT_TEMPLATE_NOTE = {
   orders: 'The Excel template has dropdowns for every list value and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   users: 'The Excel template has a dropdown for Role. Rows marked EXAMPLE are ignored.',
   payments: 'Same columns as the old Payments Transactions sheet. Fill Txn ID (TXN-0001 ...) for an entry carried over from it: it keeps that number, its Amount is taken as already divided by 100, and its status, creator and approver are kept. Without a Txn ID the Amount is divided by 100 like typing it. The Excel template has dropdowns for Type, Company and Mode, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
-  parties: 'One column: the party name. This is the list the Payments entry form suggests from; names already in it are rejected as duplicates. Rows marked EXAMPLE are ignored.',
+  parties: 'Columns: Type, Company, Party. Party is the name added to the list the Payments entry form suggests from; Type and Company are optional and only checked against the Dropdown values. Names already in the list are rejected as duplicates. Rows marked EXAMPLE are ignored.',
+  vendors: 'One column: Party Name. This is the vendor list the Purchase entry form suggests from; names already in it are rejected as duplicates. Rows marked EXAMPLE are ignored.',
   tasks: 'Use the staff username exactly as shown under Members. Rows marked EXAMPLE are ignored.',
   purchases: 'Purchase format: Site, Vendor, Material Received Date, Invoice Date, Invoice No, Invoice Amount, Remarks, Photos (old Google Drive links, separated by |). The Excel template has dropdowns for Site and Vendor, and a “Valid values” sheet. Rows marked EXAMPLE are ignored.',
   purchases_pf: 'The same columns as the Payments upload, plus Site (Godown or Shop). Party is the vendor; Type, Company, Mode and Account Name are ignored. Amount is the invoice amount in rupees as typed. Rows marked EXAMPLE are ignored.',
