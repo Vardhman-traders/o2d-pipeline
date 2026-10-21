@@ -1520,7 +1520,8 @@
   var REPORT_CHOICES = [
     ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
     ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
-    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown - cash'], ['shop-received-cash', 'Shop - cash'],
+    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown Receiving - cash'], ['shop-received-cash', 'Shop Receiving - cash'],
+    ['godown-received-other', 'Godown Receiving - not cash (bank + other)'], ['shop-received-other', 'Shop Receiving - not cash (bank + other)'],
     ['received-other-all', 'Godown + Shop - all other transactions (neither cash nor bank)']];
   var REPORT_SEL = new Set();
 
@@ -1571,6 +1572,25 @@
     go.onclick = function () { downloadSelectedReports_(go); };
     host.appendChild(wrap); host.appendChild(go);
     refresh();
+  }
+
+  // One PDF report for the Cartage page (and any single report): ids = the element ids of its From / To / person / message boxes
+  function downloadReport_(kind, btn, ids) {
+    ids = ids || { from: 'rep_from', to: 'rep_to', msg: 'rep_msg' };
+    var msg = document.getElementById(ids.msg);
+    var from = document.getElementById(ids.from).value, to = document.getElementById(ids.to).value;
+    var person = ids.person ? document.getElementById(ids.person).value : '';
+    if (from && to && from > to) { msg.className = 'status-msg error'; msg.textContent = '"From" must be on or before "To".'; return; }
+    msg.className = 'status-msg'; msg.textContent = 'Preparing PDF...'; btn.disabled = true;
+    VT.run.withSuccessHandler(function (r) {
+      btn.disabled = false;
+      if (!r || !r.ok) { msg.className = 'status-msg error'; msg.textContent = (r && r.error) || 'Could not create the report.'; return; }
+      var url = URL.createObjectURL(r.blob), a = document.createElement('a');
+      a.href = url; a.download = r.filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+      msg.textContent = 'Downloaded ' + r.filename;
+    }).withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+      .downloadReport(CURRENT_TOKEN, kind, from, to, person);
   }
 
   function downloadSelectedReports_(goBtn) {

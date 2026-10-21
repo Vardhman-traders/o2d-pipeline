@@ -283,6 +283,12 @@ tr:hover td{background:#F5F6FF}
         <button class="btn btn-primary" onclick="openAddClientModal()">+ Add Client</button>
         <button class="btn" style="background:#546E7A;color:#fff" onclick="refreshData()">Refresh</button>
       </div>
+      <div class="toolbar" id="assignBar" style="display:none;background:#EEF2FF;border-radius:10px;padding:8px 12px;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="font-size:.82rem">Give the ticked clients to a staff member:</b>
+        <span id="assignCount" style="font-size:.8rem;color:var(--t3)">0 ticked</span>
+        <select id="assignStaff"></select>
+        <button class="btn btn-primary btn-sm" onclick="assignSelected()">Assign</button>
+      </div>
       <div class="tbl-wrap"><div id="clientsTable" class="loader">Loading...</div></div>
     </div>
 
@@ -919,20 +925,26 @@ function openStatModal(type){
 // ── Client Tables ─────────────────────────────────────────
 function renderClients(){_renderClientTable(ALL_CLIENTS.active,'clientsTable');}
 function renderCompleted(){_renderClientTable(ALL_CLIENTS.completed,'completedTable');}
+function staffOptions(sel){
+  return CFG.staff.map(function(x){return '<option value="'+esc(x.id)+'"'+((sel||'')===x.id?' selected':'')+'>'+esc(x.name)+(x.id==='owner'?' (owner)':'')+'</option>';}).join('');
+}
 function _renderClientTable(list,targetId){
+  var assign=IS_ADMIN&&targetId==='clientsTable', bar=document.getElementById('assignBar');
+  if(bar&&targetId==='clientsTable'){bar.style.display=assign?'flex':'none';if(assign){document.getElementById('assignStaff').innerHTML=staffOptions('');updateAssignCount();}}
   if(!list.length){document.getElementById(targetId).innerHTML='<div class="empty">No records</div>';return;}
-  var html='<table><thead><tr><th>#</th><th>Name / Contact</th><th>Address</th><th>Type</th><th>Staff</th><th>Date</th><th>Contract</th><th>Paid</th><th>Balance</th><th>Actions</th></tr></thead><tbody>';
+  var html='<table><thead><tr>'+(assign?'<th><input type="checkbox" title="Tick all shown" onclick="toggleAllClients(this.checked)"></th>':'')+'<th>#</th><th>Name / Contact</th><th>Address</th><th>Type</th><th>Staff</th><th>Date</th><th>Contract</th><th>Paid</th><th>Balance</th><th>Actions</th></tr></thead><tbody>';
   list.forEach(function(c,i){
     var bal=c.amount-c.paid;
     var bs=bal<=0?'badge-gr':c.paid>0?'badge-am':'badge-re';
     var bsl=bal<=0?'Paid':c.paid>0?'Partial':'Unpaid';
     html+='<tr>'
+      +(assign?'<td><input type="checkbox" class="cl-pick" value="'+esc(c.clientId)+'" onchange="updateAssignCount()"></td>':'')
       +'<td>'+(i+1)+'</td>'
       +'<td style="cursor:pointer" onclick="openClientDetail(\''+esc(c.clientId)+'\')">'
       +'<b>'+esc(c.name)+'</b><br><span style="color:var(--t3);font-size:.77rem">'+esc(c.mobile)+'</span></td>'
       +'<td style="font-size:.78rem;color:var(--t3);max-width:160px">'+esc(c.address||'—')+'</td>'
       +'<td><span class="badge '+typeBadge(c.productType)+'">'+esc(c.productType||'Wallpaper')+'</span></td>'
-      +'<td><span class="staff-pill">'+esc(c.assignedTo||'-')+'</span></td>'
+      +'<td>'+(assign?'<select class="staff-sel" onchange="assignOne(\''+esc(c.clientId)+'\',this.value)">'+staffOptions(c.assignedTo||'owner')+'</select>':'<span class="staff-pill">'+esc(c.assignedTo||'-')+'</span>')+'</td>'
       +'<td style="font-size:.8rem">'+esc(c.date)+'</td>'
       +'<td class="num">'+R(c.amount)+'</td>'
       +'<td class="num" style="color:var(--gr)">'+R(c.paid)+'</td>'
@@ -944,6 +956,22 @@ function _renderClientTable(list,targetId){
       +'</td></tr>';
   });
   document.getElementById(targetId).innerHTML=html+'</tbody></table>';
+}
+function pickedClients(){return Array.prototype.map.call(document.querySelectorAll('.cl-pick:checked'),function(b){return b.value;});}
+function updateAssignCount(){var el=document.getElementById('assignCount');if(el)el.textContent=pickedClients().length+' ticked';}
+function toggleAllClients(on){Array.prototype.forEach.call(document.querySelectorAll('.cl-pick'),function(b){b.checked=on;});updateAssignCount();}
+function doAssign(ids,staffId){
+  return gas('assignClients',{clientIds:ids,staffId:staffId}).then(function(r){
+    if(!r||!r.ok){toast('Not assigned: '+((r&&r.msg)||'')); return false;}
+    toast(r.assigned+' client'+(r.assigned===1?'':'s')+' given to '+staffId+(r.missing&&r.missing.length?' ('+r.missing.length+' not found)':''));
+    loadAll(); return true;
+  }).catch(function(e){toast('Not assigned: '+String(e));return false;});
+}
+function assignOne(id,staffId){doAssign([id],staffId);}
+function assignSelected(){
+  var ids=pickedClients();
+  if(!ids.length){toast('Tick the clients first');return;}
+  doAssign(ids,document.getElementById('assignStaff').value);
 }
 function filterClients(){
   var q=(document.getElementById('clSearch').value||'').toLowerCase().trim();
@@ -1095,7 +1123,7 @@ function renderClientDetail(r){
     +'<div class="cd-info"><div class="ci-lbl">Type</div><div class="ci-val">'+esc(c.productType)+'</div></div>'
     +'<div class="cd-info"><div class="ci-lbl">Date</div><div class="ci-val">'+esc(c.date)+'</div></div>'
     +'<div class="cd-info"><div class="ci-lbl">Status</div><div class="ci-val">'+esc(c.status)+'</div></div>'
-    +'<div class="cd-info"><div class="ci-lbl">Staff (Assigned To)</div><div class="ci-val"><span class="staff-pill">'+esc(c.assignedTo||'-')+'</span></div></div>'
+    +'<div class="cd-info"><div class="ci-lbl">Staff (Assigned To)</div><div class="ci-val"><span class="staff-pill">'+esc(c.assignedTo||'-')+'</span>'+(IS_ADMIN?' <select class="staff-sel" onchange="assignOne(\''+esc(c.clientId)+'\',this.value);openClientDetail(\''+esc(c.clientId)+'\')">'+staffOptions(c.assignedTo||'owner')+'</select>':'')+'</div></div>'
     +'<div class="cd-info"><div class="ci-lbl">Added By</div><div class="ci-val"><span class="staff-pill">'+esc(c.addedBy||'-')+'</span></div></div>'
     +(c.address?'<div class="cd-info" style="grid-column:1/-1"><div class="ci-lbl">Address</div><div class="ci-val">'+esc(c.address)+'</div></div>':'')
     +(c.product?'<div class="cd-info" style="grid-column:1/-1"><div class="ci-lbl">Product</div><div class="ci-val">'+esc(c.product)+'</div></div>':'')
@@ -1285,13 +1313,26 @@ function pgDeletePhoto(clientId,fileId){
 }
 
 // ── Quotations ────────────────────────────────────────────
-function openQuotationPage(){window.open('quotation.html','_blank');}
+function openQuotationPage(no,mode){window.open('quotation.html'+(no?'?'+(mode||'view')+'='+encodeURIComponent(no):''),'_blank');}
+function deleteQuotation(no){
+  if(!confirm('Delete quotation '+no+' for good?'))return;
+  gas('deleteQuotation',{performaNo:no}).then(function(r){
+    if(!r||!r.ok){toast('Not deleted: '+((r&&r.msg)||''));return;}
+    toast('Quotation '+no+' deleted');loadQuotations();
+  }).catch(function(e){toast('Not deleted: '+String(e));});
+}
 function loadQuotations(){
   document.getElementById('quotationsTable').innerHTML='<div class="loader">Loading...</div>';
   gas('getQuotations',{role:ROLE}).then(function(r){
     if(!r.ok||!r.list.length){document.getElementById('quotationsTable').innerHTML='<div class="empty">No quotations yet</div>';return;}
-    var html='<table><thead><tr><th>Performa No.</th><th>Date</th><th>Party</th><th>Mobile</th><th>Grand Total</th><th>By</th></tr></thead><tbody>';
-    r.list.slice().reverse().forEach(function(q){html+='<tr><td><b>'+esc(q.performaNo)+'</b></td><td>'+esc(q.timestamp)+'</td><td>'+esc(q.client)+'</td><td>'+esc(q.mobile)+'</td><td class="num">'+R(q.grand)+'</td><td>'+esc(q.createdBy)+'</td></tr>';});
+    var html='<table><thead><tr><th>Performa No.</th><th>Date</th><th>Party</th><th>Mobile</th><th>Grand Total</th><th>By</th><th>Actions</th></tr></thead><tbody>';
+    r.list.slice().reverse().forEach(function(q){
+      var no=esc(q.performaNo);
+      html+='<tr><td><b>'+no+'</b></td><td>'+esc(q.timestamp)+'</td><td>'+esc(q.client)+'</td><td>'+esc(q.mobile)+'</td><td class="num">'+R(q.grand)+'</td><td>'+esc(q.createdBy)+'</td>'
+        +'<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="openQuotationPage(\''+no+'\',\'view\')">View</button> '
+        +'<button class="btn btn-sm" style="background:var(--bl);color:#fff" onclick="openQuotationPage(\''+no+'\',\'edit\')">Edit</button> '
+        +'<button class="btn btn-sm" style="background:var(--re);color:#fff" onclick="deleteQuotation(\''+no+'\')">Delete</button></td></tr>';
+    });
     document.getElementById('quotationsTable').innerHTML=html+'</tbody></table>';
   });
 }

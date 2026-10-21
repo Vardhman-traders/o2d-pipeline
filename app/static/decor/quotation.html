@@ -371,6 +371,7 @@ body{font-family:"DM Sans",sans-serif;background:#eef1f8;color:#1a1a2e}
 var ROLE = '';
 var CFG = {};
 var rowCount = 0;
+var EDIT_NO = '';   // the Performa No. of the quotation opened for viewing / editing ('' = a new one)
 
 function fmt(n){
   n = parseFloat(n)||0;
@@ -561,7 +562,7 @@ function saveAndPreview(){
     subtotal:sub,cgst_pct:cp,sgst_pct:sp,
     grand:sub+sub*cp/100+sub*sp/100,items:items
   };
-  gas('saveQuotation',d)
+  gas(EDIT_NO?'updateQuotation':'saveQuotation',d)
     .then(function(r){if(r&&r.ok&&r.performaNo){d.performa_no=r.performaNo;document.getElementById('q_pno').value=r.performaNo;}else if(r&&!r.ok){alert('Not saved: '+(r.msg||''));}buildPreview(d);showPreview();})
     .catch(function(e){alert('Not saved: '+(e&&e.message||e));buildPreview(d);showPreview();});
 }
@@ -596,21 +597,76 @@ function goBack(){
   document.getElementById('previewWrap').style.display='none';
 }
 
+// ── Open a saved quotation (?view=VT-0001 shows it, ?edit=VT-0001 opens the builder) ──
+function isoDate(v){
+  v=String(v||'').trim();
+  var m=/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/.exec(v);
+  return m?m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'):v.slice(0,10);
+}
+function fillBuilder(q){
+  EDIT_NO=q.performaNo;
+  document.getElementById('q_pno').value=q.performaNo;
+  document.getElementById('q_by').value=q.createdBy||ROLE;
+  document.getElementById('q_date').value=isoDate(q.date)||today();
+  document.getElementById('q_client').value=q.client||'';
+  document.getElementById('q_mobile').value=q.mobile||'';
+  document.getElementById('q_addr').value=q.addr||'';
+  document.getElementById('q_gstin').value=q.gstin||'';
+  document.getElementById('q_cgst').value=q.cgstPct||0;
+  document.getElementById('q_sgst').value=q.sgstPct||0;
+  document.getElementById('itemsBody').innerHTML='';rowCount=0;
+  (q.items&&q.items.length?q.items:[{}]).forEach(function(it){
+    addRow();
+    var tr=document.querySelector('#itemsBody tr:last-child');
+    tr.querySelector('.d').value=it.desc||it.description||it.name||'';
+    tr.querySelector('.a').value=it.area||it.design||'';
+    tr.querySelector('.q').value=it.qty!==undefined?it.qty:1;
+    tr.querySelector('.m').value=it.mrp!==undefined?it.mrp:(it.rate||0);
+    tr.querySelector('.p').value=it.disc||0;
+    tr.querySelector('.da').value=it.discAmt||0;
+    cr(tr.querySelector('.q'));
+  });
+  calc();
+}
+function openSaved(){
+  var qs=new URLSearchParams(location.search), no=qs.get('view')||qs.get('edit');
+  if(!no) return false;
+  gas('getQuotation',{performaNo:no}).then(function(q){
+    if(!q||!q.ok){alert((q&&q.msg)||'Could not open that quotation');return;}
+    fillBuilder(q);
+    document.querySelector('.topbar h2').textContent='VT Decor — Edit Quotation '+q.performaNo;
+    if(qs.get('view')) saveToPreview();
+  }).catch(function(e){alert('Could not open that quotation: '+(e&&e.message||e));});
+  return true;
+}
+// show the opened quotation as it prints, without saving anything
+function saveToPreview(){
+  var items=getItems(), cp=nv(document.getElementById('q_cgst').value), sp=nv(document.getElementById('q_sgst').value);
+  var sub=items.reduce(function(s,i){return s+i.amt;},0);
+  buildPreview({performa_no:EDIT_NO,created_by:document.getElementById('q_by').value,client:document.getElementById('q_client').value,
+    mobile:document.getElementById('q_mobile').value,addr:document.getElementById('q_addr').value,gstin:document.getElementById('q_gstin').value,
+    date:document.getElementById('q_date').value,subtotal:sub,cgst_pct:cp,sgst_pct:sp,grand:sub+sub*cp/100+sub*sp/100,items:items});
+  showPreview();
+}
+
 // ── Init ──────────────────────────────────
 function escQ(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 VT.boot('decor', function(){
   gas('getConfig',{}).then(function(cfg){
     CFG=cfg;ROLE=cfg.role||'';
-    document.getElementById('q_by').value=ROLE;
+    if(!EDIT_NO)document.getElementById('q_by').value=ROLE;
     document.getElementById('qhInfo').innerHTML=escQ(cfg.companyAddress)+'<br>'+escQ(cfg.companyContact);
     document.getElementById('qBankRows').innerHTML=String(cfg.bankDetails||'').split('\n').filter(function(l){return l.trim();}).map(function(l){
       var i=l.indexOf(':');var k=i>0?l.slice(0,i):'';var v=i>0?l.slice(i+1):l;
       return '<div class="qbank-row"><span class="l">'+escQ(k.trim())+'</span><span>'+escQ(v.trim())+'</span></div>';}).join('');
     document.getElementById('qTerms').innerHTML=String(cfg.quoteTerms||'').split('\n').filter(function(l){return l.trim();}).map(function(l){return '<li>'+escQ(l.trim())+'</li>';}).join('');
   }).catch(function(){});
-  gas('getNextPerformaNo',{}).then(function(r){
-    document.getElementById('q_pno').value=(r&&r.ok&&r.next)?r.next:'VT-0001';
-  }).catch(function(){document.getElementById('q_pno').value='VT-0001';});
+  if(!new URLSearchParams(location.search).get('view')&&!new URLSearchParams(location.search).get('edit')){
+    gas('getNextPerformaNo',{}).then(function(r){
+      document.getElementById('q_pno').value=(r&&r.ok&&r.next)?r.next:'VT-0001';
+    }).catch(function(){document.getElementById('q_pno').value='VT-0001';});
+  }
+  openSaved();
 });
 document.getElementById('q_date').value=today();
 addRow();addRow();addRow();

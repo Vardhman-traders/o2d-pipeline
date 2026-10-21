@@ -132,6 +132,7 @@
         <button id="tabAllPendingBtn" onclick="switchTab('allpending')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500">All Pending</button>
         <button id="tabAllBtn" onclick="switchTab('all')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500">All Tasks</button>
         <button id="tabWeekBtn" onclick="switchTab('week')" class="py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-calendar-week mr-1"></i>My Week</button>
+        <button id="tabExtraBtn" onclick="switchTab('extra')" class="py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-business-time mr-1"></i>Extra Work</button>
         <button onclick="openExtraWorkModal()" class="py-3 whitespace-nowrap text-slate-500 hover:text-slate-700"><i class="fa-solid fa-plus-circle mr-1"></i>Add Extra Work</button>
         <button id="tabScoreboardBtn" onclick="switchTab('scoreboard')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-trophy mr-1"></i>Scoreboard</button>
         <button id="tabChkMineBtn" onclick="switchTab('chkmine')" class="hidden py-3 whitespace-nowrap border-b-2 border-transparent text-slate-500"><i class="fa-solid fa-list-check mr-1"></i>My Checklist</button>
@@ -147,6 +148,7 @@
         <div class="text-center">
           <p class="text-xs text-slate-400 font-semibold uppercase">My Score</p>
           <p id="myScoreTotal" class="text-3xl vt-display font-bold vt-text-navy">0</p>
+          <p id="myScoreExtra" class="text-[11px] text-slate-400"></p>
         </div>
         <div class="text-center border-l border-slate-100">
           <p class="text-xs text-slate-400 font-semibold uppercase">On Time</p>
@@ -266,11 +268,40 @@
             <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
               <tr>
                 <th class="p-4">Rank</th><th class="p-4">Name</th>
-                <th class="p-4 text-center">Total Score</th><th class="p-4 text-center">On Time</th><th class="p-4 text-center">Late</th>
+                <th class="p-4 text-center">Total Score</th><th class="p-4 text-center">Task Points</th><th class="p-4 text-center">Extra Work Points</th><th class="p-4 text-center">On Time</th><th class="p-4 text-center">Late</th>
               </tr>
             </thead>
             <tbody id="scoreboardList" class="divide-y divide-slate-100"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- EXTRA WORK (tab-controlled): staff see their own entries, a manager / admin sees everyone's and decides them -->
+      <div id="viewExtra" class="hidden space-y-4">
+        <div id="extraCards" class="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm"></div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden vt-accent-bar vt-accent-berry">
+          <div class="p-4 border-b flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h3 id="extraTitle" class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-business-time vt-text-navy mr-2"></i><span id="extraTitleText">Extra Work</span></h3>
+              <p id="extraScoringNote" class="text-xs text-slate-400"></p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="extraStatusFilter" onchange="loadExtraWork()" class="px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+                <option value="">All statuses</option><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Rejected">Rejected</option>
+              </select>
+              <select id="extraStaffFilter" onchange="loadExtraWork()" class="hidden px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"><option value="">Everyone</option></select>
+              <button onclick="openExtraWorkModal()" class="px-3 py-2 vt-btn text-sm font-semibold rounded-xl"><i class="fa-solid fa-plus mr-1"></i>Add Extra Work</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-600">
+              <thead class="bg-slate-50 text-xs text-slate-400 font-semibold uppercase">
+                <tr><th class="p-4">Date</th><th id="extraStaffHead" class="p-4">Name</th><th class="p-4">Work done</th><th class="p-4 text-center">Hours</th>
+                    <th class="p-4 text-center">Status</th><th class="p-4 text-center">Points</th><th class="p-4 text-right">Actions</th></tr>
+              </thead>
+              <tbody id="extraList" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -439,6 +470,17 @@
         <textarea id="extraWorkDesc" rows="4" placeholder="Describe the extra work you did..." class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring"></textarea>
         <p class="text-[11px] text-slate-400 mt-1"><i class="fa-solid fa-microphone mr-1"></i>Tip: tap the mic icon on your phone's keyboard to speak this instead of typing.</p>
       </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Hours spent (optional)</label>
+          <input id="extraWorkHours" type="number" min="0" max="24" step="0.25" placeholder="e.g. 2.5" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Date of the work</label>
+          <input id="extraWorkDate" type="date" class="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm vt-ring">
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-400 -mt-2">It counts towards your score once a manager or admin approves it.</p>
       <div>
         <label class="block text-xs font-semibold text-slate-500 mb-1">Photo (optional)</label>
         <div class="flex gap-2">
@@ -1047,12 +1089,12 @@
     }
 
     // ====================== TABS ======================
-    var TAB_BTN = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', scoreboard: 'tabScoreboardBtn',
+    var TAB_BTN = { mine: 'tabMineBtn', allpending: 'tabAllPendingBtn', all: 'tabAllBtn', week: 'tabWeekBtn', extra: 'tabExtraBtn', scoreboard: 'tabScoreboardBtn',
       chkmine: 'tabChkMineBtn', chkcal: 'tabChkCalBtn', chkmanage: 'tabChkManageBtn' };
     function switchTab(tab) {
       currentTab = tab;
       if (location.hash !== '#' + tab) { try { history.pushState(null, '', '#' + tab); } catch (e) { /* hash is a convenience */ } }
-      var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabScoreboardBtn', 'tabChkMineBtn', 'tabChkCalBtn', 'tabChkManageBtn'];
+      var ids = ['tabMineBtn', 'tabAllPendingBtn', 'tabAllBtn', 'tabWeekBtn', 'tabExtraBtn', 'tabScoreboardBtn', 'tabChkMineBtn', 'tabChkCalBtn', 'tabChkManageBtn'];
       ids.forEach(function (id) {
         var el = document.getElementById(id);
         el.classList.remove('vt-tab-active');
@@ -1065,7 +1107,8 @@
       if (CHK_TABS[tab]) { chkShow(tab); return; }
       chkHide();
 
-      document.getElementById('viewTaskTable').classList.toggle('hidden', tab === 'scoreboard' || tab === 'week');
+      document.getElementById('viewTaskTable').classList.toggle('hidden', tab === 'scoreboard' || tab === 'week' || tab === 'extra');
+      document.getElementById('viewExtra').classList.toggle('hidden', tab !== 'extra');
       document.getElementById('viewScoreboard').classList.toggle('hidden', tab !== 'scoreboard');
       document.getElementById('viewWeekly').classList.toggle('hidden', tab !== 'week');
       document.getElementById('adminSearchBar').classList.toggle('hidden', !(tab === 'all' && isPrivileged()));
@@ -1103,16 +1146,18 @@
 
       if (currentTab === 'scoreboard') loadScoreboard();
       if (currentTab === 'week') loadWeeklyReview();
+      if (currentTab === 'extra') loadExtraWork();
     }
 
     function renderMyScore(score) {
       document.getElementById('myScoreTotal').textContent = (score && score.totalScore) || 0;
       document.getElementById('myScoreOnTime').textContent = (score && score.onTime) || 0;
       document.getElementById('myScoreLate').textContent = (score && score.late) || 0;
+      document.getElementById('myScoreExtra').textContent = score && score.extraScore ? 'incl. ' + score.extraScore + ' from extra work' : '';
     }
 
     function applyFilterAndRender() {
-      if (!currentUser || currentTab === 'scoreboard') return;
+      if (!currentUser || currentTab === 'scoreboard' || currentTab === 'extra') return;
       var source = allTasksCache.slice();
 
       if (currentTab === 'mine') {
@@ -1285,6 +1330,10 @@
     // ====================== EXTRA WORK ======================
     function openExtraWorkModal() {
       document.getElementById('extraWorkDesc').value = '';
+      document.getElementById('extraWorkHours').value = '';
+      var today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      document.getElementById('extraWorkDate').value = today;
+      document.getElementById('extraWorkDate').max = today;
       document.getElementById('extraWorkPhotoGallery').value = '';
       document.getElementById('extraWorkPhotoCamera').value = '';
       document.getElementById('extraWorkPhotoPreview').textContent = '';
@@ -1303,9 +1352,10 @@
       var file = getSelectedPhotoFile('extraWorkPhotoGallery', 'extraWorkPhotoCamera');
       var send = function (photoDataUrl) {
         VT.run
-          .withSuccessHandler(function (msg) { showToast(msg); closeExtraWorkModal(); })
+          .withSuccessHandler(function (msg) { showToast(msg); closeExtraWorkModal(); loadDashboard(); })
           .withFailureHandler(onGenericError)
-          .logExtraWork(currentUser.id, currentUser.name, currentUser.role, desc, photoDataUrl || '');
+          .logExtraWork(currentUser.id, currentUser.name, currentUser.role, desc, photoDataUrl || '',
+            document.getElementById('extraWorkHours').value, document.getElementById('extraWorkDate').value);
       };
 
       if (file) {
@@ -1313,6 +1363,60 @@
       } else {
         send('');
       }
+    }
+
+    // ====================== EXTRA WORK LIST (own entries for staff; everyone's, with Approve / Reject, for a manager or admin) ======================
+    var extraStaffLoaded = false;
+    function loadExtraWork() {
+      var priv = isPrivileged();
+      document.getElementById('extraStaffFilter').classList.toggle('hidden', !priv);
+      document.getElementById('extraStaffHead').classList.toggle('hidden', !priv);
+      document.getElementById('extraTitleText').textContent = priv ? 'Extra Work - everyone' : 'My Extra Work';
+      VT.run.withSuccessHandler(renderExtraWork).withFailureHandler(onGenericError)
+        .getExtraWork(priv ? document.getElementById('extraStaffFilter').value : '', document.getElementById('extraStatusFilter').value);
+    }
+
+    function renderExtraWork(res) {
+      var rows = (res && res.rows) || [], priv = isPrivileged(), t = (res && res.totals) || {};
+      if (priv && !extraStaffLoaded) {   // the person filter: everyone who has logged something
+        extraStaffLoaded = true;
+        VT.run.withSuccessHandler(function (all) {
+          var seen = {}, sel = document.getElementById('extraStaffFilter');
+          ((all && all.rows) || []).forEach(function (r) { if (!seen[r.staffId]) { seen[r.staffId] = 1; sel.insertAdjacentHTML('beforeend', '<option value="' + escapeHtml(r.staffId) + '">' + escapeHtml(r.staffName) + '</option>'); } });
+        }).getExtraWork('', '');
+      }
+      document.getElementById('extraCards').innerHTML = [['Approved entries', t.approved || 0, ''], ['Waiting for approval', t.pending || 0, 'color:var(--vt-danger)'],
+        ['Hours (approved)', Number(t.hours || 0).toFixed(2).replace(/\.00$/, ''), ''], ['Points earned', t.points || 0, 'color:var(--vt-success)']].map(function (c) {
+        return '<div class="text-center"><p class="text-xs text-slate-400 font-semibold uppercase">' + c[0] + '</p><p class="text-3xl vt-display font-bold vt-text-navy" style="' + c[2] + '">' + c[1] + '</p></div>';
+      }).join('');
+      var sc = (res && res.scoring) || {};
+      document.getElementById('extraScoringNote').textContent = 'An approved entry adds ' + (sc.entry || 0) + ' point(s)' + (sc.hour ? ' plus ' + sc.hour + ' per hour' : '') + ' to the scorecard; the approver can change the points.';
+      var tbody = document.getElementById('extraList');
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-400 text-sm">No extra work logged yet.</td></tr>'; return; }
+      var pill = { Pending: 'bg-amber-50 text-amber-700', Approved: 'bg-emerald-50 text-emerald-700', Rejected: 'bg-rose-50 text-rose-700' };
+      tbody.innerHTML = rows.map(function (r) {
+        var photo = r.photoUrl ? ' <a href="' + escapeHtml(r.photoUrl) + '" target="_blank" rel="noopener" class="text-violet-600"><i class="fa-solid fa-image"></i></a>' : '';
+        var actions = (res.canReview && r.status === 'Pending')
+          ? '<button onclick="decideExtra(' + r.id + ',\'Approved\')" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white mr-1">Approve</button>' +
+            '<button onclick="decideExtra(' + r.id + ',\'Rejected\')" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600 text-white">Reject</button>'
+          : (r.decidedBy ? '<span class="text-xs text-slate-400">by ' + escapeHtml(r.decidedBy) + '</span>' : '');
+        return '<tr>' +
+          '<td class="p-4 whitespace-nowrap">' + escapeHtml(chkFmt(r.date)) + '<div class="text-[10px] text-slate-400">logged ' + escapeHtml(r.loggedAt) + '</div></td>' +
+          (priv ? '<td class="p-4 font-medium text-slate-700">' + escapeHtml(r.staffName) + '</td>' : '') +
+          '<td class="p-4 max-w-md">' + escapeHtml(r.desc) + photo + (r.remark ? '<div class="text-xs text-slate-400 mt-1">' + escapeHtml(r.remark) + '</div>' : '') + '</td>' +
+          '<td class="p-4 text-center">' + (r.hours === null ? '—' : r.hours) + '</td>' +
+          '<td class="p-4 text-center"><span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full ' + pill[r.status] + '">' + r.status + '</span></td>' +
+          '<td class="p-4 text-center font-bold ' + ((r.points || 0) > 0 ? 'text-emerald-600' : 'text-slate-400') + '">' + (r.status === 'Approved' ? (r.points > 0 ? '+' : '') + r.points : '—') + '</td>' +
+          '<td class="p-4 text-right whitespace-nowrap">' + actions + '</td></tr>';
+      }).join('');
+    }
+
+    function decideExtra(id, status) {
+      var answer = prompt(status === 'Approved' ? 'Points for this entry (leave empty for the default), then press OK:' : 'Why is it rejected? (optional)', '');
+      if (answer === null) return;
+      var points = status === 'Approved' ? answer.trim() : '', note = status === 'Approved' ? '' : answer;
+      VT.run.withSuccessHandler(function (msg) { showToast(msg); loadExtraWork(); loadDashboard(); }).withFailureHandler(onGenericError)
+        .reviewExtraWork(id, status, points, note);
     }
 
     // ====================== MARK TASK COMPLETE ======================
@@ -1418,7 +1522,7 @@
       list = list || [];
       var tbody = document.getElementById('scoreboardList');
       if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-slate-400 text-sm">No scores yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-400 text-sm">No scores yet.</td></tr>';
       } else {
         tbody.innerHTML = list.map(function (s, i) {
           var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
@@ -1427,6 +1531,8 @@
               '<td class="p-4 font-bold text-slate-700">' + medal + '</td>' +
               '<td class="p-4 font-medium text-slate-700">' + escapeHtml(s.name) + '</td>' +
               '<td class="p-4 text-center font-bold ' + (s.totalScore >= 0 ? 'text-emerald-600' : 'text-rose-600') + '">' + s.totalScore + '</td>' +
+              '<td class="p-4 text-center text-slate-600">' + (s.taskScore === undefined ? s.totalScore : s.taskScore) + '</td>' +
+              '<td class="p-4 text-center text-violet-600" title="' + (s.extraCount || 0) + ' approved entr' + (s.extraCount === 1 ? 'y' : 'ies') + ', ' + (s.extraHours || 0) + ' h">' + (s.extraScore || 0) + '</td>' +
               '<td class="p-4 text-center text-emerald-600">' + s.onTime + '</td>' +
               '<td class="p-4 text-center text-rose-600">' + s.late + '</td>' +
             '</tr>'

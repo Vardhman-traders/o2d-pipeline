@@ -29,10 +29,10 @@ MONEY_FIELDS = ("rent", "salaries", "lift", "electricity", "marketing", "softwar
                 "hidden", "other")
 READ_ACTIONS = {"getConfig", "getClients", "getClientDetail", "getItems", "getPaymentsList", "getExpensesList", "getAgingReport",
                 "getMonthlyCollection", "getGPData", "getFixedExp", "getStagePcts", "getQuotations", "getNextPerformaNo",
-                "getPhotos", "getAllPhotos", "getAllBusinessLedger", "getPartyLedger"}
+                "getPhotos", "getAllPhotos", "getAllBusinessLedger", "getPartyLedger", "getQuotation"}
 OWNER_ONLY = {"deletePayment", "editPayment", "deleteExpense", "editExpense", "deleteItem", "reviseAmount", "markCompleted",
               "markActive", "hideClient", "deleteClient", "deletePhoto"}
-ADMIN_ONLY = {"getAllBusinessLedger", "saveFixedExp", "getFixedExp", "saveStagePcts"}   # whole-business data: administrators only
+ADMIN_ONLY = {"getAllBusinessLedger", "saveFixedExp", "getFixedExp", "saveStagePcts", "assignClients"}   # whole-business data: administrators only
 
 
 # ------------------------------------------------------------------ who is calling
@@ -213,6 +213,30 @@ def add_client(user, who, p):
                     (name[:150], mobile[:30], p.get("address") or None, p.get("product") or None, round(_f(p.get("amount")), 2),
                      _day(p.get("date")), p.get("notes") or None, who["me"], who["me"], t["type_key"]))
         return {"ok": True, "clientId": cur.fetchone()["client_code"]}
+
+
+def assign_clients(user, who, p):
+    """Administrator: hand clients to a staff member (or back to the owner). From then on the staff member sees them - and their payments,
+    expenses, items and photos - on their own VT Decor dashboard. p: {clientIds: [C001, ...] (or clientId), staffId}."""
+    ids = p.get("clientIds") if isinstance(p.get("clientIds"), list) else [p.get("clientId")]
+    ids = sorted({str(i).strip() for i in ids if str(i or "").strip()})
+    staff = str(p.get("staffId") or "").strip().lower()
+    if not ids or not staff:
+        return {"ok": False, "msg": "Choose the clients and the staff member."}
+    with db.cursor() as cur:
+        if staff != "owner":
+            cur.execute("SELECT user_key, username FROM dim_user WHERE lower(username) = %s AND password_hash <> %s", (staff, auth.DISABLED_HASH))
+            person = cur.fetchone()
+            if not person:
+                return {"ok": False, "msg": "That staff member was not found (or the account is disabled)."}
+            if person["user_key"] not in (set(access.users_with_page(OWNER_PAGE)) | set(access.users_with_page(STAFF_PAGE))):
+                return {"ok": False, "msg": "That person has no VT Decor access yet - give them the VT Decor page under Setup > Access first."}
+        cur.execute("UPDATE dim_decor_client SET assigned_to = %s WHERE client_code = ANY(%s) RETURNING client_code", (staff, ids))
+        done = [r["client_code"] for r in cur.fetchall()]
+        if done:
+            cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'decor.assign', %s, %s)",
+                        (user["user_key"], user["username"], staff, Json({"clients": done})))
+    return {"ok": True, "assigned": len(done), "missing": sorted(set(ids) - set(done))}
 
 
 def _set_status(status):
@@ -721,6 +745,53 @@ def save_quotation(user, who, p):
     return {"ok": True, "performaNo": no}
 
 
+def _quotation_row(cur, who, performa_no) -> dict:
+    cur.execute("SELECT * FROM fact_decor_quotation WHERE performa_no = %s FOR UPDATE", (str(performa_no or "").strip(),))
+    r = cur.fetchone()
+    if not r:
+        raise HTTPException(404, "That quotation was not found - it may have been deleted.")
+    if not (who["admin"] or (r["created_by"] or "") == who["me"]):
+        raise HTTPException(403, "Access denied")
+    return r
+
+
+def get_quotation(user, who, p):
+    """One quotation in full (with its items) for viewing or editing: the person who made it, and the administrator."""
+    with db.cursor() as cur:
+        r = _quotation_row(cur, who, p.get("performaNo"))
+    return {"ok": True, "performaNo": r["performa_no"], "createdBy": r["created_by"] or "", "client": r["client_name"] or "", "mobile": r["mobile"] or "",
+            "addr": r["address"] or "", "gstin": r["gstin"] or "", "date": r["quote_date"] or "", "cgstPct": _f(r["cgst_pct"]), "sgstPct": _f(r["sgst_pct"]),
+            "items": r["items"] if isinstance(r["items"], list) else []}
+
+
+def update_quotation(user, who, p):
+    """Change a saved quotation in place: it keeps its Performa No. and its maker."""
+    items = p.get("items") if isinstance(p.get("items"), list) else []
+    if not str(p.get("client") or "").strip() or not str(p.get("mobile") or "").strip():
+        return {"ok": False, "msg": "Party name and mobile required"}
+    if not items:
+        return {"ok": False, "msg": "Add at least one item"}
+    with db.cursor() as cur:
+        r = _quotation_row(cur, who, p.get("performa_no"))
+        cur.execute("""UPDATE fact_decor_quotation SET client_name = %s, mobile = %s, address = %s, gstin = %s, quote_date = %s, subtotal = %s,
+                       cgst_pct = %s, sgst_pct = %s, grand_total = %s, items = %s WHERE quotation_key = %s""",
+                    (p.get("client") or None, p.get("mobile") or None, p.get("addr") or None, p.get("gstin") or None,
+                     str(p.get("date") or "")[:20] or None, round(_f(p.get("subtotal")), 2), _f(p.get("cgst_pct")), _f(p.get("sgst_pct")),
+                     round(_f(p.get("grand")), 2), Json(items), r["quotation_key"]))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'decor.quotation_edit', %s, %s)",
+                    (user["user_key"], user["username"], r["performa_no"], Json({"before_total": _f(r["grand_total"]), "after_total": round(_f(p.get("grand")), 2)})))
+    return {"ok": True, "performaNo": r["performa_no"]}
+
+
+def delete_quotation(user, who, p):
+    with db.cursor() as cur:
+        r = _quotation_row(cur, who, p.get("performaNo"))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'decor.quotation_delete', %s, %s)",
+                    (user["user_key"], user["username"], r["performa_no"], Json({"client": r["client_name"], "grand_total": _f(r["grand_total"])})))
+        cur.execute("DELETE FROM fact_decor_quotation WHERE quotation_key = %s", (r["quotation_key"],))
+    return {"ok": True}
+
+
 def get_quotations(user, who, p):
     with db.cursor() as cur:
         cur.execute("SELECT * FROM fact_decor_quotation ORDER BY quotation_key")
@@ -740,7 +811,8 @@ ACTIONS = {
     "getExpensesList": get_expenses_list, "deleteExpense": delete_expense, "editExpense": edit_expense,
     "getAgingReport": get_aging_report, "getMonthlyCollection": get_monthly_collection, "getGPData": get_gp_data,
     "saveFixedExp": save_fixed_exp, "getFixedExp": get_fixed_exp, "getStagePcts": get_stage_pcts, "saveStagePcts": save_stage_pcts,
-    "saveQuotation": save_quotation, "getQuotations": get_quotations, "getNextPerformaNo": get_next_performa_no,
+    "saveQuotation": save_quotation, "getQuotations": get_quotations, "getQuotation": get_quotation,
+    "updateQuotation": update_quotation, "deleteQuotation": delete_quotation, "assignClients": assign_clients, "getNextPerformaNo": get_next_performa_no,
     "markCompleted": _set_status("Completed"), "markActive": _set_status("Active"), "hideClient": _set_status("Hidden"),
     "deleteClient": delete_client, "savePhotoLink": save_photo_link, "uploadPhoto": upload_photo, "getPhotos": get_photos,
     "getAllPhotos": get_all_photos, "deletePhoto": delete_photo, "getAllBusinessLedger": get_business_ledger,

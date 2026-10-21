@@ -351,6 +351,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <select class="input" id="monthSel" style="max-width:155px" onchange="reloadReport()"></select>
         <select class="input" id="yearSel"  style="max-width:105px" onchange="reloadReport()"></select>
       </div>
+      <div class="export-bar" style="background:#eef2ff;border-radius:10px;padding:.6rem .8rem;margin-bottom:.6rem">
+        <span class="lbl">⚡ One click, whole team</span>
+        <button class="btn" id="fullMonthBtn" onclick="exportFullMonth()">📥 All employees: Monthly report + Salary (Excel)</button>
+        <span style="font-size:.72rem;color:#64748b">Uses the month and year chosen here</span>
+      </div>
       <div class="export-bar">
         <span class="lbl">⬇ Export this month</span>
         <button class="btn btn-sm btn-ghost" onclick="exportMonthOne()">📥 This employee (Excel)</button>
@@ -788,7 +793,7 @@ function renderTodayTable(){
     var m=marked[i], si=m.site==='Godown'?'🏭':'🏪';
     var outCell=m.checkedOut?('<span class="pill teal">'+m.checkoutTime+'</span>'):'<span style="color:#94a3b8;font-size:.75rem">Not yet</span>';
     var hoursCell=m.checkedOut?('<strong>'+m.hoursWorked+'</strong>'):'<span style="color:#94a3b8">—</span>';
-    var actionCell=m.checkedOut?'<span style="color:#94a3b8;font-size:.75rem">Done</span>':'<button class="btn btn-sm btn-green" onclick="openCheckoutModal(\''+escH(m.name)+'\')">🏁 Checkout</button>';
+    var actionCell=m.checkedOut?'<span style="color:#94a3b8;font-size:.75rem">Done</span>':(IS_ADMIN?'<button class="btn btn-sm btn-green" onclick="openCheckoutModal(\''+escH(m.name)+'\')">🏁 Checkout</button>':'<span style="color:#94a3b8;font-size:.75rem">Admin only</span>');
     if(IS_ADMIN) actionCell+=' <button class="btn btn-sm btn-ghost" title="Galat punch theek karo" onclick="openFixToday('+r.marked.indexOf(m)+')">✏️ Fix'+(m.corrected?' ✎':'')+'</button>';
     rows+='<tr><td><strong>'+escH(m.name)+'</strong>'+photoLinks(m)+'</td><td>'+m.time+'</td><td>'+outCell+'</td><td>'+hoursCell+'</td><td>'+statusPill(m.finalStatus)+'</td><td>'+si+' '+escH(m.site)+'</td><td>'+actionCell+'</td></tr>';
   }
@@ -1075,7 +1080,7 @@ function renderSalaryReport(r){
   var role=''; for(var i=0;i<ACT_EMPS.length;i++){if(ACT_EMPS[i].name.toLowerCase()===r.employeeName.toLowerCase()){role=ACT_EMPS[i].role;break;}}
 
   var html='';
-  html+='<div class="slip-header"><div class="slip-logo">VT</div><div><div class="slip-company">Vardhman Traders</div><div class="slip-tagline">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
+  html+='<div class="slip-header"><div class="slip-logo">VT</div><div><div class="slip-company">VT</div><div class="slip-tagline">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
 
   html+='<div class="sal-emp-row" style="margin-bottom:1rem">'
     +'<div class="sal-emp-avatar">'+initials+'</div>'
@@ -1386,7 +1391,7 @@ function showSug(inputId,boxId,onPick){
 /* ─── PRINT / CSV ─── */
 function downloadCSV(){
   var rep=window._lastReport; if(!rep) return;
-  var lines=['Vardhman Traders - Monthly Attendance Report','Employee,'+csvS(rep.emp.name),'Role,'+csvS(rep.emp.role),'Month,'+rep.monthName+' '+rep.year,'','Day,Date,Status,Check-in,Check-out,Hours'];
+  var lines=['VT - Monthly Attendance Report','Employee,'+csvS(rep.emp.name),'Role,'+csvS(rep.emp.role),'Month,'+rep.monthName+' '+rep.year,'','Day,Date,Status,Check-in,Check-out,Hours'];
   for(var i=0;i<rep.days.length;i++){var d=rep.days[i]; lines.push(d.day+','+d.dayName+','+csvS(d.status)+','+(d.time||'')+','+(d.checkoutTime||'—')+','+(d.hoursWorked||'—'));}
   lines.push('','Summary','Present,'+rep.stats.present,'Late,'+rep.stats.late,'Half Day,'+rep.stats.halfDay,'Absent,'+rep.stats.absent,'Paid Days,'+rep.stats.paidDays);
   dl(lines.join('\n'),rep.emp.name.replace(/[^a-zA-Z0-9]/g,'_')+'_'+rep.monthName+'_'+rep.year+'.csv');
@@ -1398,7 +1403,7 @@ function printSalarySlip(){
   var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var mName=months[r.month-1]; var s=r.stats;
   var html='<div style="font-family:sans-serif;padding:24px;max-width:700px;margin:0 auto">';
-  html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #1a237e"><div style="width:50px;height:50px;background:#1a237e;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.2rem">VT</div><div><div style="font-size:1.3rem;font-weight:900;color:#1a237e">Vardhman Traders</div><div style="font-size:.75rem;color:#6b7280">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
+  html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #1a237e"><div style="width:50px;height:50px;background:#1a237e;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.2rem">VT</div><div><div style="font-size:1.3rem;font-weight:900;color:#1a237e">VT</div><div style="font-size:.75rem;color:#6b7280">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
   html+='<div style="margin-bottom:14px"><div style="font-size:1rem;font-weight:800">'+escH(r.employeeName)+'</div><div style="font-size:.78rem;color:#6b7280">Monthly Gross: ₹'+fmt(r.monthlySalary)+' | Per Day (÷'+r.baseDays+'): ₹'+fmt(r.perDaySalary)+'</div></div>';
   if(r.totalAdvance>0) html+='<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 12px;font-size:.75rem;color:#dc2626;font-weight:700;margin-bottom:12px">💸 Advance deducted: ₹'+fmt(r.totalAdvance)+'</div>';
   html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
@@ -1413,7 +1418,7 @@ function printSalarySlip(){
   html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Paid Days</td><td style="text-align:right;font-weight:800;color:#16a34a;padding:7px 10px">'+r.totalPaidDays+' / '+r.baseDays+'</td></tr>';
   html+='</table>';
   html+='<div style="background:#1a237e;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:.85rem;font-weight:700;color:rgba(255,255,255,.8)">💰 Net Payable Salary</div><div style="font-size:1.5rem;font-weight:900;color:#fff">₹'+fmt(r.netSalary)+'</div></div>';
-  html+='<div style="font-size:.6rem;color:#9ca3af;text-align:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:10px">Vardhman Traders · Salary Slip · '+mName+' '+r.year+' · Confidential</div>';
+  html+='<div style="font-size:.6rem;color:#9ca3af;text-align:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:10px">VT · Salary Slip · '+mName+' '+r.year+' · Confidential</div>';
   html+='</div>';
   document.getElementById('salPrintArea').innerHTML=html;
   document.getElementById('salPrintArea').style.display='block';
@@ -1424,7 +1429,7 @@ function downloadSalCSV(){
   var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
   var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var mName=months[r.month-1];
-  var lines=['Vardhman Traders — Salary Slip','Employee,'+csvS(r.employeeName),'Month,'+mName+' '+r.year,'','Gross Salary,'+r.monthlySalary,'Per Day Rate (÷'+r.baseDays+'),'+r.perDaySalary,'Total Deduction Days,'+r.totalDeductionDays,'Deduction Amount,'+r.deductionAmount,'Advance,'+r.totalAdvance,'Net Salary,'+r.netSalary,'Paid Days,'+r.totalPaidDays,'','Attendance','Present,'+r.stats.present,'Late,'+r.stats.late,'Half Day,'+r.stats.halfDay,'Absent,'+r.stats.absent];
+  var lines=['VT — Salary Slip','Employee,'+csvS(r.employeeName),'Month,'+mName+' '+r.year,'','Gross Salary,'+r.monthlySalary,'Per Day Rate (÷'+r.baseDays+'),'+r.perDaySalary,'Total Deduction Days,'+r.totalDeductionDays,'Deduction Amount,'+r.deductionAmount,'Advance,'+r.totalAdvance,'Net Salary,'+r.netSalary,'Paid Days,'+r.totalPaidDays,'','Attendance','Present,'+r.stats.present,'Late,'+r.stats.late,'Half Day,'+r.stats.halfDay,'Absent,'+r.stats.absent];
   if(r.advances.length){lines.push('','Advance Details','Date,Amount,Note');for(var a=0;a<r.advances.length;a++) lines.push(csvS(r.advances[a].date)+','+r.advances[a].amount+','+csvS(r.advances[a].note||''));}
   dl(lines.join('\n'),r.employeeName.replace(/[^a-zA-Z0-9]/g,'_')+'_Salary_'+mName+'_'+r.year+'.csv');
 }
@@ -1454,7 +1459,7 @@ function dayCode(st){ return {'Present':'P','Late':'L','Half Day':'H','Absent':'
 function exportMonthOne(){
   if(needXlsx()) return;
   var rep=window._lastReport; if(!rep){ toast('Pehle employee chuno aur report dekho','err'); return; }
-  var rows=[['Vardhman Traders - Monthly Attendance Report'],['Employee',rep.emp.name],['Role',rep.emp.role||''],['Month',rep.monthName+' '+rep.year],[],
+  var rows=[['VT - Monthly Attendance Report'],['Employee',rep.emp.name],['Role',rep.emp.role||''],['Month',rep.monthName+' '+rep.year],[],
             ['Day','Weekday','Date','Status','Check-in','Check-out','Hours','Corrected']];
   rep.days.forEach(function(d){ rows.push([d.day,d.dayName,d.date,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'',d.corrected?('Yes: '+d.note):'']); });
   rows.push([],['Summary'],['Present',rep.stats.present],['Late',rep.stats.late],['Half Day',rep.stats.halfDay],['Absent',rep.stats.absent],['Weekly Off',rep.stats.weeklyOff],['Incomplete',rep.stats.incomplete||0],['Paid Days',rep.stats.paidDays]);
@@ -1487,11 +1492,53 @@ function exportMonthAll(){
     toast('✅ Excel download ho gaya','ok');
   }).withFailureHandler(function(){ toast('Connection error','err'); }).getMonthlyAll(PWD,year,month);
 }
+/* One click: every employee's attendance for the month AND the salary calculated, in one workbook */
+function exportFullMonth(){
+  if(needXlsx()) return;
+  var month=parseInt(document.getElementById('monthSel').value,10), year=parseInt(document.getElementById('yearSel').value,10);
+  var btn=document.getElementById('fullMonthBtn'); btn.disabled=true;
+  toast('Poori team ka report aur salary ban rahi hai…');
+  var done=function(){ btn.disabled=false; };
+  VT.run.withSuccessHandler(function(att){
+    if(att.status==='unauthorized'){done();logout();return;}
+    if(att.status!=='ok'){ done(); toast('❌ '+(att.msg||'Failed'),'err'); return; }
+    VT.run.withSuccessHandler(function(sal){
+      done();
+      if(sal.status!=='ok'){ toast('❌ '+(sal.msg||'Failed'),'err'); return; }
+      var mName=MONTHS_FULL[month-1], n=att.employees.length?att.employees[0].days.length:0;
+      var salRows=[['VT - Monthly Salary Sheet '+mName+' '+year],[],['Employee','Role','Monthly salary','Per day (÷ '+sal.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Incomplete','Deduction days','Deduction amount','Advance','Net payable','Paid days']];
+      var net=0,adv=0,ded=0;
+      sal.rows.forEach(function(x){
+        if(!x.salarySet){ salRows.push([x.name,x.role,'Salary not set']); return; }
+        salRows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.incomplete,x.deductionDays,x.deductionAmount,x.advance,x.netSalary,x.paidDays]);
+        net+=x.netSalary; adv+=x.advance; ded+=x.deductionAmount;
+      });
+      salRows.push([],['Total','','','','','','','','','','','',ded,adv,net]);
+      var summary=[['Employee','Role','Present','Late','Half Day','Absent','Weekly Off','Incomplete','Paid Days']];
+      var grid=[['Employee','Role'].concat(Array.apply(null,Array(n)).map(function(_,i){return i+1;}))];
+      var punches=[['Employee','Date','Weekday','Status','Check-in','Check-out','Hours','Corrected']];
+      att.employees.forEach(function(e){
+        var s=e.stats;
+        summary.push([e.name,e.role,s.present,s.late,s.halfDay,s.absent,s.weeklyOff,s.incomplete||0,s.paidDays]);
+        grid.push([e.name,e.role].concat(e.days.map(function(d){return dayCode(d.status);})));
+        e.days.forEach(function(d){ if(d.status!=='—') punches.push([e.name,d.date,d.dayName,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'',d.corrected?('Yes: '+d.note):'']); });
+      });
+      grid.push([],['P = Present, L = Late, H = Half Day, A = Absent, I = Incomplete, Off = Weekly Off']);
+      var wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(salRows),'Salary');
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),'Attendance summary');
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(grid),'Day-wise');
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(punches),'Punches');
+      saveBook(wb,'VT_Monthly_Report_and_Salary_'+mName+'_'+year+'.xlsx');
+      toast('✅ Report aur salary download ho gayi','ok');
+    }).withFailureHandler(function(){ done(); toast('Connection error','err'); }).getSalaryAll(PWD,year,month);
+  }).withFailureHandler(function(){ done(); toast('Connection error','err'); }).getMonthlyAll(PWD,year,month);
+}
 function exportSalOne(){
   if(needXlsx()) return;
   var r=window._lastSalary; if(!r){ toast('Pehle salary calculate karo','err'); return; }
   var mName=MONTHS_FULL[r.month-1], s=r.stats;
-  var rows=[['Vardhman Traders - Salary Slip'],['Employee',r.employeeName],['Month',mName+' '+r.year],[],
+  var rows=[['VT - Salary Slip'],['Employee',r.employeeName],['Month',mName+' '+r.year],[],
             ['Gross salary',r.monthlySalary],['Per day rate (÷ '+r.baseDays+')',r.perDaySalary],['Deduction days',r.totalDeductionDays],['Deduction amount',r.deductionAmount],
             ['Advance',r.totalAdvance],['Net payable',r.netSalary],['Paid days',r.totalPaidDays],[],
             ['Present',s.present],['Late',s.late],['Half Day',s.halfDay],['Absent',s.absent],['Sandwich days',s.sandwich],['Weekly Off',s.weeklyOff],[],

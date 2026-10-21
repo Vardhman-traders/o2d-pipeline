@@ -183,3 +183,29 @@ def test_staff_cannot_rewrite_what_they_already_marked(client, db_conn, days, se
     assert any(i["key"] == item["key"] and i["status"] == "Done" and i["markedBy"] for i in client.get("/checklist/mine", headers=staff).json()["finished"])
     assert mark(mgr, "Pending").status_code == 200                      # a manager can re-open ...
     assert mark(staff, "Not Done", "really not done").status_code == 200   # ... and then it is open again for the person
+
+
+def test_extra_work_is_visible_to_its_owner_and_the_manager_and_scores_only_when_approved(client, db_conn, days, seed):
+    mgr, _ = user(client, db_conn, "manager")
+    staff, sname = user(client, db_conn, "staff")
+    other, _ = user(client, db_conn, "staff")
+    assert "logged" in client.post("/delegation/extra-work", json={"desc": "Unloaded a truck", "hours": 2.5}, headers=staff).json()
+    assert client.post("/delegation/extra-work", json={"desc": "x", "hours": 30}, headers=staff).json() == "Hours must be between 0 and 24."
+    assert client.post("/delegation/extra-work", json={"desc": ""}, headers=staff).json() == "Work details are required!"
+    mine = client.get("/delegation/extra-work", headers=staff).json()
+    assert [r["desc"] for r in mine["rows"]] == ["Unloaded a truck"] and mine["rows"][0]["status"] == "Pending" and mine["canReview"] is False
+    assert client.get("/delegation/extra-work", headers=other).json()["rows"] == []             # nobody else's entries
+    seen = client.get("/delegation/extra-work", headers=mgr).json()
+    assert seen["canReview"] is True and any(r["desc"] == "Unloaded a truck" and r["hours"] == 2.5 for r in seen["rows"])
+    assert total(client, staff) == 0                                                              # pending: no points yet
+    key = mine["rows"][0]["id"]
+    assert client.post(f"/delegation/extra-work/{key}/review", json={"status": "Approved"}, headers=staff).status_code == 403
+    assert "+5" in client.post(f"/delegation/extra-work/{key}/review", json={"status": "Approved"}, headers=mgr).json()
+    score = client.get("/delegation/my-score", headers=staff).json()
+    assert score["totalScore"] == 5 and score["extraScore"] == 5 and score["extraCount"] == 1 and score["extraHours"] == 2.5
+    board = {r["id"]: r for r in client.get("/delegation/scoreboard", headers=mgr).json()}
+    assert board[sname.lower()]["extraScore"] == 5 and board[sname.lower()]["taskScore"] == 0
+    client.post("/delegation/extra-work", json={"desc": "Tidied the shop"}, headers=staff)
+    second = next(r for r in client.get("/delegation/extra-work?status=Pending", headers=mgr).json()["rows"] if r["desc"] == "Tidied the shop")
+    assert "rejected" in client.post(f"/delegation/extra-work/{second['id']}/review", json={"status": "Rejected"}, headers=mgr).json()
+    assert total(client, staff) == 5                                                              # a rejected entry adds nothing

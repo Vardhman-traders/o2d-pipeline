@@ -247,7 +247,7 @@ def test_cartage_page_is_admin_configured_and_reports_money_per_person(client, d
     carl = next(e for e in d["byEmployee"] if e["employee"] == "Carl")
     assert carl["deliveries"] == 3 and carl["withCartage"] == 2 and carl["total"] == 250 and carl["average"] == 125
     sl = next(o["slNo"] for o in d["orders"] if o["deliveredByName"] == "Carl")
-    assert client.put(f"/o2d/cartage/{sl}", headers=cart, json={"cartage": 80}).json()["success"] is True
+    r = client.put(f"/o2d/cartage/{sl}", headers=cart, json={"cartage": 80}).json(); assert r["success"] is True, r
     # one person set to view-only on it: can read, cannot change
     me = client.get("/auth/me", headers=cart).json()
     client.put(f"/admin/access/users/{me['user_key']}", headers=admin, json={"page_key": "o2d_cartage", "allowed": True, "view_only": True})

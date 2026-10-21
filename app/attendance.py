@@ -590,6 +590,7 @@ def get_today_attendance(user):
 
 
 def manual_checkout(user, name, checkout_time):
+    _admin_only(user)
     rules, now = Rules(), _now()
     with db.cursor() as cur:
         emp = _find_employee(cur, name)
@@ -949,7 +950,7 @@ CORRECTABLE = ("Present", "Late", "Half Day", "Absent")
 
 def _admin_only(user) -> None:
     if user["role"] != "admin":
-        raise HTTPException(403, "Only the admin can correct attendance.")
+        raise HTTPException(403, "Only the admin can correct or edit attendance.")
 
 
 def _parse_hhmm(text, what: str, required: bool) -> time | None:

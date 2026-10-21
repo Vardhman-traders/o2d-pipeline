@@ -223,43 +223,78 @@ def insert_payments(cur, normalised: list[dict], batch_id: int, admin: dict) -> 
 
 
 # ------------------------------------------------------------------ payment parties (the one party list)
-PARTY_COLUMNS = ["Party Name"]
-PARTY_REQUIRED = ["Party Name"]
-PARTY_EXAMPLES = [["EXAMPLE Sharma Traders"], ["EXAMPLE Gupta & Sons"]]
-PARTY_HELP = ("One party per row; this is the list the Payments entry form suggests from. Party Name is required, up to 150 characters. "
-              "A name already in the list (capital letters and extra spaces do not matter) is rejected as a duplicate, and so is a repeat "
-              "inside the file. Uploaded parties are approved straight away. A party typed on an entry that is not in the list is added "
-              "to it by itself later. Rows marked EXAMPLE are ignored.")
+# Template layout: Type, Company, Party. A party is one name in the one party list, so Type and Company are only checked against
+# Setup > Dropdown values when given; they do not split the list. "Party Name" is still accepted as the header.
+PARTY_COLUMNS = ["Type", "Company", "Party"]
+PARTY_REQUIRED = ["Party"]
+PARTY_ALIASES = {"Party Name": "Party"}
+PARTY_EXAMPLES = [["EXAMPLE Payment Received", "VT", "Sharma Traders"], ["EXAMPLE Expense", "VT", "Gupta & Sons"]]
+PARTY_HELP = ("One party per row (Type, Company, Party). Party is required, up to 150 characters. Type and Company are optional; when given they "
+              "must already exist under Setup > Dropdown values, but a party belongs to no company or type - it is one name in the one list the "
+              "Payments entry form suggests from. A name already in the list (capital letters and extra spaces do not matter) is rejected as a "
+              "duplicate, and so is a repeat inside the file. Uploaded parties are approved straight away. Rows marked EXAMPLE are ignored.")
 
 
-def validate_parties(rows: list[dict]) -> dict:
-    with db.cursor() as cur:
-        cur.execute("SELECT lower(btrim(party_name)) AS n FROM dim_party WHERE party_kind = 'payment'")
-        existing = {r["n"] for r in cur.fetchall()}
-    seen_rows: dict = {}
-    results = []
-    for r in rows:
-        g = _row_getter(r)
-        errs: list[str] = []
-        name = " ".join(g("Party Name").split())
-        if not name:
-            errs.append("Party Name is required")
-        elif len(name) > 150:
-            errs.append("Party Name is longer than 150 characters")
-        elif name.lower() in existing:
-            errs.append(f"{name} is already in the party list")
-        elif name.lower() in seen_rows:
-            errs.append(f"Duplicate of row {seen_rows[name.lower()]} in this file")
-        else:
-            seen_rows[name.lower()] = r.get("_row")
-        results.append((r, "; ".join(errs) or None, None if errs else {"name": name}))
-    return _report(rows, results)
+def party_lists() -> dict:
+    return {"Type": _list_names("dim_txn_type", "txn_type_key", "type_name"),
+            "Company": _list_names("dim_company", "company_key", "company_name")}
 
 
-def insert_parties(cur, normalised: list[dict], batch_id: int, admin: dict) -> None:
-    for n in normalised:
-        cur.execute("INSERT INTO dim_party (party_name, party_kind, review_status, created_by_user_key, import_batch_id) "
-                    "VALUES (%s, 'payment', 'approved', %s, %s)", (n["name"], admin["user_key"], batch_id))
+def _name_list_validator(kind: str, column: str, noun: str, scoped: bool):
+    """validate(rows) for a one-column name list in dim_party of the given kind."""
+    def validate(rows: list[dict]) -> dict:
+        types = _names("dim_txn_type", "txn_type_key", "type_name") if scoped else {}
+        companies = _names("dim_company", "company_key", "company_name") if scoped else {}
+        with db.cursor() as cur:
+            cur.execute("SELECT lower(btrim(party_name)) AS n FROM dim_party WHERE party_kind = %s", (kind,))
+            existing = {r["n"] for r in cur.fetchall()}
+        seen_rows: dict = {}
+        results = []
+        for r in rows:
+            g = _row_getter(r)
+            errs: list[str] = []
+            name = " ".join(g(column).split())
+            if not name:
+                errs.append(f"{column} is required")
+            elif len(name) > 150:
+                errs.append(f"{column} is longer than 150 characters")
+            elif name.lower() in existing:
+                errs.append(f"{name} is already in the {noun} list")
+            elif name.lower() in seen_rows:
+                errs.append(f"Duplicate of row {seen_rows[name.lower()]} in this file")
+            else:
+                seen_rows[name.lower()] = r.get("_row")
+            for col, names in (("Type", types), ("Company", companies)):
+                if scoped and g(col):
+                    _, e = _pick(names, g(col), col)
+                    if e:
+                        errs.append(e)
+            results.append((r, "; ".join(errs) or None, None if errs else {"name": name}))
+        return _report(rows, results)
+    return validate
+
+
+def _name_list_inserter(kind: str):
+    def insert(cur, normalised: list[dict], batch_id: int, admin: dict) -> None:
+        for n in normalised:
+            cur.execute("INSERT INTO dim_party (party_name, party_kind, review_status, created_by_user_key, import_batch_id) "
+                        "VALUES (%s, %s, 'approved', %s, %s)", (n["name"], kind, admin["user_key"], batch_id))
+    return insert
+
+
+validate_parties = _name_list_validator("payment", "Party", "party", True)
+insert_parties = _name_list_inserter("payment")
+
+
+# ------------------------------------------------------------------ purchase vendors (the vendor list)
+VENDOR_COLUMNS = ["Party Name"]
+VENDOR_REQUIRED = ["Party Name"]
+VENDOR_EXAMPLES = [["EXAMPLE Asian Paints Ltd"], ["EXAMPLE Sharma Hardware"]]
+VENDOR_HELP = ("One vendor per row; this is the list the Purchase entry form suggests from. Party Name is required, up to 150 characters. "
+               "A name already in the vendor list (capital letters and extra spaces do not matter) is rejected as a duplicate, and so is a "
+               "repeat inside the file. Uploaded vendors are approved straight away. Rows marked EXAMPLE are ignored.")
+validate_vendors = _name_list_validator("vendor", "Party Name", "vendor", False)
+insert_vendors = _name_list_inserter("vendor")
 
 
 # ------------------------------------------------------------------ delegation tasks
@@ -1115,8 +1150,13 @@ def insert_att_advances(cur, normalised: list[dict], batch_id: int, admin: dict)
 
 
 ENTITIES["parties"] = {"label": "payment parties", "columns": PARTY_COLUMNS, "required": PARTY_REQUIRED, "examples": PARTY_EXAMPLES,
-                       "help": PARTY_HELP, "validate": validate_parties, "insert": insert_parties, "lists": lambda: {},
-                       "table": "dim_party", "edited": "EXISTS (SELECT 1 FROM fact_payment_txn x WHERE x.party_key = dim_party.party_key)"}
+                       "help": PARTY_HELP, "validate": validate_parties, "insert": insert_parties, "lists": party_lists,
+                       "aliases": PARTY_ALIASES, "table": "dim_party",
+                       "edited": "EXISTS (SELECT 1 FROM fact_payment_txn x WHERE x.party_key = dim_party.party_key)"}
+ENTITIES["vendors"] = {"label": "purchase vendors", "columns": VENDOR_COLUMNS, "required": VENDOR_REQUIRED, "examples": VENDOR_EXAMPLES,
+                       "help": VENDOR_HELP, "validate": validate_vendors, "insert": insert_vendors, "lists": lambda: {},
+                       "table": "dim_party",
+                       "edited": "EXISTS (SELECT 1 FROM fact_purchase_entry x WHERE x.vendor_party_key = dim_party.party_key)"}
 ENTITIES.update({
     "decor_clients": {"label": "VT Decor clients", "columns": DECOR_CLIENT_COLUMNS, "required": DECOR_CLIENT_REQUIRED,
                       "examples": DECOR_CLIENT_EXAMPLES, "help": DECOR_CLIENT_HELP, "validate": validate_decor_clients,
