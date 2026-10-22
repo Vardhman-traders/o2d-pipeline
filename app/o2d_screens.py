@@ -6,8 +6,11 @@ what, the test-account guard, cancelled handling) are NOT duplicated: every writ
 Response shapes are {ok, success, message, ...} with camelCase orders, which is what the O2D screens read
 (see static/sales/api.js).
 """
+import contextvars
 import logging
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -185,18 +188,32 @@ def _with_photos(*lists: list[dict]) -> None:
         o["photoCount"] = counts.get(o["orderKey"], 0)
 
 
-def _screen_orders(user, screen: str) -> list[dict]:
-    """The orders one screen lists (roles.screen_filter), chosen in the database so a long history can never push an open order out."""
+# The most open / closed orders one screen sends. With the 11 PM clean-up off (the default) a screen's rule matches every closed order
+# that is not archived, so closed rows get their own, smaller cap: every refresh (each 20 s, per open screen) used to send up to 500 rows,
+# nearly all of them long-closed, and the list grew with every order. Open orders keep the full cap. With the clean-up on, the closed rows
+# are only those of the current day, so they keep the full cap too.
+OPEN_ROWS = 500
+CLOSED_ROWS_NO_CLEANUP = 150
+
+
+def _open_then_closed(user, where: str, open_order: str) -> list[dict]:
+    """ORDER_SELECT rows matching `where` (on top of the user's visibility): the open orders (sorted by open_order) followed by the
+    closed ones, most recently closed first. One query; each half has its own cap, so closed history can never push an open order out
+    and an old order that is just closed still shows (it is the most recently updated)."""
     from . import main
     vis_sql, vis_params = roles.visibility(user)
-    # Open orders first (newest logged first), then closed ones, most recently closed first. With the 11 PM clean-up off (the default) the
-    # screens' SQL also matches every closed order ever, so ordering by creation date alone let the 500-row cap push an OLD order out of the
-    # list the moment it was completed: it left "Ready" but never showed in the Completed box.
-    order = (f"ORDER BY CASE WHEN {roles._CLOSED} THEN 1 ELSE 0 END, "
-             f"CASE WHEN {roles._CLOSED} THEN o.last_updated_at ELSE o.timestamp_created END DESC, o.order_key DESC LIMIT %s")
+    base = main.ORDER_SELECT + f" WHERE {vis_sql} AND {where} AND "
+    closed_rows = OPEN_ROWS if config.cleanup_enabled() else CLOSED_ROWS_NO_CLEANUP
     with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {roles.screen_filter(screen)} " + order, vis_params + [500])
+        cur.execute(f"({base} NOT {roles._CLOSED} ORDER BY {open_order}, o.order_key DESC LIMIT %s) UNION ALL "
+                    f"({base} {roles._CLOSED} ORDER BY o.last_updated_at DESC, o.order_key DESC LIMIT %s)",
+                    vis_params + [OPEN_ROWS] + vis_params + [closed_rows])
         return [map_order(r) for r in cur.fetchall()]
+
+
+def _screen_orders(user, screen: str) -> list[dict]:
+    """The orders one screen lists (roles.screen_filter), chosen in the database so a long history can never push an open order out."""
+    return _open_then_closed(user, roles.screen_filter(screen), "o.timestamp_created DESC")
 
 
 def _write(user, sl_no: int, payload: dict, archived: bool | None = None, allow_closed: bool = False) -> dict:
@@ -318,14 +335,8 @@ def received_godown(o: dict) -> bool:
 def _shop_box_orders(user) -> list[dict]:
     """The Shop's own orders that are not fully closed or were closed since the last 11 PM - chosen in the database, so a long history
     of closed orders can never push an old open one out of the list."""
-    from . import main
-    vis_sql, vis_params = roles.visibility(user)
     open_or_recent = (f"((NOT {roles._CLOSED} AND COALESCE(lower(btrim(st.type_name)), '') <> 'cancelled') OR {roles.since_cleanup_sql()})")
-    with db.cursor() as cur:
-        cur.execute(main.ORDER_SELECT + f" WHERE {vis_sql} AND {open_or_recent} "
-                    f"ORDER BY CASE WHEN {roles._CLOSED} THEN 1 ELSE 0 END, o.timestamp_created DESC, o.order_key DESC LIMIT %s",
-                    vis_params + [500])
-        return [map_order(r) for r in cur.fetchall()]
+    return _open_then_closed(user, open_or_recent, "o.timestamp_created DESC")
 
 
 # ------------------------------------------------------------------ read screens
@@ -778,7 +789,28 @@ def _alert_if_first_dispatch(user, sl_no: int, before: dict | None, updated: dic
     """The first time delivery date/time and Delivered by are both filled, the WhatsApp groups are told (once): the VT Dispatch / Porter group
     from Godown Dispatch, and the Receiving group from either dispatch screen."""
     if screen in ("godown_dispatch", "shop_dispatch") and _first_dispatch(before, updated):
-        _tell_dispatch_groups(user, updated, screen)
+        _in_background(_tell_dispatch_groups, user, updated, screen)
+
+
+# Each WhatsApp post may wait up to 10 s and a dispatch tells two groups, one after the other (a bulk save: two per order). The save
+# answers first and the messages go out from here. Two workers keep the provider from being flooded; a burst simply queues.
+_alert_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wa-alert")
+
+
+def _in_background(fn, *args, **kwargs) -> None:
+    """Run fn after the response (with the request's context, so the timeline still notes the IP). VT_ALERTS_INLINE=1 runs it right
+    away - the tests check the messages as soon as the save returns."""
+    if os.environ.get("VT_ALERTS_INLINE") == "1":
+        fn(*args, **kwargs)
+        return
+    ctx = contextvars.copy_context()
+
+    def run():
+        try:
+            ctx.run(fn, *args, **kwargs)
+        except Exception:   # _tell_dispatch_groups already logs its own failures; this is the last guard
+            log.exception("Background WhatsApp alert failed")
+    _alert_pool.submit(run)
 
 
 def _tell_dispatch_groups(user, updated: dict, screen: str, resend: bool = False) -> str:
@@ -930,7 +962,7 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
         if form.photosFollow:
             result["alertPending"] = True       # the photos go up next; the page then asks for the message so it can carry them
         else:
-            _tell_dispatch_groups(user, result["order"], screen)
+            _in_background(_tell_dispatch_groups, user, result["order"], screen)
     result.pop("order", None)
     return result
 
@@ -951,8 +983,9 @@ def send_pending_dispatch_alert(sl_no: int, form: Form, user=Depends(ANY_VIEWER)
         cur.execute("SELECT 1 FROM order_event WHERE order_key = %s AND event_type = 'whatsapp' AND title NOT LIKE 'Sent again%%' LIMIT 1", (order["orderKey"],))
         if cur.fetchone():
             return {"ok": True, "success": True, "message": "The WhatsApp message for this order was already sent."}
-    outcome = _tell_dispatch_groups(user, order, screen)
-    return {"ok": True, "success": outcome in ("sent", "skipped", "off"), "outcome": outcome}
+    # the page only waits for this to close the form, and ignores the outcome: answer now, send after (the timeline records how it went)
+    _in_background(_tell_dispatch_groups, user, order, screen)
+    return {"ok": True, "success": True, "outcome": "queued"}
 
 
 @router.post("/orders/{sl_no}/whatsapp-resend")
