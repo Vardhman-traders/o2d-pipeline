@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from psycopg2 import errors as pgerr
 from psycopg2.extras import Json
@@ -35,6 +36,9 @@ _docs = os.environ.get("ENABLE_DOCS") == "1"
 app = FastAPI(title="Vardhman Traders API", lifespan=lifespan,
               docs_url="/docs" if _docs else None, redoc_url=None,
               openapi_url="/openapi.json" if _docs else None)
+# The screens' JSON (lists of orders / payments) and the large page + vendor scripts shrink 5-10x compressed, which is most of the wait on
+# shop / godown phones on mobile data. Level 6: nearly the size of 9 for much less CPU on the small instance.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")

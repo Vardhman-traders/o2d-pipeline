@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("VT_SCHEDULER", "off")   # no 7:30 PM report thread inside the tests
+os.environ.setdefault("VT_ALERTS_INLINE", "1")  # WhatsApp dispatch alerts go out before the save returns, so tests can check them
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://vt:vt@localhost:5433/postgres")
 
 

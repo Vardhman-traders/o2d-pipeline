@@ -19,12 +19,23 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 PAGES = ("pay_cashier", "pay_account")
 ANY = auth.require_roles(*roles.ALL_ROLES)
 
+
+def _pushed(cond: str) -> str:
+    """Was transaction t made by a merge from payment_push (matching cond)? Two EXISTS, one per key column, so each is an index probe
+    (migration 051); a single "cash_txn_key = t OR bank_txn_key = t" could use no index and read all of payment_push for every row."""
+    return (f"(EXISTS (SELECT 1 FROM payment_push pp WHERE pp.cash_txn_key = t.txn_key AND {cond}) "
+            f"OR EXISTS (SELECT 1 FROM payment_push pp WHERE pp.bank_txn_key = t.txn_key AND {cond}))")
+
+
+FROM_O2D = _pushed("pp.order_key IS NOT NULL")
+FROM_DECOR = _pushed("pp.kind IN ('decor_in', 'decor_out')")
+
 SELECT = """
 SELECT t.txn_key, t.txn_no, d.full_date AS txn_date, tt.type_name, tt.direction, c.company_name, p.party_name,
        m.mode_name, t.amount, t.account_name, t.invoice_no, t.remarks, t.status, t.is_backdated, t.order_warning,
        cu.username AS created_by, t.created_at, au.username AS approved_by, t.approved_at,
-       EXISTS (SELECT 1 FROM payment_push pp WHERE pp.order_key IS NOT NULL AND (pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key)) AS from_o2d,
-       EXISTS (SELECT 1 FROM payment_push pp WHERE pp.kind IN ('decor_in', 'decor_out') AND (pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key)) AS from_decor
+       """ + FROM_O2D + """ AS from_o2d,
+       """ + FROM_DECOR + """ AS from_decor
 FROM fact_payment_txn t
 JOIN dim_date d ON d.date_key = t.txn_date_key
 JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
@@ -240,7 +251,7 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
               COALESCE(SUM(CASE WHEN tt.counts_as_paid AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS paid,
               COALESCE(SUM(CASE WHEN from_o2d AND m.is_cash THEN tt.sales_effect * t.amount END), 0) AS cash_sales,
               COALESCE(SUM(CASE WHEN from_o2d AND NOT m.is_cash THEN tt.sales_effect * t.amount END), 0) AS bank_sales
-            FROM (SELECT t.*, EXISTS (SELECT 1 FROM payment_push pp WHERE pp.order_key IS NOT NULL AND (pp.cash_txn_key = t.txn_key OR pp.bank_txn_key = t.txn_key)) AS from_o2d
+            FROM (SELECT t.*, {FROM_O2D} AS from_o2d
                   FROM fact_payment_txn t) t
             JOIN dim_date d ON d.date_key = t.txn_date_key JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
             JOIN dim_company c ON c.company_key = t.company_key JOIN dim_payment_mode m ON m.mode_key = t.mode_key
