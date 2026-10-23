@@ -1151,7 +1151,7 @@ function enterApp(){
   expSetupTabs(currentUser.expenseLevel, false, currentUser.challan);
 
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  autoRefreshTimer = setInterval(() => refreshAll(true), 30000);
+  autoRefreshTimer = setInterval(() => { if (!document.hidden) refreshAll(true); }, 30000);   // not for a tab nobody is looking at
 }
 
 function togglePanel(panelId, btnId, openLabel){

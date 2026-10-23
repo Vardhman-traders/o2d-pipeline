@@ -4,6 +4,7 @@ setting, the cashier confirms the money, and a confirmation never outlives a cha
 import uuid
 
 from app import o2d_screens
+from tests.conftest import bill_no
 from tests.test_o2d_screens import add, client, ensure_date, login, seed  # noqa: F401  (fixtures)
 
 
@@ -18,7 +19,7 @@ def _status(client, admin, flagged):
 
 def _dc() -> str:
     """A fresh bill number (the Challan series wants digits only)."""
-    return str(100000 + uuid.uuid4().int % 800000)
+    return bill_no()
 
 
 def _received(client, db_conn, payment, amount=5000):
@@ -75,9 +76,12 @@ def test_cashier_flow_and_a_changed_payment_needs_confirming_again(client, db_co
     assert done["note"] == "counted" and done["confirmedBy"].startswith("t_cashier_")
     assert _confirm(client, cashier, sl).json()["success"] is False   # already confirmed
 
-    # the amount is corrected afterwards: the old confirmation no longer stands
+    # the amount is corrected afterwards: the old confirmation no longer stands. The order is closed by now (delivered, received, paid),
+    # so the dispatch screen refuses the edit and only an admin can make it, from All orders.
     fix = {"paymentStatus": cash, "amountReceived": 7000}
-    assert client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json=fix).json()["success"]
+    refused = client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json=fix).json()
+    assert refused["success"] is False and "closed" in refused["message"]
+    assert client.put(f"/o2d/orders/{sl}/admin", headers=admin, json=fix).json()["success"]
     d = client.get("/o2d/cashier", headers=cashier).json()
     assert sl in {o["slNo"] for o in d["awaiting"]} and sl not in {o["slNo"] for o in d["confirmed"]}
 

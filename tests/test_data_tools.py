@@ -6,6 +6,7 @@ import uuid
 import zipfile
 
 from app import o2d_screens
+from tests.conftest import bill_no
 from tests.test_o2d_screens import add, client, ensure_date, login, seed  # noqa: F401  (fixtures + helpers)
 
 
@@ -33,8 +34,8 @@ def test_delete_removes_completed_orders_keeps_open_ones_and_needs_the_word(clie
     admin, shop = login(client, db_conn, "admin"), login(client, db_conn, "shop")
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
-    done = add(client, shop, today, "6" + str(uuid.uuid4().int)[:7])["slNo"]
-    open_ = add(client, shop, today, "6" + str(uuid.uuid4().int)[:7])["slNo"]
+    done = add(client, shop, today, bill_no())["slNo"]
+    open_ = add(client, shop, today, bill_no())["slNo"]
     _close(db_conn, done)
     assert client.get("/admin/data/delete-preview", headers=shop).status_code == 403
     pre = client.get("/admin/data/delete-preview", headers=admin).json()

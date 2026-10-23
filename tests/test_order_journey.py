@@ -7,12 +7,12 @@
  dispatch filled      -> Godown Dispatch: Awaiting receiving there and on Godown Receiving; Shop Dispatch: still "Ready" until receiving is filled
  receiving filled     -> fully closed: "Received" (Godown Receiving / Shop Dispatch & Receiving), Shop box still shows it until 11 PM
  11 PM clean-up       -> closed orders disappear from every dashboard (the data stays)."""
-import uuid
 from datetime import timedelta
 
 import pytest
 
 from app import o2d_screens
+from tests.conftest import bill_no
 from tests.test_o2d_screens import add, client, ensure_date, login, seed  # noqa: F401  (fixtures + helpers)
 
 
@@ -39,7 +39,7 @@ def people(client, db_conn, seed):
 
 
 def _dc():
-    return "5" + str(uuid.uuid4().int)[:8]
+    return bill_no()
 
 
 def _where(client, h, dc):

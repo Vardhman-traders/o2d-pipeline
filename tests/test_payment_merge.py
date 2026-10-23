@@ -111,9 +111,11 @@ def test_order_edited_after_merge_updates_the_same_entry_and_only_flags_an_appro
     approve = client.post(f"/payments/transactions/{txn}/decision", headers=account, json={"decision": "Approved"})
     assert approve.json()["success"]
 
-    # the order's amount is corrected in O2D: the confirmation goes, the entry is flagged but stays Approved
+    # the order's amount is corrected in O2D: the confirmation goes, the entry is flagged but stays Approved. The order is closed
+    # (delivered, received, paid), so the correction is an admin's, from All orders - the dispatch screen no longer takes it.
     fix = {"paymentStatus": status, "amountReceived": 7000}
-    assert client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json=fix).json()["success"]
+    assert client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json=fix).json()["success"] is False
+    assert client.put(f"/o2d/orders/{sl}/admin", headers=admin, json=fix).json()["success"]
     assert _row_for(client, cashier, sl) is None                       # back to Awaiting cashier first
     assert sl in {o["slNo"] for o in client.get("/o2d/cashier", headers=cashier).json()["awaiting"]}
     t = _txn(db_conn, txn)

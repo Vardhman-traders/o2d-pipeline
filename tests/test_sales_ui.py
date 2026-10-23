@@ -7,13 +7,12 @@ import subprocess
 import sys
 import time
 import urllib.request
-import uuid
 from datetime import date, timedelta
 
 import psycopg2
 import pytest
 
-from tests.conftest import ROOT
+from tests.conftest import ROOT, bill_no
 
 sync_api = pytest.importorskip("playwright.sync_api")
 pytestmark = pytest.mark.slow
@@ -75,7 +74,7 @@ def base_url(migrated_db_url):
 
 def test_one_order_through_every_role_screen(base_url):
     expect = sync_api.expect
-    dc = "9" + str(uuid.uuid4().int)[:5]   # Challan numbers are digits only
+    dc = bill_no()   # Challan numbers are digits only
     errors: list[str] = []
 
     with sync_api.sync_playwright() as p:

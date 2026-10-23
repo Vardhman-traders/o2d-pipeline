@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from app import attachments, config, o2d_reports, o2d_screens
+from tests.conftest import bill_no
 from tests.test_o2d_screens import add, client, ensure_date, login, seed  # noqa: F401  (fixtures)
 
 
@@ -69,16 +70,17 @@ def test_porter_needs_details_and_other_people_clear_them(client, db_conn, seed)
     ensure_date(db_conn, today)
     _delivery_person(db_conn, "Porter", "both")
     sd = login(client, db_conn, "shop_dispatch")
-    sl = _order_at_dispatch(client, db_conn, "90101", "Shop")
+    dc = bill_no()
+    sl = _order_at_dispatch(client, db_conn, dc, "Shop")
     base = {"materialDeliveryDateTime": f"{today.isoformat()}T10:00", "deliveredByWhom": "Porter"}
     r = client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json=base).json()
     assert r["success"] is False and "details" in r["message"]
     r = client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json={**base, "deliveredByDetail": "  Ramesh   MH12 "}).json()
     assert r["success"] is True
-    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == "90101")   # shop side: stays in Ready until received
+    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == dc)   # shop side: stays in Ready until received
     assert order["deliveredByWhom"] == "Porter" and order["deliveredByDetail"] == "Ramesh MH12"
     client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json={**base, "deliveredByWhom": "Amit", "deliveredByDetail": "ignored"})
-    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == "90101")
+    order = next(o for o in client.get("/o2d/dispatch", headers=sd).json()["pending"] if o["dcNo"] == dc)
     assert order["deliveredByWhom"] == "Amit" and order["deliveredByDetail"] == ""
 
 
@@ -88,7 +90,7 @@ def test_missing_number_entry_is_a_page_the_admin_switches_on(client, db_conn, s
     ensure_date(db_conn, today)
     gd = login(client, db_conn, "godown_dispatch")
     assert client.get("/o2d/doc-gaps", headers=gd).json()["canPunch"] is False
-    form = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "typeOfSubmission": "Challan", "dcNo": "90105"}
+    form = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "typeOfSubmission": "Challan", "dcNo": bill_no()}
     assert client.post("/o2d/missing-entry", json=form, headers=gd).status_code == 403
     assert client.get("/o2d/missing-entry/options", headers=gd).status_code == 403
     with db_conn.cursor() as cur:
@@ -137,7 +139,7 @@ def test_photos_are_off_until_storage_is_configured(client, db_conn, seed, monke
 
 
 def test_photo_upload_and_listing_follow_order_visibility(client, db_conn, seed, r2):
-    sl = _order_at_dispatch(client, db_conn, "90102", "Delivered")
+    sl = _order_at_dispatch(client, db_conn, bill_no(), "Delivered")
     gd = login(client, db_conn, "godown_dispatch")
     jpeg = {"Content-Type": "image/jpeg"}
     assert client.get("/o2d/dispatch", headers=gd).json()["photosEnabled"] is True
@@ -156,7 +158,7 @@ def test_photo_upload_and_listing_follow_order_visibility(client, db_conn, seed,
 
 
 def test_photo_limit_per_order_and_kind(client, db_conn, seed, r2):
-    sl = _order_at_dispatch(client, db_conn, "90103", "Delivered")
+    sl = _order_at_dispatch(client, db_conn, bill_no(), "Delivered")
     gd = login(client, db_conn, "godown_dispatch")
     codes = [client.post(f"/o2d/orders/{sl}/photos?kind=dispatch", content=b"x", headers={**gd, "Content-Type": "image/png"}).status_code
              for _ in range(attachments.MAX_PER_KIND + 1)]
@@ -168,7 +170,7 @@ def test_reports_need_the_page_and_list_only_open_orders(client, db_conn, seed):
     today = o2d_screens.today_ist()
     ensure_date(db_conn, today)
     shop, gd, admin = (login(client, db_conn, r) for r in ("shop", "godown_dispatch", "admin"))
-    add(client, shop, today, "90104")
+    add(client, shop, today, bill_no())
     assert client.get("/o2d/reports/godown-pending.pdf", headers=gd).status_code == 403
     r = client.get("/o2d/reports/godown-pending.pdf", headers=admin)
     assert r.status_code == 200 and r.content.startswith(b"%PDF") and "attachment" in r.headers["content-disposition"]
@@ -186,7 +188,7 @@ def test_view_only_page_access_opens_the_screen_but_blocks_every_save(client, db
     admin = login(client, db_conn, "admin")
     shop = login(client, db_conn, "shop")
     me = client.get("/auth/me", headers=shop).json()
-    sl = add(client, shop, today, "90201")["slNo"]
+    sl = add(client, shop, today, bill_no())["slNo"]
     assert me["view_only_pages"] == []
     # admin sets this person's Shop screen to "View only"
     r = client.put(f"/admin/access/users/{me['user_key']}", headers=admin, json={"page_key": "o2d_shop", "allowed": True, "view_only": True})
@@ -194,7 +196,7 @@ def test_view_only_page_access_opens_the_screen_but_blocks_every_save(client, db
     again = client.get("/auth/me", headers=shop).json()
     assert "o2d_shop" in again["pages"] and again["view_only_pages"] == ["o2d_shop"]
     assert client.get("/o2d/shop", headers=shop).status_code == 200            # can still open and read
-    body = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": "90202", "typeOfSubmission": "Challan"}
+    body = {"orderRcvdDate": today.isoformat(), "orderVia": "Call", "dcNo": bill_no(), "typeOfSubmission": "Challan"}
     assert client.post("/o2d/orders", json=body, headers=shop).status_code == 403
     assert client.put(f"/o2d/orders/{sl}/shop", json=body, headers=shop).status_code == 403
     assert client.get("/o2d/doc-gaps", headers=shop).json()["canPunch"] is False
@@ -232,10 +234,10 @@ def test_screens_come_from_one_list_and_cartage_follows_the_view_as_order(client
 
 def test_cartage_page_is_admin_configured_and_reports_money_per_person(client, db_conn, seed):
     _delivery_person(db_conn, "Carl", "both")
-    _delivered(client, db_conn, "90301", "Carl", 100)
-    _delivered(client, db_conn, "90302", "Carl", 150)
-    _delivered(client, db_conn, "90303", "Carl", 0)
-    _delivered(client, db_conn, "90304", "Carl", 999, received=False)   # not received yet: not part of cartage history
+    _delivered(client, db_conn, bill_no(), "Carl", 100)
+    _delivered(client, db_conn, bill_no(), "Carl", 150)
+    _delivered(client, db_conn, bill_no(), "Carl", 0)
+    _delivered(client, db_conn, bill_no(), "Carl", 999, received=False)   # not received yet: not part of cartage history
     cart = login(client, db_conn, "cartage")
     admin = login(client, db_conn, "admin")
     assert client.get("/o2d/cartage", headers=cart).status_code == 403          # nothing is built in for a role
@@ -247,7 +249,10 @@ def test_cartage_page_is_admin_configured_and_reports_money_per_person(client, d
     carl = next(e for e in d["byEmployee"] if e["employee"] == "Carl")
     assert carl["deliveries"] == 3 and carl["withCartage"] == 2 and carl["total"] == 250 and carl["average"] == 125
     sl = next(o["slNo"] for o in d["orders"] if o["deliveredByName"] == "Carl")
-    r = client.put(f"/o2d/cartage/{sl}", headers=cart, json={"cartage": 80}).json(); assert r["success"] is True, r
+    # every order in the cartage history is received and paid, so closed: the page refuses the change and only an admin makes it, from All orders
+    r = client.put(f"/o2d/cartage/{sl}", headers=cart, json={"cartage": 80}).json()
+    assert r["success"] is False and "closed" in r["message"], r
+    r = client.put(f"/o2d/orders/{sl}/admin", headers=admin, json={"cartage": 80}).json(); assert r["success"] is True, r
     # one person set to view-only on it: can read, cannot change
     me = client.get("/auth/me", headers=cart).json()
     client.put(f"/admin/access/users/{me['user_key']}", headers=admin, json={"page_key": "o2d_cartage", "allowed": True, "view_only": True})

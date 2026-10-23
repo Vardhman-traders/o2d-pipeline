@@ -99,15 +99,16 @@ def effective_access(user) -> dict[str, str]:
     """page key -> "edit" (full use) or "view" (opens and reads, never saves). Pages not listed are not available."""
     if user["role"] == "admin":
         return {k: "edit" for k in PAGES}
-    with db.cursor() as cur:
-        cur.execute("SELECT page_key FROM page_access WHERE role = %s", (user["role"],))
-        out = {r["page_key"]: "edit" for r in cur.fetchall()}
-        cur.execute("SELECT page_key, allowed, view_only FROM user_page_access WHERE user_key = %s", (user["user_key"],))
-        for r in cur.fetchall():
-            if not r["allowed"]:
-                out.pop(r["page_key"], None)
-            else:
-                out[r["page_key"]] = "view" if r["view_only"] else "edit"
+    # Asked several times per request (the page guard, the save checks, the menu), so db.read keeps the answer until either table is
+    # written - Setup > Access changes show on the very next request.
+    out = {r["page_key"]: "edit" for r in
+           db.read("SELECT page_key FROM page_access WHERE role = %s", (user["role"],), tables=("page_access",))}
+    for r in db.read("SELECT page_key, allowed, view_only FROM user_page_access WHERE user_key = %s", (user["user_key"],),
+                     tables=("user_page_access",)):
+        if not r["allowed"]:
+            out.pop(r["page_key"], None)
+        else:
+            out[r["page_key"]] = "view" if r["view_only"] else "edit"
     return {k: v for k, v in out.items() if k in PAGES}
 
 

@@ -104,9 +104,7 @@ def _lookup_rows(kind: str, screen: str | None = None) -> list[dict]:
     if screen and kind in config.LOOKUP_SCREENS:
         sql += " WHERE screens IS NULL OR %s = ANY(screens)"
         params.append(screen)
-    with db.cursor() as cur:
-        cur.execute(sql + f" ORDER BY sort_order, lower({name})", params)
-        rows = cur.fetchall()
+    rows = db.read(sql + f" ORDER BY sort_order, lower({name})", params, tables=(table,))
     shown = [{"key": r["key"], "raw": r["name"], "name": config.display_label(kind, r["name"])} for r in rows]
     labels = {r["name"].strip().lower() for r in shown if r["name"] != r["raw"]}
     # a separate value that is already called what a built-in is labelled would show twice: the built-in wins
@@ -122,9 +120,7 @@ def _people_rows(person_role: str, scopes: tuple | None = None) -> list[dict]:
     if scopes:
         sql += " AND dispatch_scope = ANY(%s)"
         params.append(list(scopes))
-    with db.cursor() as cur:
-        cur.execute(sql + " ORDER BY sort_order, lower(full_name)", params)
-        return cur.fetchall()
+    return db.read(sql + " ORDER BY sort_order, lower(full_name)", params, tables=("dim_person",))
 
 
 def _names(rows) -> list[str]:
@@ -143,9 +139,9 @@ def _key_by_name(rows, name) -> int | None:
 
 def _either_types() -> list[str]:
     """Submission types whose order can be tagged to Challan or Invoice: the form asks which one."""
-    with db.cursor() as cur:
-        cur.execute("SELECT type_name FROM dim_submission_type WHERE bill_series IN ('both', 'goods_return') ORDER BY sort_order, lower(type_name)")
-        return [r["type_name"] for r in cur.fetchall()]
+    rows = db.read("SELECT type_name FROM dim_submission_type WHERE bill_series IN ('both', 'goods_return') ORDER BY sort_order, lower(type_name)",
+                   tables=("dim_submission_type",))
+    return [r["type_name"] for r in rows]
 
 
 def _dropdowns(role: str) -> dict:

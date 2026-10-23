@@ -100,10 +100,11 @@ def current_user(creds: HTTPAuthorizationCredentials = Depends(_bearer)):
         payload = jwt.decode(creds.credentials, _secret(), algorithms=[ALGORITHM])
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid or expired token")
-    with db.cursor() as cur:
-        cur.execute("SELECT user_key, username, role, display_name, must_change_password, password_hash "
-                    "FROM dim_user WHERE user_key = %s", (int(payload["sub"]),))
-        user = cur.fetchone()
+    # Every request lands here. db.read keeps the row until dim_user is written (a role change, a disabled login or a new password made
+    # through the app shows on the next request) and for a few seconds at most.
+    rows = db.read("SELECT user_key, username, role, display_name, must_change_password, password_hash "
+                   "FROM dim_user WHERE user_key = %s", (int(payload["sub"]),), tables=("dim_user",))
+    user = rows[0] if rows else None
     if not user or user["password_hash"] == DISABLED_HASH:
         raise HTTPException(401, "Unknown or disabled user")
     user.pop("password_hash")

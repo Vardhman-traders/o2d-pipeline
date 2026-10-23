@@ -3,12 +3,12 @@
 Under-processing card filters the board, and the Shop box keeps tracking an order as it moves on. Needs Playwright + Chromium."""
 import json
 import urllib.request
-import uuid
 from datetime import date
 
 import psycopg2
 import pytest
 
+from tests.conftest import bill_no
 from tests.test_sales_ui import PW, base_url, sync_api  # noqa: F401  (fixture + helpers)
 
 pytestmark = pytest.mark.slow
@@ -38,7 +38,7 @@ def _admin(migrated_db_url):
 
 
 def _order_to_receiving(base, status="Sent to the Company"):
-    dc = "4" + str(uuid.uuid4().int)[:8]
+    dc = bill_no()
     today = date.today().isoformat()
     shop = _token(base, "ui_shop")
     sl = _call(base, "POST", "/o2d/orders", shop, {"orderRcvdDate": today, "orderVia": "Call", "dcNo": dc, "typeOfSubmission": "Challan"})["slNo"]

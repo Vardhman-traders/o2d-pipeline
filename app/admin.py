@@ -391,8 +391,8 @@ class PermissionIn(BaseModel):
 
 @router.put("/permissions")
 def set_permission(body: PermissionIn, admin=Depends(ADMIN)):
+    config.set_field_permission(body.role, body.field_name, body.editable)   # commits and clears its cache before the audit row is written
     with db.cursor() as cur:
-        config.set_field_permission(body.role, body.field_name, body.editable)
         audit(cur, admin, "permission.set", f"{body.role}.{body.field_name}", {"editable": body.editable})
     return {"ok": True}
 
@@ -426,8 +426,8 @@ class ViewAccessIn(BaseModel):
 
 @router.put("/view-access")
 def set_view_access(body: ViewAccessIn, admin=Depends(ADMIN)):
+    config.set_view_access(body.role, body.can_view)
     with db.cursor() as cur:
-        config.set_view_access(body.role, body.can_view)
         audit(cur, admin, "view_access.set", body.role, {"can_view": body.can_view})
     return {"ok": True}
 
@@ -451,8 +451,8 @@ class WeeklyOffDaysIn(BaseModel):
 
 @router.put("/weekly-off-days")
 def set_weekly_off_days(body: WeeklyOffDaysIn, admin=Depends(ADMIN)):
+    config.set_weekly_off_days(set(body.days), admin["username"])
     with db.cursor() as cur:
-        config.set_weekly_off_days(set(body.days), admin["username"])
         audit(cur, admin, "weekly_off_days.set", None, {"days": sorted(body.days)})
     return {"ok": True}
 

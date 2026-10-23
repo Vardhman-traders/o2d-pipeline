@@ -7,6 +7,7 @@ from datetime import date
 import psycopg2
 import pytest
 
+from tests.conftest import bill_no
 from tests.test_admin_ui import PW, base_url  # noqa: F401  (the app-server fixture, shared)
 
 sync_api = pytest.importorskip("playwright.sync_api")
@@ -72,7 +73,7 @@ def test_no_access_request_approval_and_order_timeline(base_url, migrated_db_url
         # ---- order details popup with the timeline (admin)
         login = boss.request.post(base_url + "auth/login", data={"username": "ui_admin", "password": PW})
         token = login.json()["access_token"]
-        dc = "6" + str(int(u, 16))[:7]   # Challan numbers are digits only
+        dc = bill_no()   # Challan numbers are digits only
         made = boss.request.post(base_url + "o2d/orders", headers={"Authorization": "Bearer " + token}, data={
             "orderRcvdDate": date.today().isoformat(), "orderVia": "Call", "dcNo": dc, "typeOfSubmission": "Challan"})
         assert made.json()["success"], made.text()
