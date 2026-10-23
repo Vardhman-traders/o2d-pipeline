@@ -8,7 +8,7 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
@@ -267,9 +267,22 @@ def master_approve_all(master: str, admin=Depends(ADMIN)):
 
 
 @router.delete("/masters/{master}/{key}")
-def master_delete(master: str, key: int, admin=Depends(ADMIN)):
+def master_delete(master: str, key: int, with_records: bool = Query(default=False), admin=Depends(ADMIN)):
+    """with_records: only for attendance employees - the employee goes together with their attendance and advance records."""
     spec = _spec(master)
     with db.cursor() as cur:
+        if with_records and master == "att_employee":
+            cur.execute("SELECT employee_name FROM dim_att_employee WHERE employee_key = %s", (key,))
+            emp = cur.fetchone()
+            if not emp:
+                raise HTTPException(404, "Value not found")
+            cur.execute("DELETE FROM fact_attendance WHERE employee_key = %s", (key,))
+            days = cur.rowcount
+            cur.execute("DELETE FROM fact_att_advance WHERE employee_key = %s", (key,))
+            advances = cur.rowcount
+            cur.execute("DELETE FROM dim_att_employee WHERE employee_key = %s", (key,))
+            audit(cur, admin, "master.delete.att_employee", emp["employee_name"], {"attendance_days": days, "advances": advances})
+            return {"ok": True, "attendanceDays": days, "advances": advances}
         refs = 0
         for tbl, col in _references(cur, spec["table"]):
             cur.execute(f'SELECT count(*) AS n FROM "{tbl}" WHERE "{col}" = %s', (key,))

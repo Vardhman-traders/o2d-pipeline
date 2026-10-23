@@ -1115,7 +1115,7 @@ function openClientDetail(clientId){
   }).catch(function(e){document.getElementById('cdBody').innerHTML='<div class="empty">Error: '+esc(String(e))+'</div>';});
 }
 function renderClientDetail(r){
-  var c=r.client,isOwner=ROLE==='owner';
+  var c=r.client,locked=!!r.locked,isOwner=ROLE==='owner'&&!locked;
   var paidPct=c.amount>0?Math.min(100,(c.totalPaid/c.amount)*100).toFixed(0):0;
   document.getElementById('cdTitle').textContent=c.name+' ('+c.clientId+')';
   var html='<div class="cd-grid">'
@@ -1136,9 +1136,10 @@ function renderClientDetail(r){
     +'<div class="fin-card"><div class="fc-lbl">Expenses</div><div class="fc-val num" style="color:var(--am)">'+R(c.totalExpenses)+'</div></div>'
     +'</div>';
   html+='<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;font-size:.77rem;color:var(--t3);margin-bottom:4px"><span>Payment Progress</span><span>'+paidPct+'%</span></div><div class="progress-wrap"><div class="progress-bar" style="width:'+paidPct+'%"></div></div></div>';
+  if(locked)html+='<div class="empty" style="padding:8px;margin-bottom:10px;color:var(--re)">This client is marked Completed, so it is read-only. Only an admin can change it.</div>';
   html+='<div class="action-bar">'
-    +'<button class="btn btn-success btn-sm" onclick="openPaymentModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Payment</button>'
-    +'<button class="btn btn-danger btn-sm" onclick="openPhotosModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Expense</button>'
+    +(locked?'':'<button class="btn btn-success btn-sm" onclick="openPaymentModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Payment</button>'
+    +'<button class="btn btn-danger btn-sm" onclick="openPhotosModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Expense</button>')
     +'<button class="btn btn-sm" style="background:var(--bl);color:#fff" onclick="openPartyLedger(\''+esc(c.clientId)+'\')">Party Ledger</button>'
     +(isOwner?'<button class="btn btn-outline btn-sm" onclick="openReviseModal(\''+esc(c.clientId)+'\','+c.amount+')">Revise Amount</button>':'')
     +(isOwner&&c.status==='Active'?'<button class="btn btn-sm" style="background:#546E7A;color:#fff" onclick="markStatus(\''+esc(c.clientId)+'\',\'markCompleted\')">Completed</button>':'')
@@ -1181,6 +1182,11 @@ function renderClientDetail(r){
     });
     html+='</tbody></table></div>';
   } else { html+='<div class="empty" style="padding:10px">No expenses yet</div>'; }
+  if(r.revisions&&r.revisions.length){
+    html+='<div class="section-title">Amount Revisions</div><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>From</th><th>To</th><th>Reason</th><th>By</th></tr></thead><tbody>';
+    r.revisions.forEach(function(v){html+='<tr><td>'+esc(v.date)+'</td><td class="num">'+R(v.oldAmount)+'</td><td class="num">'+R(v.newAmount)+'</td><td style="font-size:.77rem">'+esc(v.reason)+'</td><td style="font-size:.77rem">'+esc(v.by)+'</td></tr>';});
+    html+='</tbody></table></div>';
+  }
   document.getElementById('cdBody').innerHTML=html;
 }
 
