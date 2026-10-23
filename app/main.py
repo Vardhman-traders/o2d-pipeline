@@ -40,7 +40,7 @@ app = FastAPI(title="Vardhman Traders API", lifespan=lifespan,
 # shop / godown phones on mobile data. Level 6: nearly the size of 9 for much less CPU on the small instance.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
-CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.r2.cloudflarestorage.com; "   # order photos (signed R2 links)
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
 # The Payments / Delegation / Purchase screens keep their original look, which uses Tailwind, Chart.js, jsPDF, SheetJS and
@@ -54,7 +54,7 @@ CSP_MODULE = ("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 
 
 CSP_INLINE = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'").replace(
     "style-src 'self'", "style-src 'self' 'unsafe-inline'").replace(
-    "img-src 'self' data:", "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com")  # order photos (signed R2 links)
+    "img-src 'self' data:", "img-src 'self' data: blob:")
 
 
 @app.middleware("http")
