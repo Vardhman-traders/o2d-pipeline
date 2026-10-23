@@ -258,8 +258,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 #salPrintArea{display:none}
 @media print{
   body>*:not(#salPrintArea):not(#pdfArea){display:none!important}
-  #pdfArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36}
-  #salPrintArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36;max-width:700px;margin:0 auto}
+  #pdfArea,#salPrintArea{display:none!important}
+  body.print-rep #pdfArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36}
+  body.print-sal #salPrintArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36;max-width:700px;margin:0 auto}
 }
 </style>
 </head>
@@ -343,6 +344,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     <div class="card">
       <div class="card-title">📊 Monthly Attendance Report</div>
       <div class="card-sub">Employee search karo aur month choose karo</div>
+      <div class="export-bar" style="background:#eef2ff;border-radius:10px;padding:.6rem .8rem;margin-bottom:.6rem">
+        <span class="lbl">⚡ One click, whole team</span>
+        <button class="btn" id="fullMonthBtn" onclick="exportFullMonth()">📥 All employees: Monthly report + Salary (Excel)</button>
+        <span style="font-size:.72rem;color:#64748b">Uses the month and year chosen here</span>
+      </div>
       <div class="search-row">
         <div class="search-box">
           <input id="empSearch" placeholder="Employee name type karo…" oninput="filterEmpSuggestions()" onfocus="filterEmpSuggestions()">
@@ -350,11 +356,6 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         </div>
         <select class="input" id="monthSel" style="max-width:155px" onchange="reloadReport()"></select>
         <select class="input" id="yearSel"  style="max-width:105px" onchange="reloadReport()"></select>
-      </div>
-      <div class="export-bar" style="background:#eef2ff;border-radius:10px;padding:.6rem .8rem;margin-bottom:.6rem">
-        <span class="lbl">⚡ One click, whole team</span>
-        <button class="btn" id="fullMonthBtn" onclick="exportFullMonth()">📥 All employees: Monthly report + Salary (Excel)</button>
-        <span style="font-size:.72rem;color:#64748b">Uses the month and year chosen here</span>
       </div>
       <div class="export-bar">
         <span class="lbl">⬇ Export this month</span>
@@ -1396,7 +1397,27 @@ function downloadCSV(){
   lines.push('','Summary','Present,'+rep.stats.present,'Late,'+rep.stats.late,'Half Day,'+rep.stats.halfDay,'Absent,'+rep.stats.absent,'Paid Days,'+rep.stats.paidDays);
   dl(lines.join('\n'),rep.emp.name.replace(/[^a-zA-Z0-9]/g,'_')+'_'+rep.monthName+'_'+rep.year+'.csv');
 }
-function downloadPDF(){ window.print(); }
+function printArea(cls){
+  document.body.classList.add(cls);
+  var done=function(){ document.body.classList.remove(cls); window.removeEventListener('afterprint',done); };
+  window.addEventListener('afterprint',done);
+  setTimeout(function(){ window.print(); },200);
+}
+function downloadPDF(){
+  var rep=window._lastReport; if(!rep){toast('Pehle report kholo','err');return;}
+  var st={Present:'#16a34a',Late:'#d97706','Half Day':'#7c3aed',Absent:'#dc2626'};
+  var html='<div style="font-size:1.1rem;font-weight:800;margin-bottom:4px">VT - Monthly Attendance Report</div>'
+    +'<div style="font-size:.85rem;color:#374151;margin-bottom:12px">'+escH(rep.emp.name)+(rep.emp.role?' · '+escH(rep.emp.role):'')+' · '+escH(rep.monthName)+' '+escH(rep.year)+'</div>'
+    +'<div style="font-size:.8rem;margin-bottom:12px">Present: <b>'+rep.stats.present+'</b> · Late: <b>'+rep.stats.late+'</b> · Half days: <b>'+rep.stats.halfDay+'</b> · Absent: <b>'+rep.stats.absent+'</b> · Paid days: <b>'+rep.stats.paidDays+'</b></div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:.78rem"><tr style="background:#eef2ff;text-align:left"><th style="padding:5px 8px">Day</th><th style="padding:5px 8px">Date</th><th style="padding:5px 8px">Status</th><th style="padding:5px 8px">In</th><th style="padding:5px 8px">Out</th><th style="padding:5px 8px">Hours</th></tr>';
+  for(var i=0;i<rep.days.length;i++){
+    var d=rep.days[i];
+    html+='<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:4px 8px">'+d.day+'</td><td style="padding:4px 8px">'+escH(d.dayName)+'</td><td style="padding:4px 8px;font-weight:700;color:'+(st[d.status]||'#64748b')+'">'+escH(d.status)+'</td><td style="padding:4px 8px">'+escH(d.time||'')+'</td><td style="padding:4px 8px">'+escH(d.checkoutTime||'—')+'</td><td style="padding:4px 8px">'+escH(d.hoursWorked||'—')+'</td></tr>';
+  }
+  html+='</table>';
+  document.getElementById('pdfArea').innerHTML=html;
+  printArea('print-rep');
+}
 
 function printSalarySlip(){
   var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
@@ -1421,8 +1442,7 @@ function printSalarySlip(){
   html+='<div style="font-size:.6rem;color:#9ca3af;text-align:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:10px">VT · Salary Slip · '+mName+' '+r.year+' · Confidential</div>';
   html+='</div>';
   document.getElementById('salPrintArea').innerHTML=html;
-  document.getElementById('salPrintArea').style.display='block';
-  setTimeout(function(){ window.print(); },200);
+  printArea('print-sal');
 }
 
 function downloadSalCSV(){
@@ -1676,9 +1696,9 @@ function doSetPIN(){
     .setEmployeePIN(PWD,name,pin);
 }
 
-/* ─── COLLAPSIBLE CARDS: click a card's heading to fold / unfold everything under it (Monthly and Streak) ─── */
+/* ─── COLLAPSIBLE CARDS: click a card's heading to fold / unfold everything under it (Monthly, Advance and Streak) ─── */
 (function(){
-  var cards=document.querySelectorAll('#v-report .card, #v-streak .card');
+  var cards=document.querySelectorAll('#v-report .card, #v-streak .card, #v-advance .card');
   for(var i=0;i<cards.length;i++){
     var c=cards[i], title=c.querySelector(':scope > .card-title'); if(!title) continue;
     var body=document.createElement('div'); body.className='card-body';

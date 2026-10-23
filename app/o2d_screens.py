@@ -222,7 +222,7 @@ def _write(user, sl_no: int, payload: dict, archived: bool | None = None, allow_
     if any(k.endswith("_key") and v is None for k, v in payload.items()):
         return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
     try:
-        row = main.save_order(sl_no, main.OrderPatch(**payload), archived, user, allow_closed=allow_closed)
+        row = main.save_order(sl_no, main.OrderPatch(**payload), archived, user, allow_closed=allow_closed or user["role"] == "admin")   # an admin may change an order at any stage
     except HTTPException as e:
         return {"ok": True, "success": False, "message": str(e.detail)}
     except ValueError as e:  # pydantic validation
@@ -867,7 +867,7 @@ def _bulk_save(user, items: list[tuple[int, dict]]) -> dict:
         with db.cursor() as cur:
             for sl, patch in patches:
                 try:
-                    done.append((sl, *main.apply_order_update(cur, sl, patch, None, user)))
+                    done.append((sl, *main.apply_order_update(cur, sl, patch, None, user, allow_closed=user["role"] == "admin")))
                 except HTTPException as e:
                     raise _BulkRefused(f"Sl {sl}: {e.detail}")
     except _BulkRefused as e:

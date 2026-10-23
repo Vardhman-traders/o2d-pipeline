@@ -92,6 +92,22 @@ def _need_client(cur, who, code) -> dict:
     return row
 
 
+COMPLETED_MESSAGE = "This client is marked Completed, so it can no longer be edited. Only an admin can change it (an admin can set it back to Active)."
+
+
+def _lock(who: dict, row: dict) -> None:
+    """A Completed client is read-only for everyone but an administrator; before that, anyone who may see it can edit."""
+    if row.get("status") == "Completed" and not who["admin"]:
+        raise HTTPException(403, COMPLETED_MESSAGE)
+
+
+def _need_open_client(cur, who, code) -> dict:
+    """_need_client for every change (a Completed client refuses non-admins)."""
+    row = _need_client(cur, who, code)
+    _lock(who, row)
+    return row
+
+
 def _mode_key(cur, name) -> int | None:
     return mc.lookup_key(cur, "dim_payment_mode", "mode_key", "mode_name", name or "Cash")
 
@@ -242,7 +258,7 @@ def assign_clients(user, who, p):
 def _set_status(status):
     def run(user, who, p):
         with db.cursor() as cur:
-            c = _need_client(cur, who, p.get("clientId"))
+            c = _need_open_client(cur, who, p.get("clientId"))
             cur.execute("UPDATE dim_decor_client SET status = %s WHERE client_key = %s", (status, c["client_key"]))
         return {"ok": True}
     return run
@@ -251,7 +267,7 @@ def _set_status(status):
 def delete_client(user, who, p):
     code = str(p.get("clientId") or "").strip()
     with db.cursor() as cur:
-        c = _need_client(cur, who, code)
+        c = _need_open_client(cur, who, code)
         cur.execute("SELECT attachment_key, object_key FROM file_attachment WHERE module = 'decor' AND record_key = %s", (c["client_key"],))
         files = cur.fetchall()
         cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'decor.delete_client', %s, %s)",
@@ -326,10 +342,15 @@ def get_client_detail(user, who, p):
         pays, exps, items = _payments(cur, c["client_key"]), _expenses(cur, c["client_key"]), _items(cur, c["client_key"])
         amount = _f(c["contract_amount"])
         stages = _stage_rows(cur, c, pays, amount)
+        cur.execute("SELECT r.old_amount, r.new_amount, r.reason, r.created_at, u.display_name FROM fact_decor_revision r "
+                    "LEFT JOIN dim_user u ON u.user_key = r.created_by_user_key WHERE r.client_key = %s ORDER BY r.revision_key DESC", (c["client_key"],))
+        revisions = [{"date": _dt(x["created_at"]), "oldAmount": _f(x["old_amount"]), "newAmount": _f(x["new_amount"]),
+                      "reason": x["reason"] or "", "by": x["display_name"] or ""} for x in cur.fetchall()]
     paid, spent = sum(x["amount"] for x in pays), sum(x["amount"] for x in exps)
     client = _client_obj(c, paid)
     client.update({"totalPaid": paid, "totalExpenses": spent, "balance": amount - paid, "grossProfit": paid - spent})
-    return {"ok": True, "client": client, "payments": pays, "expenses": exps, "items": items, "stages": stages}
+    return {"ok": True, "client": client, "payments": pays, "expenses": exps, "items": items, "stages": stages,
+            "revisions": revisions, "locked": c["status"] == "Completed" and not who["admin"]}
 
 
 # ------------------------------------------------------------------ payments / expenses / items
@@ -338,7 +359,7 @@ def add_payment(user, who, p):
     if not p.get("clientId") or not amount:
         return {"ok": False, "msg": "clientId and amount required"}
     with db.cursor() as cur:
-        c = _need_client(cur, who, p["clientId"])
+        c = _need_open_client(cur, who, p["clientId"])
         sk = _stage_key(cur, c["product_type_key"], p.get("stage"))
         cur.execute("INSERT INTO fact_decor_payment (client_key, stage_key, stage_text, amount, mode_key, pay_date, ref_no, remarks, created_by_user_key) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
@@ -355,13 +376,14 @@ def get_payments_list(user, who, p):
 
 
 def _own_row(cur, who, table: str, key_col: str, row_id, code) -> dict:
-    cur.execute(f'SELECT t.*, c.client_code, c.added_by, c.assigned_to FROM "{table}" t JOIN dim_decor_client c ON c.client_key = t.client_key WHERE t."{key_col}" = %s',
+    cur.execute(f'SELECT t.*, c.client_code, c.added_by, c.assigned_to, c.status FROM "{table}" t JOIN dim_decor_client c ON c.client_key = t.client_key WHERE t."{key_col}" = %s',
                 (int(row_id or 0),))
     r = cur.fetchone()
     if not r or not _visible(who, r):   # somebody else's row looks exactly like a missing one
         raise HTTPException(404, "Row not found")
     if r["client_code"] != str(code or "").strip():
         raise HTTPException(422, "Row does not belong to this client")
+    _lock(who, r)
     return r
 
 
@@ -377,11 +399,12 @@ def edit_payment(user, who, p):
     if not amount:
         return {"ok": False, "msg": "Amount required"}
     with db.cursor() as cur:
-        cur.execute("SELECT p.payment_key, c.product_type_key, c.added_by, c.assigned_to FROM fact_decor_payment p JOIN dim_decor_client c ON c.client_key = p.client_key "
+        cur.execute("SELECT p.payment_key, c.product_type_key, c.added_by, c.assigned_to, c.status FROM fact_decor_payment p JOIN dim_decor_client c ON c.client_key = p.client_key "
                     "WHERE p.payment_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Invalid row index"}
+        _lock(who, r)
         sk = _stage_key(cur, r["product_type_key"], p.get("stage"))
         cur.execute("UPDATE fact_decor_payment SET stage_key = %s, stage_text = %s, amount = %s, mode_key = %s, pay_date = %s, ref_no = %s, remarks = %s "
                     "WHERE payment_key = %s", (sk, None if sk else (p.get("stage") or None), round(amount, 2), _mode_key(cur, p.get("mode")),
@@ -398,7 +421,7 @@ def add_expense(user, who, p):
 
 def _save_expense(user, who, p, amount) -> dict:
     with db.cursor() as cur:
-        c = _need_client(cur, who, p["clientId"])
+        c = _need_open_client(cur, who, p["clientId"])
         cur.execute("INSERT INTO fact_decor_expense (client_key, expense_type, amount, exp_date, notes, created_by_user_key) "
                     "VALUES (%s,%s,%s,%s,%s,%s) RETURNING expense_key",
                     (c["client_key"], str(p.get("type") or "")[:100], round(amount, 2), _day(p.get("date")), p.get("notes") or None, user["user_key"]))
@@ -452,11 +475,12 @@ def edit_expense(user, who, p):
     if not amount:
         return {"ok": False, "msg": "Amount required"}
     with db.cursor() as cur:
-        cur.execute("SELECT e.expense_key, c.added_by, c.assigned_to FROM fact_decor_expense e JOIN dim_decor_client c ON c.client_key = e.client_key "
+        cur.execute("SELECT e.expense_key, c.added_by, c.assigned_to, c.status FROM fact_decor_expense e JOIN dim_decor_client c ON c.client_key = e.client_key "
                     "WHERE e.expense_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Invalid row index"}
+        _lock(who, r)
         cur.execute("UPDATE fact_decor_expense SET expense_type = %s, amount = %s, exp_date = %s, notes = %s WHERE expense_key = %s",
                     (str(p.get("type") or "")[:100], round(amount, 2), _day(p.get("date")), p.get("notes") or None, r["expense_key"]))
     return {"ok": True}
@@ -467,7 +491,7 @@ def add_item(user, who, p):
         return {"ok": False, "msg": "clientId and product required"}
     amount = round(_f(p.get("amount")), 2)
     with db.cursor() as cur:
-        c = _need_client(cur, who, p["clientId"])
+        c = _need_open_client(cur, who, p["clientId"])
         cur.execute("SELECT COALESCE(max(item_index), 0) + 1 AS n FROM fact_decor_item WHERE client_key = %s", (c["client_key"],))
         cur.execute("INSERT INTO fact_decor_item (client_key, item_index, product, amount, item_date, notes, created_by_user_key) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -478,11 +502,12 @@ def add_item(user, who, p):
 
 def delete_item(user, who, p):
     with db.cursor() as cur:
-        cur.execute("SELECT i.item_key, c.added_by, c.assigned_to FROM fact_decor_item i JOIN dim_decor_client c ON c.client_key = i.client_key "
+        cur.execute("SELECT i.item_key, c.added_by, c.assigned_to, c.status FROM fact_decor_item i JOIN dim_decor_client c ON c.client_key = i.client_key "
                     "WHERE i.item_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Invalid row index"}
+        _lock(who, r)
         cur.execute("DELETE FROM fact_decor_item WHERE item_key = %s", (r["item_key"],))
     return {"ok": True}
 
@@ -498,7 +523,7 @@ def revise_amount(user, who, p):
     if not p.get("clientId") or not new:
         return {"ok": False, "msg": "clientId and newAmount required"}
     with db.cursor() as cur:
-        c = _need_client(cur, who, p["clientId"])
+        c = _need_open_client(cur, who, p["clientId"])
         cur.execute("INSERT INTO fact_decor_revision (client_key, old_amount, new_amount, reason, created_by_user_key) VALUES (%s,%s,%s,%s,%s)",
                     (c["client_key"], c["contract_amount"], new, p.get("reason") or None, user["user_key"]))
         cur.execute("UPDATE dim_decor_client SET contract_amount = %s WHERE client_key = %s", (new, c["client_key"]))
@@ -524,7 +549,7 @@ def save_photo_link(user, who, p):
     if not p.get("clientId") or not p.get("photoUrl"):
         return {"ok": False, "msg": "clientId and photoUrl required"}
     with db.cursor() as cur:
-        c = _need_client(cur, who, p["clientId"])
+        c = _need_open_client(cur, who, p["clientId"])
         cur.execute("INSERT INTO fact_decor_photo (client_key, stage_text, caption, legacy_url, created_by_user_key) VALUES (%s,%s,%s,%s,%s)",
                     (c["client_key"], p.get("stage") or None, p.get("caption") or None, str(p["photoUrl"])[:1000], user["user_key"]))
     return {"ok": True}
@@ -536,7 +561,7 @@ def upload_photo(user, who, p):
     if not (p.get("base64") and p.get("mimeType")):
         return {"ok": False, "msg": "No photo received."}
     with db.cursor() as cur:
-        c = _need_client(cur, who, p.get("clientId"))
+        c = _need_open_client(cur, who, p.get("clientId"))
     pk = _store_photo(user, c["client_key"], p.get("stage"), p.get("caption"), "photo", p["base64"], p["mimeType"])
     with db.cursor() as cur:
         cur.execute("SELECT attachment_key, legacy_url FROM fact_decor_photo WHERE photo_key = %s", (pk,))
@@ -574,11 +599,12 @@ def get_all_photos(user, who, p):
 
 def delete_photo(user, who, p):
     with db.cursor() as cur:
-        cur.execute("SELECT f.photo_key, f.attachment_key, c.added_by, c.assigned_to FROM fact_decor_photo f JOIN dim_decor_client c ON c.client_key = f.client_key "
+        cur.execute("SELECT f.photo_key, f.attachment_key, c.added_by, c.assigned_to, c.status FROM fact_decor_photo f JOIN dim_decor_client c ON c.client_key = f.client_key "
                     "WHERE f.photo_key = %s AND c.client_code = %s", (int(p.get("fileId") or 0), str(p.get("clientId") or "").strip()))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Photo not found"}
+        _lock(who, r)
         cur.execute("DELETE FROM fact_decor_photo WHERE photo_key = %s", (r["photo_key"],))
         files = []
         if r["attachment_key"]:

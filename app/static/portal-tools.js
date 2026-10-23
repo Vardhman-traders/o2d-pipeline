@@ -15,7 +15,7 @@ const ORDER_COLS = [['sl_no', 'Sl'], ['order_date', 'Order date'], ['dc_inv_no',
 // the O2D "view as" screens first. Edit reuses the same endpoint those screens' admin form uses.
 function openOrderEdit(row, options, onSaved) {
   const photos = h('div', { id: 'editPhotos' });
-  showOrderPhotos(row.sl_no, photos);   // the order's photos, each with a Delete photo button
+  showOrderPhotos(row.sl_no, photos, true);   // the order's photos, each with a Delete photo button, plus Add photo
   const sel = (key) => [['', '-- no change --'], ...(options[key] || []).map((v) => [v, v])];
   formDialog({
     title: `Edit order ${row.dc_inv_no || row.sl_no}`, submitLabel: 'Save', after: photos,
@@ -421,23 +421,42 @@ async function renderOrderChanges(panel) {
 }
 
 // The dispatch and receiving photos taken on the O2D screens, shown on the order's details.
-async function showOrderPhotos(slNo, body) {
+// Shrink a phone photo to a JPEG of at most 1600 px so it stays well under the upload limit.
+function shrinkPhoto(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => resolve(b || file), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };   // e.g. HEIC the browser cannot draw: send as is
+    img.src = url;
+  });
+}
+
+// The dispatch and receiving photos taken on the O2D screens, shown on the order's details. canAdd (the admin's Edit) also lets
+// photos be added; Delete photo is admin-only on the server.
+async function showOrderPhotos(slNo, body, canAdd) {
   let d;
   try { d = await api(`/o2d/orders/${slNo}/photos`); } catch { return; }
-  if (!d || !d.enabled || !d.photos.length) return;
+  if (!d || !d.enabled || (!d.photos.length && !canAdd)) return;
   const title = h('h3', { class: 'tl-title', text: `Photos (${d.photos.length})` });
   const grid = h('div', { id: 'orderPhotos', style: 'display:flex;flex-wrap:wrap;gap:10px' });
   const err = h('div', { class: 'msg error' });
+  const recount = () => { title.textContent = `Photos (${grid.children.length})`; };
   const tile = (p) => {
     const box = h('div', { style: 'width:140px' });
     const del = h('button', { type: 'button', class: 'btn danger', text: 'Delete photo', style: 'width:100%;margin-top:4px', onclick: async () => {
       if (!(await confirmDialog('Delete this photo?', `The ${p.kind} photo by ${p.uploadedBy || '?'} is removed from the order for good. Cannot be undone.`, 'Delete', true))) return;
       try { await api(`/o2d/orders/${slNo}/photos/${p.id}`, { method: 'DELETE' }); } catch (ex) { err.textContent = ex.message || 'Could not delete the photo.'; return; }
       box.remove();
-      const left = grid.children.length;
-      title.textContent = `Photos (${left})`;
       err.textContent = '';
-      if (!left) { title.remove(); grid.remove(); }
+      recount();
     } });
     box.append(h('a', { href: p.url, target: '_blank', rel: 'noopener',
       title: `${p.kind} photo by ${p.uploadedBy || '?'} - ${fmtExact(p.uploadedAt)} IST`, style: 'display:block;width:140px;height:140px;border-radius:10px;overflow:hidden;border:1px solid var(--border)' },
@@ -446,6 +465,27 @@ async function showOrderPhotos(slNo, body) {
   };
   d.photos.forEach((p) => grid.append(tile(p)));
   body.append(title, err, grid);
+  if (!canAdd) return;
+  const kind = h('select', { style: 'margin-right:8px' }, h('option', { value: 'dispatch', text: 'Dispatch photo' }), h('option', { value: 'receiving', text: 'Receiving photo' }));
+  const file = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none' });
+  const add = h('button', { type: 'button', class: 'btn', text: 'Add photo', onclick: () => file.click() });
+  file.addEventListener('change', async () => {
+    const files = [...file.files]; file.value = '';
+    add.disabled = true; err.textContent = '';
+    try {
+      for (const f of files) {
+        add.textContent = 'Uploading...';
+        const blob = await shrinkPhoto(f);
+        const res = await fetch(`/o2d/orders/${slNo}/photos?kind=${kind.value}`, { method: 'POST', body: blob,
+          headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': blob.type || 'image/jpeg' } });
+        if (!res.ok) { let m = res.statusText; try { const j = await res.json(); if (typeof j.detail === 'string') m = j.detail; } catch { /* default */ } throw new Error(m); }
+      }
+    } catch (ex) { err.textContent = ex.message || 'Could not add the photo.'; }
+    add.disabled = false; add.textContent = 'Add photo';
+    const fresh = await api(`/o2d/orders/${slNo}/photos`).catch(() => null);   // reload the tiles so the new photos show (and can be deleted)
+    if (fresh && fresh.photos) { grid.replaceChildren(); fresh.photos.forEach((p) => grid.append(tile(p))); recount(); }
+  });
+  body.append(h('div', { style: 'margin-top:10px' }, kind, add, file));
 }
 
 // ------------------------------------------------------------------ Setup > Access & permissions (one page)
@@ -972,8 +1012,11 @@ async function renderReconcile(panel, tab) {
   }
 
   async function remove(v) {
-    if (!(await confirmDialog('Delete "' + v.name + '"?', v.orders ? `${fmtInt(v.orders)} order(s) use it, so this will be refused. Merge it into another value instead.` : 'It is not used by any order.', 'Delete', true))) return;
-    try { await api(master ? `/admin/masters/${master.id}/${v.key}` : role ? '/admin/people/' + v.key : `/admin/lookups/${slug}/${v.key}`, { method: 'DELETE' }); reload(); }
+    const emp = master && master.id === 'att_employee';   // an attendance employee is deleted with their attendance and advance records
+    if (!(await confirmDialog('Delete "' + v.name + '"?',
+      emp ? 'This permanently deletes the employee together with ALL their attendance days and advances. It cannot be undone. (If they are still a portal member they come back as a new employee with no history; disable the member first to stop that.)'
+        : v.orders ? `${fmtInt(v.orders)} order(s) use it, so this will be refused. Merge it into another value instead.` : 'It is not used by any order.', 'Delete', true))) return;
+    try { await api(master ? `/admin/masters/${master.id}/${v.key}${emp ? '?with_records=true' : ''}` : role ? '/admin/people/' + v.key : `/admin/lookups/${slug}/${v.key}`, { method: 'DELETE' }); reload(); }
     catch (ex) { alert(ex.message); }
   }
 

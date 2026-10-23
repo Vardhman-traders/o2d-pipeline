@@ -133,9 +133,10 @@ async def upload_photo(sl_no: int, request: Request, kind: str = Query(pattern="
     """Body is the raw image (Content-Type image/jpeg|png|webp|heic) - no multipart needed."""
     if not configured():
         raise HTTPException(503, "Photo storage is not set up yet. Ask the administrator.")
-    if not _may_upload(user, kind):
-        raise HTTPException(403, access.NO_ACCESS_MESSAGE)
-    access.require_edit(user, *UPLOAD_PAGES[kind])
+    if user["role"] != "admin":   # an admin adds photos from All orders > Edit, whatever the stage
+        if not _may_upload(user, kind):
+            raise HTTPException(403, access.NO_ACCESS_MESSAGE)
+        access.require_edit(user, *UPLOAD_PAGES[kind])
     ctype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     if ctype not in EXT:
         raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image.")
