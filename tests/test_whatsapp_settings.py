@@ -1,7 +1,30 @@
 # ruff: noqa: F811, E501
 """WhatsApp alert settings (Setup > WhatsApp): template filling, group / on-off / template saved by admins only."""
+import pytest
+
 from app import whatsapp
 from tests.test_admin_tools import client, login, seed  # noqa: F401  (fixtures + helpers)
+
+CHANGED_HERE = ("dispatch_godown", "delivery_day_summary")
+
+
+@pytest.fixture()
+def restore_alerts(db_conn):
+    """Put back the alerts these tests save: the session shares one database, and a dispatch template left as "Dispatch {dc_no} by ..."
+    (and switched off) broke the message tests that run after this file."""
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT alert_key, group_id, enabled, template, updated_by_user_key, updated_at FROM whatsapp_alert "
+                    "WHERE alert_key = ANY(%s)", (list(CHANGED_HERE),))
+        saved = cur.fetchall()
+    db_conn.commit()
+    yield
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM whatsapp_alert WHERE alert_key = ANY(%s) AND NOT alert_key = ANY(%s)",
+                    (list(CHANGED_HERE), [r[0] for r in saved]))   # a row the test created
+        for key, group_id, enabled, template, by, at in saved:
+            cur.execute("UPDATE whatsapp_alert SET group_id = %s, enabled = %s, template = %s, updated_by_user_key = %s, updated_at = %s "
+                        "WHERE alert_key = %s", (group_id, enabled, template, by, at, key))
+    db_conn.commit()
 
 
 def test_templates_fill_known_placeholders_and_leave_everything_else_alone():
@@ -22,7 +45,7 @@ def test_api_key_is_sent_as_x_api_key_and_wins_over_username_password(monkeypatc
     assert whatsapp.auth_headers() == {"x-api-key": "abc123"}
 
 
-def test_admin_saves_group_switch_and_template_and_others_cannot(client, db_conn, seed, monkeypatch):
+def test_admin_saves_group_switch_and_template_and_others_cannot(client, db_conn, seed, monkeypatch, restore_alerts):
     admin, godown = login(client, db_conn), login(client, db_conn, "godown_dispatch")
     assert client.get("/admin/whatsapp", headers=godown).status_code == 403
     alerts = client.get("/admin/whatsapp", headers=admin).json()["alerts"]
@@ -53,7 +76,7 @@ def test_reply_ok_catches_a_200_that_is_really_a_refusal():
     assert not whatsapp.reply_ok(500, "ok")
 
 
-def test_the_test_button_reports_the_providers_refusal_instead_of_saying_sent(client, db_conn, seed, monkeypatch):
+def test_the_test_button_reports_the_providers_refusal_instead_of_saying_sent(client, db_conn, seed, monkeypatch, restore_alerts):
     admin = login(client, db_conn)
     client.put("/admin/whatsapp/delivery_day_summary", json={"group_id": "123@g.us", "enabled": True, "template": "x {date}"}, headers=admin)
     monkeypatch.setenv("WHATSAPP_API_KEY", "k")

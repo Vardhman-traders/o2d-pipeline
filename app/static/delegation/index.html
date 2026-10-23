@@ -1740,7 +1740,7 @@
 
     // ====================== NOTIFICATIONS (the bell) ======================
     var bellTimer = null, bellUnread = -1;
-    function startBell() { stopBell(); loadBell(); bellTimer = setInterval(loadBell, 45000); }
+    function startBell() { stopBell(); loadBell(); bellTimer = setInterval(function () { if (!document.hidden) loadBell(); }, 45000); }
     function stopBell() { if (bellTimer) { clearInterval(bellTimer); bellTimer = null; } bellUnread = -1; }
     function toggleBell() { document.getElementById('bellPanel').classList.toggle('hidden'); }
     document.addEventListener('click', function (e) {

@@ -214,20 +214,22 @@ def _log_wa(kind: str, name: str, code, ok: bool, body: str):
         log.exception("could not write the WhatsApp log")
 
 
-def _send(alert_key: str, values: dict, kind: str, name: str) -> str:
-    """'sent' | 'failed' | 'off' (the alert is switched off in Setup). Every attempt is logged."""
+def _send(alert_key: str, values: dict, kind: str, name: str, logs: list | None = None) -> str:
+    """'sent' | 'failed' | 'off' (the alert is switched off in Setup). Every attempt is logged. A caller that is holding a database
+    connection passes `logs` and writes the entries itself once the connection is back: logging here would need a second one."""
+    note = _log_wa if logs is None else (lambda *entry: logs.append(entry))
     try:
         out = whatsapp.send_alert(alert_key, values, post=whatsapp._http_post)   # looked up now, so tests can swap the sender
     except Exception as exc:
-        _log_wa(kind, name, None, False, f"EXCEPTION: {exc}")
+        note(kind, name, None, False, f"EXCEPTION: {exc}")
         return "failed"
     if out.get("skipped"):
         if "switched off" in out["reason"]:
             return "off"
-        _log_wa(kind, name, None, False, out["reason"])
+        note(kind, name, None, False, out["reason"])
         return "failed"
     ok = _wa_ok(out.get("code"), out.get("body", ""))
-    _log_wa(kind, name, out.get("code"), ok, out.get("body", ""))
+    note(kind, name, out.get("code"), ok, out.get("body", ""))
     return "sent" if ok else "failed"
 
 
@@ -250,8 +252,28 @@ def _out_values(r: dict) -> dict:
             "date": r["work_date"].strftime("%d %b %Y")}
 
 
+# The row stays locked (and its connection checked out) while the WhatsApp call is out, up to 10 s each. A rush of check-ins used to
+# put one such call per request on the pool, and each then asked for a second connection to log it: with every connection held by a
+# waiting sender, nothing could finish until the 10 s wait ran out - "connection pool exhausted" for the whole site. So only a few
+# sends may be in flight; any other caller gets 'busy' and the five-minute retry sends its message.
+_WA_SLOTS = threading.BoundedSemaphore(3)
+WA_SLOT_WAIT_S = 2
+
+
 def process_wa_row(attendance_key: int) -> dict:
     """Send what is pending for one attendance row. One at a time per row (a second caller gets 'busy', never a double message)."""
+    if not _WA_SLOTS.acquire(timeout=WA_SLOT_WAIT_S):
+        return {"status": "busy"}
+    logs: list = []
+    try:
+        return _process_wa_row(attendance_key, logs)
+    finally:
+        _WA_SLOTS.release()
+        for entry in logs:   # the row's connection is back in the pool by now
+            _log_wa(*entry)
+
+
+def _process_wa_row(attendance_key: int, logs: list) -> dict:
     rules = Rules()
     with db.cursor() as cur:
         cur.execute(ROW_SQL + " WHERE a.attendance_key = %s FOR UPDATE OF a SKIP LOCKED", (attendance_key,))
@@ -266,13 +288,13 @@ def process_wa_row(attendance_key: int) -> dict:
             cur.execute("UPDATE fact_attendance SET wa_status = %s WHERE attendance_key = %s", (WA["SKIPPED"], attendance_key))
             return {"status": "nothing", "waStatus": WA["SKIPPED"]}
         if need_in:
-            res = _send("att_checkin", _in_values(r, rules), "CHECK-IN", r["employee_name"])
+            res = _send("att_checkin", _in_values(r, rules), "CHECK-IN", r["employee_name"], logs)
             if res == "failed":
                 return {"status": "failed", "waStatus": st}
             st = WA["OUT_PENDING"] if need_out else WA["IN_SENT"]
             cur.execute("UPDATE fact_attendance SET wa_status = %s WHERE attendance_key = %s", (st, attendance_key))
         if need_out:
-            res = _send("att_checkout", _out_values(r), "CHECK-OUT", r["employee_name"])
+            res = _send("att_checkout", _out_values(r), "CHECK-OUT", r["employee_name"], logs)
             if res == "failed":
                 cur.execute("UPDATE fact_attendance SET wa_status = %s WHERE attendance_key = %s", (WA["OUT_PENDING"], attendance_key))
                 return {"status": "failed", "waStatus": WA["OUT_PENDING"]}
@@ -1199,15 +1221,19 @@ def run_jobs(now: datetime | None = None) -> dict:
     if now.minute % 5 == 0:
         out["retried"] = process_pending_whatsapp()
     if now.hour * 60 + now.minute >= rules.auto_run_at:
-        with db.cursor() as cur:
-            cur.execute("SELECT pg_try_advisory_xact_lock(%s) AS ok", (AUTO_RUN_LOCK,))
-            if cur.fetchone()["ok"]:
-                cur.execute("SELECT 1 FROM att_auto_run WHERE run_date = %s", (now.date(),))
-                if not cur.fetchone():
+        # The lock is held on its own connection: the sends below commit row by row on theirs. Run inside one cursor, they would all
+        # share its transaction, and a late failure would roll back rows whose message had already gone out (sent again next time).
+        with db.advisory_lock(AUTO_RUN_LOCK) as got:
+            if got:
+                with db.cursor() as cur:
+                    cur.execute("SELECT 1 FROM att_auto_run WHERE run_date = %s", (now.date(),))
+                    done_today = cur.fetchone() is not None
+                if not done_today:
                     process_pending_whatsapp()
                     n = auto_checkout(now)
-                    cur.execute("INSERT INTO att_auto_run (run_date, closed) VALUES (%s, %s) ON CONFLICT DO NOTHING", (now.date(), n))
-                    cur.execute("DELETE FROM att_wa_log WHERE log_key < (SELECT COALESCE(max(log_key), 0) - 3000 FROM att_wa_log)")
+                    with db.cursor() as cur:
+                        cur.execute("INSERT INTO att_auto_run (run_date, closed) VALUES (%s, %s) ON CONFLICT DO NOTHING", (now.date(), n))
+                        cur.execute("DELETE FROM att_wa_log WHERE log_key < (SELECT COALESCE(max(log_key), 0) - 3000 FROM att_wa_log)")
                     out["auto"] = n
     return out
 

@@ -1270,10 +1270,18 @@
     if (switcher.style.display !== 'none') switcher.value = CURRENT_ROLE;
     refreshCurrent();
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
-    AUTO_REFRESH_TIMER = setInterval(refreshCurrent, 20000);
+    // A tab left open in the background used to refresh every 20 s all day (three requests each time, from every shop / godown screen):
+    // it now waits, and catches up the moment the tab is looked at again.
+    AUTO_REFRESH_TIMER = setInterval(function () { if (!document.hidden) refreshCurrent(); }, 20000);
   }
 
+  var LAST_REFRESH_AT = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && AUTO_REFRESH_TIMER && Date.now() - LAST_REFRESH_AT > 10000) refreshCurrent();
+  });
+
   function refreshCurrent() {
+    LAST_REFRESH_AT = Date.now();
     applyViewOnly_();
     loadReminders();
     if (CURRENT_ROLE === 'overview')                                    initOverview();
@@ -1289,6 +1297,7 @@
   // the only place that signs anyone in); this just stops the auto-refresh timer first.
   function logout() {
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
+    AUTO_REFRESH_TIMER = null;
   }
 
   /* ================= OVERVIEW (admin) ================= */

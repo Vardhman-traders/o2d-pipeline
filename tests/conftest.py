@@ -19,7 +19,15 @@ sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("VT_SCHEDULER", "off")   # no 7:30 PM report thread inside the tests
 os.environ.setdefault("VT_ALERTS_INLINE", "1")  # WhatsApp dispatch alerts go out before the save returns, so tests can check them
+os.environ.setdefault("VT_READ_CACHE_TTL", "0")  # tests edit page_access / dim_user ... with their own connection, which a cache cannot see
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://vt:vt@localhost:5433/postgres")
+
+
+def bill_no() -> str:
+    """A fresh bill number for a test order. Every test takes it from this one range: the orders of the whole session share today's date,
+    and a Challan more than ten times that day's highest is refused as an Invoice typed in the wrong place (doc_numbers.suspect_reason).
+    Tests that each picked their own size (6 to 9 digits) failed or passed depending on which ran first."""
+    return str(500_000_000 + uuid.uuid4().int % 100_000_000)
 
 
 def _with_db(url: str, dbname: str) -> str:
