@@ -508,6 +508,31 @@ tr:hover td{background:#F5F6FF}
   </div>
 </div>
 
+<!-- EDIT A PAYMENT / EXPENSE -->
+<div class="modal-overlay" id="editRowModal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-head"><h2 id="er_title">Edit</h2><button class="modal-close" onclick="closeModal('editRowModal')">x</button></div>
+    <div class="modal-body">
+      <div class="form-group" id="er_stageWrap" style="margin-bottom:13px"><label>Stage</label><select id="er_stage"></select></div>
+      <div class="form-group" id="er_typeWrap" style="margin-bottom:13px"><label>Expense Type *</label><input type="text" id="er_type" list="expTypeList"></div>
+      <div class="form-group" style="margin-bottom:13px">
+        <label>Amount (Rs.) * &nbsp;<span id="er_preview" style="color:var(--bl);font-family:'Poppins',sans-serif;font-weight:600"></span></label>
+        <input type="number" id="er_amount" oninput="previewAmt('er_amount','er_preview')">
+        <small style="color:var(--t3)">Same as when adding: type 500000 = stored as Rs.5,000.00</small>
+      </div>
+      <div class="form-group" id="er_modeWrap" style="margin-bottom:13px"><label>Mode</label><select id="er_mode"></select></div>
+      <div class="form-group" style="margin-bottom:13px"><label>Date</label><input type="date" id="er_date"></div>
+      <div class="form-group" id="er_pnumWrap" style="margin-bottom:13px"><label>Reference No.</label><input type="text" id="er_pnum"></div>
+      <div class="form-group"><label id="er_noteLabel">Remarks</label><textarea id="er_note" rows="2"></textarea></div>
+      <p style="font-size:.76rem;color:var(--t3);margin-top:10px">Every change is recorded (who, and the old and new values).</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('editRowModal')">Cancel</button>
+      <button class="btn btn-success" id="er_save" onclick="submitEditRow()">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- REVISE MODAL -->
 <div class="modal-overlay" id="reviseModal">
   <div class="modal" style="max-width:420px">
@@ -619,6 +644,7 @@ var STAFF_ALL_CLIENTS = [];
 var CURRENT_STAFF    = '';
 
 var STAFF_LIST = [];
+var CAN_EDIT=false,CAN_MANAGE=false,EDIT_ROW=null;
 var CFG = { productTypes: [], paymentModes: [], expenseTypes: [], staff: [], statementNote: '' };
 var STAFF_COLORS = ['#1565C0','#6A1B9A','#2E7D32','#C62828','#E65100','#00838F','#AD1457'];
 
@@ -626,7 +652,7 @@ var STAFF_COLORS = ['#1565C0','#6A1B9A','#2E7D32','#C62828','#E65100','#00838F',
 function portalStart(){
   gas('getConfig',{}).then(function(cfg){
     if(!cfg||!cfg.ok){document.body.innerHTML='<div style="padding:40px;font-family:sans-serif;text-align:center">'+esc((cfg&&cfg.msg)||'Could not open VT Decor')+'<br><br><a href="/">Back to home</a></div>';return;}
-    CFG=cfg;ROLE=cfg.role;IS_ADMIN=!!cfg.admin;
+    CFG=cfg;ROLE=cfg.role;IS_ADMIN=!!cfg.admin;CAN_EDIT=!!cfg.edit;CAN_MANAGE=!!cfg.manage;
     STAFF_LIST=cfg.staff.map(function(s,i){return {id:s.id,name:s.name,color:s.id==='owner'?'#E65100':STAFF_COLORS[i%STAFF_COLORS.length],initial:(s.name||'?').charAt(0).toUpperCase()};});
     fillLists();
     document.getElementById('loginScreen').style.display='none';
@@ -753,7 +779,7 @@ function loadPhotos(clientId){
   document.getElementById('photosGallery').innerHTML='<div class="loader" style="padding:20px">Loading...</div>';
   gas('getPhotos',{clientId:clientId}).then(function(r){
     if(!r.ok||!r.photos.length){document.getElementById('photosGallery').innerHTML='<div class="empty" style="padding:16px">No photos, docs or expense challans yet</div>';return;}
-    var isOwner=ROLE==='owner';
+    var isOwner=CAN_MANAGE;
     var html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">';
     r.photos.forEach(function(p){
       var isChallan=(p.stage||'').indexOf('Expense Challan')>-1||(p.caption||'').indexOf('[Challan]')>-1;
@@ -1115,7 +1141,7 @@ function openClientDetail(clientId){
   }).catch(function(e){document.getElementById('cdBody').innerHTML='<div class="empty">Error: '+esc(String(e))+'</div>';});
 }
 function renderClientDetail(r){
-  var c=r.client,locked=!!r.locked,isOwner=ROLE==='owner'&&!locked;
+  var c=r.client,locked=!!r.locked,isOwner=CAN_MANAGE&&!locked,canEdit=CAN_EDIT&&!locked;
   var paidPct=c.amount>0?Math.min(100,(c.totalPaid/c.amount)*100).toFixed(0):0;
   document.getElementById('cdTitle').textContent=c.name+' ('+c.clientId+')';
   var html='<div class="cd-grid">'
@@ -1136,7 +1162,7 @@ function renderClientDetail(r){
     +'<div class="fin-card"><div class="fc-lbl">Expenses</div><div class="fc-val num" style="color:var(--am)">'+R(c.totalExpenses)+'</div></div>'
     +'</div>';
   html+='<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;font-size:.77rem;color:var(--t3);margin-bottom:4px"><span>Payment Progress</span><span>'+paidPct+'%</span></div><div class="progress-wrap"><div class="progress-bar" style="width:'+paidPct+'%"></div></div></div>';
-  if(locked)html+='<div class="empty" style="padding:8px;margin-bottom:10px;color:var(--re)">This client is marked Completed, so it is read-only. Only an admin can change it.</div>';
+  if(locked)html+='<div class="empty" style="padding:8px;margin-bottom:10px;color:var(--re)">This client is marked Completed, so it is read-only: nothing can be edited or deleted. Only an admin can change it (and set it back to Active).</div>';
   html+='<div class="action-bar">'
     +(locked?'':'<button class="btn btn-success btn-sm" onclick="openPaymentModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Payment</button>'
     +'<button class="btn btn-danger btn-sm" onclick="openPhotosModal(\''+esc(c.clientId)+'\',\''+esc(c.name)+'\',\''+esc(c.productType)+'\')">+ Expense</button>')
@@ -1158,26 +1184,26 @@ function renderClientDetail(r){
   html+='</div>';
   html+='<div class="section-title">Payment History</div>';
   if(r.payments&&r.payments.length){
-    html+='<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Stage</th><th>Amount</th><th>Mode</th><th>Ref</th><th>Remarks</th>'+(isOwner?'<th></th>':'')+'</tr></thead><tbody>';
+    html+='<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Stage</th><th>Amount</th><th>Mode</th><th>Ref</th><th>Remarks</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
     r.payments.forEach(function(p){
       html+='<tr><td>'+esc(p.date)+'</td><td style="font-size:.79rem">'+esc(p.stage)+'</td>'
         +'<td class="num" style="color:var(--gr)">'+R(p.amount)+'</td>'
         +'<td><span class="badge badge-bl">'+esc(p.mode)+'</span></td>'
         +'<td style="font-size:.77rem">'+esc(p.pnum)+'</td>'
         +'<td style="font-size:.77rem">'+esc(p.remarks)+'</td>'
-        +(isOwner?'<td><button class="btn btn-danger btn-sm" onclick="deletePayment(\''+esc(c.clientId)+'\','+p.rowIndex+')">Del</button></td>':'')
+        +((canEdit||isOwner)?'<td style="white-space:nowrap">'+(canEdit?'<button class="btn btn-outline btn-sm" onclick="openEditPayment(\''+esc(c.clientId)+'\','+p.rowIndex+')">Edit</button> ':'')+(isOwner?'<button class="btn btn-danger btn-sm" onclick="deletePayment(\''+esc(c.clientId)+'\','+p.rowIndex+')">Del</button>':'')+'</td>':'')
         +'</tr>';
     });
     html+='</tbody></table></div>';
   } else { html+='<div class="empty" style="padding:10px">No payments yet</div>'; }
   html+='<div class="section-title">Expenses</div>';
   if(r.expenses&&r.expenses.length){
-    html+='<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th>'+(isOwner?'<th></th>':'')+'</tr></thead><tbody>';
+    html+='<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
     r.expenses.forEach(function(e){
       html+='<tr><td>'+esc(e.date)+'</td><td>'+esc(e.type)+'</td>'
         +'<td class="num" style="color:var(--am)">'+R(e.amount)+'</td>'
         +'<td style="font-size:.77rem">'+esc(e.notes)+'</td>'
-        +(isOwner?'<td><button class="btn btn-danger btn-sm" onclick="deleteExpense(\''+esc(c.clientId)+'\','+e.rowIndex+')">Del</button></td>':'')
+        +((canEdit||isOwner)?'<td style="white-space:nowrap">'+(canEdit?'<button class="btn btn-outline btn-sm" onclick="openEditExpense(\''+esc(c.clientId)+'\','+e.rowIndex+')">Edit</button> ':'')+(isOwner?'<button class="btn btn-danger btn-sm" onclick="deleteExpense(\''+esc(c.clientId)+'\','+e.rowIndex+')">Del</button>':'')+'</td>':'')
         +'</tr>';
     });
     html+='</tbody></table></div>';
@@ -1207,6 +1233,61 @@ function submitPayment(){
   gas('addPayment',{clientId:m._clientId,clientName:m._clientName,stage:document.getElementById('pm_stage').value,amount:parseFloat(amt)/100,mode:document.getElementById('pm_mode').value,date:document.getElementById('pm_date').value,pnum:document.getElementById('pm_pnum').value,remarks:document.getElementById('pm_remarks').value}).then(function(r){
     if(r.ok){toast('Payment saved');closeModal('addPaymentModal');loadAll();openClientDetail(m._clientId);}else toast('Error: '+(r.msg||''));
   });
+}
+function _isoFromDmy(d){var m=/^(\d{2})-(\d{2})-(\d{4})$/.exec(d||'');return m?m[3]+'-'+m[2]+'-'+m[1]:today();}
+// Edit one payment / expense of the open client: the row's current values are re-read from the server, so what is edited is what is stored.
+function openEditPayment(clientId,rowIndex){
+  gas('getClientDetail',{clientId:clientId}).then(function(r){
+    var row=r&&r.ok?(r.payments||[]).find(function(x){return x.rowIndex===rowIndex;}):null;
+    if(!row){toast('Could not open this payment: '+((r&&r.msg)||'it no longer exists'));return;}
+    EDIT_ROW={kind:'payment',clientId:clientId,rowIndex:rowIndex};
+    document.getElementById('er_title').textContent='Edit Payment';
+    ['er_stageWrap','er_modeWrap','er_pnumWrap'].forEach(function(i){document.getElementById(i).style.display='';});
+    document.getElementById('er_typeWrap').style.display='none';
+    var stages=stagesFor(r.client.productType);if(row.stage&&stages.indexOf(row.stage)<0)stages=[row.stage].concat(stages);
+    document.getElementById('er_stage').innerHTML=stages.map(function(x){return'<option'+(x===row.stage?' selected':'')+'>'+esc(x)+'</option>';}).join('');
+    var modes=(CFG.paymentModes||[]).slice();if(row.mode&&modes.indexOf(row.mode)<0)modes.unshift(row.mode);
+    document.getElementById('er_mode').innerHTML=modes.map(function(x){return'<option'+(x===row.mode?' selected':'')+'>'+esc(x)+'</option>';}).join('');
+    document.getElementById('er_amount').value=Math.round(row.amount*100);previewAmt('er_amount','er_preview');
+    document.getElementById('er_date').value=_isoFromDmy(row.date);
+    document.getElementById('er_pnum').value=row.pnum||'';
+    document.getElementById('er_noteLabel').textContent='Remarks';document.getElementById('er_note').value=row.remarks||'';
+    openModal('editRowModal');
+  }).catch(function(e){toast('Error: '+String(e));});
+}
+function openEditExpense(clientId,rowIndex){
+  gas('getClientDetail',{clientId:clientId}).then(function(r){
+    var row=r&&r.ok?(r.expenses||[]).find(function(x){return x.rowIndex===rowIndex;}):null;
+    if(!row){toast('Could not open this expense: '+((r&&r.msg)||'it no longer exists'));return;}
+    EDIT_ROW={kind:'expense',clientId:clientId,rowIndex:rowIndex};
+    document.getElementById('er_title').textContent='Edit Expense';
+    ['er_stageWrap','er_modeWrap','er_pnumWrap'].forEach(function(i){document.getElementById(i).style.display='none';});
+    document.getElementById('er_typeWrap').style.display='';
+    document.getElementById('er_type').value=row.type||'';
+    document.getElementById('er_amount').value=Math.round(row.amount*100);previewAmt('er_amount','er_preview');
+    document.getElementById('er_date').value=_isoFromDmy(row.date);
+    document.getElementById('er_noteLabel').textContent='Notes';document.getElementById('er_note').value=row.notes||'';
+    openModal('editRowModal');
+  }).catch(function(e){toast('Error: '+String(e));});
+}
+function submitEditRow(){
+  if(!EDIT_ROW)return;
+  var amt=parseFloat(document.getElementById('er_amount').value);
+  if(!(amt>0)){toast('Amount must be above 0');return;}
+  var e=EDIT_ROW,payload={clientId:e.clientId,rowIndex:e.rowIndex,amount:amt/100,date:document.getElementById('er_date').value};
+  if(e.kind==='payment'){
+    payload.stage=document.getElementById('er_stage').value;payload.mode=document.getElementById('er_mode').value;
+    payload.pnum=document.getElementById('er_pnum').value;payload.remarks=document.getElementById('er_note').value;
+  }else{
+    payload.type=(document.getElementById('er_type').value||'').trim();payload.notes=document.getElementById('er_note').value;
+    if(!payload.type){toast('Expense Type required');return;}
+  }
+  var btn=document.getElementById('er_save');btn.disabled=true;
+  gas(e.kind==='payment'?'editPayment':'editExpense',payload).then(function(r){
+    btn.disabled=false;
+    if(r&&r.ok){toast('Saved');closeModal('editRowModal');loadAll();openClientDetail(e.clientId);}
+    else toast('Not saved: '+((r&&r.msg)||'unknown error'));
+  }).catch(function(err){btn.disabled=false;toast('Not saved: '+String(err));});
 }
 function deletePayment(clientId,rowIndex){
   if(!confirm('Delete this payment?'))return;
@@ -1282,7 +1363,7 @@ function pgFilter(){
   pgRenderGallery(filtered);
 }
 function pgRenderGallery(photos){
-  var isOwner=ROLE==='owner';
+  var isOwner=CAN_MANAGE;
   if(!photos.length){document.getElementById('pgGallery').innerHTML='<div class="empty" style="padding:48px">'+(PG_ALL.length===0?'No photos uploaded yet.':'No photos match your filters.')+'</div>';return;}
   var html='<div class="pg-grid">';
   photos.forEach(function(p){

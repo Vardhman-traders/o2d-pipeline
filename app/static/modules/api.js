@@ -83,7 +83,7 @@
 
     // ---------------------------------------------------------------- Checklist (a part of the Delegation screen)
     chkMe: get('/checklist/me'),
-    chkMine: get('/checklist/mine'),
+    chkMine: function (assignee) { return ask('GET', '/checklist/mine' + qs({ assignee: assignee })); },
     chkMark: function (key, body) { return ask('POST', '/checklist/occurrences/' + key + '/mark', body); },
     chkCalendar: function (year, month, assignee, category) { return ask('GET', '/checklist/calendar' + qs({ year: year, month: month, assignee: assignee, category: category })); },
     chkList: get('/checklist/checklists'),

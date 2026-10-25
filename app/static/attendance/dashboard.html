@@ -361,6 +361,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <span class="lbl">⬇ Export this month</span>
         <button class="btn btn-sm btn-ghost" onclick="exportMonthOne()">📥 This employee (Excel)</button>
         <button class="btn btn-sm" onclick="exportMonthAll()">📥 All employees (Excel)</button>
+        <button class="btn btn-sm" onclick="downloadTeamPdf('attendance','pdf',this)" title="One PDF, each employee on a page of their own">📄 All employees (PDF)</button>
+        <button class="btn btn-sm btn-ghost" onclick="downloadTeamPdf('attendance','zip',this)" title="A ZIP with a separate PDF for every employee">🗂️ Separate PDFs (ZIP)</button>
       </div>
       <div id="reportContent">
         <div class="empty-state"><span class="emoji">👆</span><div>Employee search karo aur month choose karo</div></div>
@@ -387,6 +389,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <span class="lbl">⬇ Export this month</span>
         <button class="btn btn-sm btn-ghost" onclick="exportSalOne()">📥 This employee (Excel)</button>
         <button class="btn btn-sm" onclick="exportSalAll()">📥 All employees (Excel)</button>
+        <button class="btn btn-sm" onclick="downloadTeamPdf('salary','pdf',this)" title="One PDF, a salary slip per employee, each on its own page">📄 All employees (PDF)</button>
+        <button class="btn btn-sm btn-ghost" onclick="downloadTeamPdf('salary','zip',this)" title="A ZIP with a separate salary slip PDF for every employee">🗂️ Separate PDFs (ZIP)</button>
       </div>
       <div id="salaryResult">
         <div class="empty-state"><span class="emoji">💰</span><div>Employee select karke Calculate dabao</div></div>
@@ -543,11 +547,11 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     <div id="ap-history">
     <div class="card">
       <div class="card-title" style="margin-bottom:.4rem">📋 Advance History</div>
-      <div class="card-sub">Sabse recent pehle. Galti se daala ho toh delete kar sakte ho.</div>
+      <div class="card-sub">Employee ki tile par click karo — uski advance entries khulengi. Galti se daala ho toh wahin se delete kar sakte ho.</div>
 
       <div class="search-row" style="margin-bottom:.8rem">
         <div class="search-box">
-          <input id="advSearch" placeholder="Employee naam se filter karo…" oninput="loadAdvanceHistory()">
+          <input id="advSearch" placeholder="Employee naam se filter karo…" oninput="ADV_OPEN='';renderAdvanceHistory(ALL_ADVANCES,this.value)">
         </div>
         <button class="btn btn-sm btn-ghost" onclick="loadAdvanceHistory()">🔄 Refresh</button>
       </div>
@@ -586,15 +590,14 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     <div class="card">
       <div class="card-title">🔍 Employee Ki Individual Streak</div>
       <div class="card-sub">Last 30 working days ka record dekho</div>
-      <div class="search-row" style="margin-bottom:1rem">
+      <div class="search-row" style="margin-bottom:.8rem">
         <div class="search-box">
-          <input id="streakEmpSearch" placeholder="Employee naam type karo…" oninput="filterStreakEmpSuggestions()" onfocus="filterStreakEmpSuggestions()">
-          <div id="streakEmpSuggestions" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-top:.3rem;max-height:220px;overflow-y:auto;box-shadow:0 8px 26px rgba(0,0,0,.08);display:none;z-index:50"></div>
+          <input id="streakEmpSearch" placeholder="Employee naam se filter karo…" oninput="renderStreakTiles()">
         </div>
-        <button class="btn btn-sm" style="white-space:nowrap" onclick="loadEmployeeStreak()">🔍 Check</button>
       </div>
+      <div id="streakTiles"></div>
       <div id="empStreakResult">
-        <div class="empty-state" style="padding:1.5rem"><span class="emoji" style="font-size:1.8rem">👆</span><div>Naam search karo aur Check dabao</div></div>
+        <div class="empty-state" style="padding:1.5rem"><span class="emoji" style="font-size:1.8rem">👆</span><div>Upar kisi employee ki tile par click karo</div></div>
       </div>
     </div>
   </div>
@@ -721,6 +724,7 @@ function showTab(name){
   });
   if(name==='salary'){ loadSalaryList(); loadPINList(); showSalarySub('salary'); }
   if(name==='advance') showAdvanceSub('history');
+  if(name==='streak') renderStreakTiles();
 }
 
 /* ─── TODAY ─── */
@@ -972,29 +976,41 @@ function loadAdvanceHistory(){
     .getAllAdvances(PWD,q);
 }
 
+/* Advance History: one tile per employee (total taken and how many entries); a click opens that person's entries, where each can be deleted */
+var ADV_OPEN='';
 function renderAdvanceHistory(advances,q){
-  var content=document.getElementById('advanceHistoryContent');
-  var filtered=q?advances.filter(function(a){ return a.name.toLowerCase().indexOf(q.toLowerCase())!==-1; }):advances;
-  if(!filtered.length){
-    content.innerHTML='<div class="empty-state"><span class="emoji">💸</span><div>Koi advance record nahi mila</div></div>';
-    return;
-  }
-  var total=0; for(var a=0;a<filtered.length;a++) total+=filtered[a].amount;
-  var html='<div class="adv-total-bar"><span class="adv-total-lbl">Total advance (filtered)</span><span class="adv-total-val">₹'+fmt(total)+'</span></div>';
-  for(var i=0;i<filtered.length;i++){
-    var adv=filtered[i];
-    html+='<div class="adv-item">'
-      +'<div class="adv-item-left">'
-      +'<div class="adv-item-name">'+escH(adv.name)+'</div>'
-      +'<div class="adv-item-date">📅 '+escH(adv.date)+(adv.addedBy?' · by '+escH(adv.addedBy):'')+'</div>'
-      +(adv.note?'<div class="adv-item-note">💬 '+escH(adv.note)+'</div>':'')
-      +'</div>'
-      +'<div class="adv-item-amt">₹'+fmt(adv.amount)+'</div>'
-      +'<button class="btn btn-sm btn-danger" onclick="doDeleteAdvance('+i+',\''+escH(adv.name)+'\','+adv.amount+')" style="flex-shrink:0">🗑️</button>'
-      +'</div>';
-  }
+  var content=document.getElementById('advanceHistoryContent'), ql=(q||'').toLowerCase().trim(), by={}, order=[];
+  function slot(name,role){ var k=name.toLowerCase().trim(); if(!by[k]){ by[k]={key:k,name:name,role:role||'',total:0,list:[]}; order.push(k); } return by[k]; }
+  for(var i=0;i<ACT_EMPS.length;i++) slot(ACT_EMPS[i].name,ACT_EMPS[i].role);
+  for(var j=0;j<advances.length;j++){ var g=slot(advances[j].name,''); g.total+=advances[j].amount; g.list.push(advances[j]); }
+  if(ADV_OPEN&&by[ADV_OPEN]){ renderAdvanceDetail(content,by[ADV_OPEN]); return; }
+  ADV_OPEN='';
+  var shown=order.filter(function(k){ return !ql||by[k].name.toLowerCase().indexOf(ql)!==-1; });
+  if(!shown.length){ content.innerHTML='<div class="empty-state"><span class="emoji">🔍</span><div>No employees found</div></div>'; return; }
+  var all=0, withAdv=0; order.forEach(function(k){ all+=by[k].total; if(by[k].list.length) withAdv++; });
+  var html='<div class="adv-total-bar"><span class="adv-total-lbl">Total advance (all employees)</span><span class="adv-total-val">₹'+fmt(all)+'</span></div>'
+    +'<div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:.65rem">'+withAdv+' employee ne advance liya · tile par click karke uski entries dekho</div><div class="sal-tiles">';
+  shown.forEach(function(k,n){
+    var e=by[k], w=e.name.split(' '), ini=(w[0][0]+(w[1]?w[1][0]:'')).toUpperCase();
+    var badge=e.list.length?'<span class="sal-tile-pend" style="color:#c2410c;background:#ffedd5">₹'+fmt(e.total)+' · '+e.list.length+(e.list.length>1?' entries':' entry')+'</span>':'<span class="sal-tile-pend" style="color:#166534;background:#dcfce7">No advance</span>';
+    html+='<button type="button" class="sal-tile" data-adv="'+escH(k)+'" onclick="openAdvanceHistory(this.getAttribute(\'data-adv\'))"><div class="sal-emp-avatar">'+ini+'</div>'
+      +'<div style="min-width:0"><div class="sal-emp-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escH(e.name)+'</div><div class="sal-emp-role">'+escH(e.role||'')+'</div>'+badge+'</div></button>';
+  });
+  content.innerHTML=html+'</div>';
+}
+function renderAdvanceDetail(content,e){
+  var html='<button class="btn btn-sm btn-ghost" onclick="openAdvanceHistory(\'\')" style="margin-bottom:.7rem">← Sab employees</button>'
+    +'<div class="card-title" style="margin-bottom:.3rem">💸 '+escH(e.name)+'</div>'
+    +'<div class="adv-total-bar"><span class="adv-total-lbl">Total advance</span><span class="adv-total-val">₹'+fmt(e.total)+'</span></div>';
+  if(!e.list.length) html+='<div class="empty-state"><span class="emoji">💸</span><div>Koi advance record nahi mila</div></div>';
+  e.list.forEach(function(adv){
+    html+='<div class="adv-item"><div class="adv-item-left"><div class="adv-item-date">📅 '+escH(adv.date)+(adv.addedBy?' · by '+escH(adv.addedBy):'')+'</div>'
+      +(adv.note?'<div class="adv-item-note">💬 '+escH(adv.note)+'</div>':'')+'</div><div class="adv-item-amt">₹'+fmt(adv.amount)+'</div>'
+      +'<button class="btn btn-sm btn-danger" onclick="doDeleteAdvance('+adv.id+')" style="flex-shrink:0">🗑️</button></div>';
+  });
   content.innerHTML=html;
 }
+function openAdvanceHistory(key){ ADV_OPEN=key||''; renderAdvanceHistory(ALL_ADVANCES,(document.getElementById('advSearch')||{}).value||''); }
 
 function doAddAdvance(){
   var name=document.getElementById('advEmpName').value.trim();
@@ -1017,18 +1033,17 @@ function doAddAdvance(){
     .addAdvancePayment(PWD,name,amt,note);
 }
 
-function doDeleteAdvance(idx,name,amt){
-  if(!confirm('Delete advance of ₹'+fmt(amt)+' for '+name+'?')) return;
-  var q=(document.getElementById('advSearch')?document.getElementById('advSearch').value:'').trim();
-  var list=q?ALL_ADVANCES.filter(function(a){return a.name.toLowerCase().indexOf(q.toLowerCase())!==-1;}):ALL_ADVANCES;
-  var realIdx=(list[idx]||{}).id;
+function doDeleteAdvance(id){
+  var adv=null; for(var i=0;i<ALL_ADVANCES.length;i++) if(ALL_ADVANCES[i].id===id) adv=ALL_ADVANCES[i];
+  if(!adv){ toast('Advance record nahi mila - page refresh karo','err'); return; }
+  if(!confirm('Delete advance of ₹'+fmt(adv.amount)+' for '+adv.name+'?')) return;
   VT.run
     .withSuccessHandler(function(r){
       if(r.status==='ok'){ toast('🗑️ Advance deleted','ok'); loadAdvanceHistory(); }
       else{ toast('❌ '+(r.msg||'Failed'),'err'); }
     })
     .withFailureHandler(function(){ toast('Connection error','err'); })
-    .deleteAdvance(PWD,realIdx);
+    .deleteAdvance(PWD,id);
 }
 
 /* ─── SALARY CALCULATOR ─── */
@@ -1273,26 +1288,21 @@ function renderStreak(r){
   document.getElementById('streakResult').innerHTML=html;
 }
 
+/* Individual streak: the employees as tiles; a click loads that person's last 30 working days */
 var selectedStreakEmp='';
-function filterStreakEmpSuggestions(){
+function renderStreakTiles(){
+  var box=document.getElementById('streakTiles'); if(!box) return;
   var q=(document.getElementById('streakEmpSearch').value||'').toLowerCase().trim();
-  var box=document.getElementById('streakEmpSuggestions');
-  if(!ACT_EMPS.length){box.style.display='none';return;}
-  var matches=ACT_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1;}).slice(0,10);
-  if(!matches.length){box.style.display='none';return;}
-  var html='';
-  for(var i=0;i<matches.length;i++)
-    html+='<div style="padding:.6rem 1rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.85rem" onmouseover="this.style.background=\'#f8faff\'" onmouseout="this.style.background=\'#fff\'" onclick="pickStreakEmp(\''+escH(matches[i].name)+'\')" ><strong>'+escH(matches[i].name)+'</strong> <span style="color:#6b7280">— '+escH(matches[i].role||'')+'</span></div>';
-  box.innerHTML=html; box.style.display='block';
+  box.innerHTML=empTilesHtml(q,'openEmpStreak',function(e){ return e.name===selectedStreakEmp?'<span class="sal-tile-pend" style="color:#1a237e;background:#e0e7ff">showing below ↓</span>':''; },
+    ACT_EMPS.length+' employees · tile par click karke last 30 working days dekho');
 }
-function pickStreakEmp(name){ selectedStreakEmp=name; document.getElementById('streakEmpSearch').value=name; document.getElementById('streakEmpSuggestions').style.display='none'; }
-function loadEmployeeStreak(){
-  var name=selectedStreakEmp||document.getElementById('streakEmpSearch').value.trim();
+function openEmpStreak(idx){ var e=ACT_EMPS[idx]; if(e) loadEmployeeStreak(e.name); }
+function loadEmployeeStreak(name){
   if(!name){toast('Pehle employee select karo','err');return;}
-  selectedStreakEmp=name;
+  selectedStreakEmp=name; renderStreakTiles();
   document.getElementById('empStreakResult').innerHTML='<div class="empty-state" style="padding:1.5rem"><div class="spin" style="border-top-color:#1a237e;border-color:rgba(26,35,126,.2)"></div></div>';
   VT.run
-    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} if(r.status==='error'){toast('❌ '+(r.msg||'Failed'),'err');return;} renderEmpStreak(r); })
+    .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} if(r.status==='error'){toast('❌ '+(r.msg||'Failed'),'err');return;} renderEmpStreak(r); document.getElementById('empStreakResult').scrollIntoView({behavior:'smooth',block:'nearest'}); })
     .withFailureHandler(function(){toast('Could not load','err');})
     .getEmployeeStreak(PWD,name);
 }
@@ -1325,7 +1335,7 @@ function loadEmployeeList(){
     .getAllEmployees(PWD);
 }
 function loadActiveEmployees(){
-  VT.run.withSuccessHandler(function(list){ ACT_EMPS=list||[]; }).getEmployees();
+  VT.run.withSuccessHandler(function(list){ ACT_EMPS=list||[]; renderStreakTiles(); if(ALL_ADVANCES.length||document.getElementById('advanceHistoryContent').querySelector('.sal-tiles')) renderAdvanceHistory(ALL_ADVANCES,''); }).getEmployees();
 }
 function renderEmpList(){
   var q=(document.getElementById('empListSearch').value||'').toLowerCase().trim();
@@ -1485,6 +1495,28 @@ function exportMonthOne(){
   rows.push([],['Summary'],['Present',rep.stats.present],['Late',rep.stats.late],['Half Day',rep.stats.halfDay],['Absent',rep.stats.absent],['Weekly Off',rep.stats.weeklyOff],['Incomplete',rep.stats.incomplete||0],['Paid Days',rep.stats.paidDays]);
   var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Attendance');
   saveBook(wb,rep.emp.name+'_Attendance_'+rep.monthName+'_'+rep.year+'.xlsx');
+}
+/* The whole team as PDF (one file, a page each) or as a ZIP of separate PDFs. The server builds it; the sign-in header is needed, so the
+   file is fetched and handed to the browser as a blob. kind: 'attendance' (month/year of the report) or 'salary' (of the calculator). */
+function downloadTeamPdf(kind,fmt,btn){
+  var sal=(kind==='salary');
+  var month=parseInt(document.getElementById(sal?'salMonthSel':'monthSel').value,10), year=parseInt(document.getElementById(sal?'salYearSel':'yearSel').value,10);
+  if(!month||!year){ toast('Pehle month aur year choose karo','err'); return; }
+  var label=btn.innerHTML; btn.disabled=true; btn.innerHTML='⏳ Ban raha hai…';
+  var url='/attendance/owner/pdf?kind='+kind+'&year='+year+'&month='+month+'&format='+fmt;
+  fetch(url,{headers:{'Authorization':'Bearer '+VT.token()}}).then(function(res){
+    if(res.ok) return res.blob().then(function(blob){
+      var m=/filename="([^"]+)"/.exec(res.headers.get('Content-Disposition')||'');
+      var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=m?m[1]:('Attendance_'+kind+'.'+fmt);
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); },4000);
+      toast('✅ '+(fmt==='zip'?'ZIP':'PDF')+' download ho gaya','ok');
+    });
+    return res.text().then(function(t){
+      var msg=''; try{ var j=JSON.parse(t); msg=typeof j.detail==='string'?j.detail:''; }catch(e){ msg=''; }
+      toast('❌ '+(msg||('PDF nahi bana (error '+res.status+')')),'err');
+    });
+  }).catch(function(){ toast('❌ Connection error - PDF nahi bana','err'); })
+    .then(function(){ btn.disabled=false; btn.innerHTML=label; });
 }
 function exportMonthAll(){
   if(needXlsx()) return;

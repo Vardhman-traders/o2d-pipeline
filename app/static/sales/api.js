@@ -89,6 +89,13 @@
     getOrderPhotos: function (token, slNo) {
       return ask('GET', '/o2d/orders/' + slNo + '/photos', token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
+    // the challan / invoice check of an order (doc_check.py): what is known now / read the attached files now
+    getOrderDocCheck: function (token, slNo) {
+      return ask('GET', '/o2d/orders/' + slNo + '/doc-check', token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
+    runOrderDocCheck: function (token, slNo) {
+      return ask('POST', '/o2d/orders/' + slNo + '/doc-check', token).then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
+    },
     // raw image body (already shrunk by the screen); resolves {ok, success, message}
     uploadOrderPhoto: function (token, slNo, kind, blob) {
       return fetch('/o2d/orders/' + slNo + '/photos?kind=' + encodeURIComponent(kind), {

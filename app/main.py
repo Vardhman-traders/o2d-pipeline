@@ -14,7 +14,7 @@ from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, challans, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
-               o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, reconcile, roles, data_tools,
+               o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, attendance_pdf, doc_check, reconcile, roles, data_tools,
                timeline, doc_numbers, whatsapp, daily_reports, notify)
 
 
@@ -547,6 +547,7 @@ def delete_order(sl_no: int, archived: bool | None = Query(default=None), admin=
 # ---------------------------------------------------------------- admin routes + portal pages
 app.include_router(o2d_screens.router)
 app.include_router(attachments.router)
+app.include_router(doc_check.router)
 app.include_router(o2d_cartage.router)
 app.include_router(o2d_cashier.router)
 app.include_router(payment_merge.router)
@@ -558,6 +559,7 @@ app.include_router(challans.router)
 app.include_router(purchase.router)
 app.include_router(decor.router)
 app.include_router(attendance.router)
+app.include_router(attendance_pdf.router)
 app.include_router(data_tools.router)
 app.include_router(module_admin.router)
 app.include_router(whatsapp.router)

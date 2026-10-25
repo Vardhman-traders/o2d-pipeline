@@ -14,6 +14,7 @@ How it works (this replaces the Google Apps Script "Code.gs"; the page is the or
     suggestions are Setup lists, not code;
   - photos / challans go to private storage (R2); without storage the expense is still saved and the photo is skipped.
 """
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,13 +25,17 @@ from . import access, attachments, auth, db, module_admin, modcommon as mc, role
 
 router = APIRouter(prefix="/decor", tags=["decor"])
 ANY = auth.require_roles(*roles.ALL_ROLES)
-OWNER_PAGE, STAFF_PAGE = "decor_owner", "decor_staff"
+log = logging.getLogger("decor")
+OWNER_PAGE, STAFF_PAGE, EDIT_PAGE = "decor_owner", "decor_staff", "decor_edit"
 MONEY_FIELDS = ("rent", "salaries", "lift", "electricity", "marketing", "software", "ca_fees", "director_salaries", "guard",
                 "hidden", "other")
 READ_ACTIONS = {"getConfig", "getClients", "getClientDetail", "getItems", "getPaymentsList", "getExpensesList", "getAgingReport",
                 "getMonthlyCollection", "getGPData", "getFixedExp", "getStagePcts", "getQuotations", "getNextPerformaNo",
                 "getPhotos", "getAllPhotos", "getAllBusinessLedger", "getPartyLedger", "getQuotation"}
-OWNER_ONLY = {"deletePayment", "editPayment", "deleteExpense", "editExpense", "deleteItem", "reviseAmount", "markCompleted",
+# Removing things, changing the contract amount and the status: the Owner page, or the page "VT Decor - Edit & delete" (Setup > Access).
+# Editing a payment or an expense is NOT here: whoever may write on a client may correct its payments and expenses (a Completed client
+# stays read-only for everyone but the admin - see _lock).
+OWNER_ONLY = {"deletePayment", "deleteExpense", "deleteItem", "reviseAmount", "markCompleted",
               "markActive", "hideClient", "deleteClient", "deletePhoto"}
 ADMIN_ONLY = {"getAllBusinessLedger", "saveFixedExp", "getFixedExp", "saveStagePcts", "assignClients"}   # whole-business data: administrators only
 
@@ -46,9 +51,12 @@ def _who(user) -> dict:
     uname = user["username"].strip().lower()
     me = "owner" if admin else (uname if uname != "owner" else "owner~")   # "owner" is reserved for administrators
     if admin or OWNER_PAGE in held:
-        return {"role": "owner", "me": me, "admin": admin, "edit": admin or held.get(OWNER_PAGE) == "edit", "name": user["display_name"]}
+        edit = admin or held.get(OWNER_PAGE) == "edit"
+        return {"role": "owner", "me": me, "admin": admin, "edit": edit, "manage": edit, "name": user["display_name"]}
     if STAFF_PAGE in held:
-        return {"role": uname, "me": me, "admin": False, "edit": held[STAFF_PAGE] == "edit", "name": user["display_name"]}
+        edit = held[STAFF_PAGE] == "edit"
+        # "manage" = may delete / revise / change status; a staff member gets it from the page "VT Decor - Edit & delete" at full access
+        return {"role": uname, "me": me, "admin": False, "edit": edit, "manage": edit and held.get(EDIT_PAGE) == "edit", "name": user["display_name"]}
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 
 
@@ -108,6 +116,12 @@ def _need_open_client(cur, who, code) -> dict:
     return row
 
 
+def _audit(cur, user, action: str, target, details: dict) -> None:
+    """Who changed or removed which money row, with the values before and after (same log as the other admin actions)."""
+    cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, %s, %s, %s)",
+                (user["user_key"], user["username"], action, str(target), Json(details)))
+
+
 def _mode_key(cur, name) -> int | None:
     return mc.lookup_key(cur, "dim_payment_mode", "mode_key", "mode_name", name or "Cash")
 
@@ -136,7 +150,9 @@ def rpc(body: RpcIn, user=Depends(ANY)):
         return {"ok": False, "msg": "Unknown action: " + body.action}
     if body.action not in READ_ACTIONS and not who["edit"]:
         return {"ok": False, "msg": "You have view-only access to this page, so you cannot save changes here."}
-    if (body.action in OWNER_ONLY and who["role"] != "owner") or (body.action in ADMIN_ONLY and not who["admin"]):
+    if (body.action in OWNER_ONLY and not who["manage"]) or (body.action in ADMIN_ONLY and not who["admin"]):
+        log.warning("decor %s refused: user %s (%s, %s) lacks the right (manage=%s admin=%s)", body.action, user["user_key"], user["username"],
+                    user["role"], who["manage"], who["admin"])
         return {"ok": False, "msg": "Not authorized"}
     try:
         return fn(user, who, body.payload or {})
@@ -147,7 +163,7 @@ def rpc(body: RpcIn, user=Depends(ANY)):
 @router.get("/me")
 def me(user=Depends(ANY)):
     who = _who(user)
-    return {"ok": True, "role": who["role"], "name": who["name"], "edit": who["edit"], "admin": who["admin"]}
+    return {"ok": True, "role": who["role"], "name": who["name"], "edit": who["edit"], "manage": who["manage"], "admin": who["admin"]}
 
 
 # ------------------------------------------------------------------ setup lists the page needs
@@ -172,7 +188,7 @@ def get_config(user, who, p):
             cur.execute("SELECT username, display_name FROM dim_user WHERE user_key = ANY(%s) ORDER BY lower(display_name)", (list(ids),))
             staff += [{"id": r["username"].strip().lower(), "name": r["display_name"]} for r in cur.fetchall()
                       if r["username"].strip().lower() != "owner"]
-    return {"ok": True, "role": who["role"], "name": who["name"], "admin": who["admin"],
+    return {"ok": True, "role": who["role"], "name": who["name"], "admin": who["admin"], "edit": who["edit"], "manage": who["manage"],
             "productTypes": [{"name": t["type_name"], "percent": t["percent_stages"],
                               "stages": [{"name": s["stage_name"], "pct": s["target_pct"]} for s in stages
                                          if s["product_type_key"] == t["type_key"]]} for t in types],
@@ -389,26 +405,35 @@ def _own_row(cur, who, table: str, key_col: str, row_id, code) -> dict:
 
 def delete_payment(user, who, p):
     with db.cursor() as cur:
-        _own_row(cur, who, "fact_decor_payment", "payment_key", p.get("rowIndex"), p.get("clientId"))
+        r = _own_row(cur, who, "fact_decor_payment", "payment_key", p.get("rowIndex"), p.get("clientId"))
+        _audit(cur, user, "decor.delete_payment", f"{r['client_code']}#{r['payment_key']}",
+               {"amount": _f(r["amount"]), "pay_date": str(r["pay_date"]), "ref_no": r["ref_no"], "remarks": r["remarks"]})
         cur.execute("DELETE FROM fact_decor_payment WHERE payment_key = %s", (int(p["rowIndex"]),))
     return {"ok": True}
 
 
 def edit_payment(user, who, p):
     amount = _f(p.get("amount"))
-    if not amount:
-        return {"ok": False, "msg": "Amount required"}
+    if amount <= 0:
+        return {"ok": False, "msg": "Amount must be above 0."}
     with db.cursor() as cur:
-        cur.execute("SELECT p.payment_key, c.product_type_key, c.added_by, c.assigned_to, c.status FROM fact_decor_payment p JOIN dim_decor_client c ON c.client_key = p.client_key "
-                    "WHERE p.payment_key = %s", (int(p.get("rowIndex") or 0),))
+        cur.execute("SELECT p.payment_key, p.amount, p.pay_date, p.ref_no, p.remarks, c.client_code, c.product_type_key, c.added_by, c.assigned_to, c.status "
+                    "FROM fact_decor_payment p JOIN dim_decor_client c ON c.client_key = p.client_key WHERE p.payment_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Invalid row index"}
+        if p.get("clientId") and r["client_code"] != str(p["clientId"]).strip():
+            return {"ok": False, "msg": "Row does not belong to this client"}
         _lock(who, r)
         sk = _stage_key(cur, r["product_type_key"], p.get("stage"))
+        new_date = _day(p.get("date"))
+        _audit(cur, user, "decor.edit_payment", f"{r['client_code']}#{r['payment_key']}",
+               {"before": {"amount": _f(r["amount"]), "pay_date": str(r["pay_date"]), "ref_no": r["ref_no"], "remarks": r["remarks"]},
+                "after": {"amount": round(amount, 2), "pay_date": str(new_date), "ref_no": p.get("pnum") or None, "remarks": p.get("remarks") or None,
+                          "stage": p.get("stage"), "mode": p.get("mode")}})
         cur.execute("UPDATE fact_decor_payment SET stage_key = %s, stage_text = %s, amount = %s, mode_key = %s, pay_date = %s, ref_no = %s, remarks = %s "
                     "WHERE payment_key = %s", (sk, None if sk else (p.get("stage") or None), round(amount, 2), _mode_key(cur, p.get("mode")),
-                                               _day(p.get("date")), p.get("pnum") or None, p.get("remarks") or None, r["payment_key"]))
+                                               new_date, p.get("pnum") or None, p.get("remarks") or None, r["payment_key"]))
     return {"ok": True}
 
 
@@ -465,24 +490,34 @@ def get_expenses_list(user, who, p):
 
 def delete_expense(user, who, p):
     with db.cursor() as cur:
-        _own_row(cur, who, "fact_decor_expense", "expense_key", p.get("rowIndex"), p.get("clientId"))
+        r = _own_row(cur, who, "fact_decor_expense", "expense_key", p.get("rowIndex"), p.get("clientId"))
+        _audit(cur, user, "decor.delete_expense", f"{r['client_code']}#{r['expense_key']}",
+               {"type": r["expense_type"], "amount": _f(r["amount"]), "exp_date": str(r["exp_date"]), "notes": r["notes"]})
         cur.execute("DELETE FROM fact_decor_expense WHERE expense_key = %s", (int(p["rowIndex"]),))
     return {"ok": True}
 
 
 def edit_expense(user, who, p):
     amount = _f(p.get("amount"))
-    if not amount:
-        return {"ok": False, "msg": "Amount required"}
+    if amount <= 0:
+        return {"ok": False, "msg": "Amount must be above 0."}
+    if not str(p.get("type") or "").strip():
+        return {"ok": False, "msg": "Expense type required"}
     with db.cursor() as cur:
-        cur.execute("SELECT e.expense_key, c.added_by, c.assigned_to, c.status FROM fact_decor_expense e JOIN dim_decor_client c ON c.client_key = e.client_key "
-                    "WHERE e.expense_key = %s", (int(p.get("rowIndex") or 0),))
+        cur.execute("SELECT e.expense_key, e.expense_type, e.amount, e.exp_date, e.notes, c.client_code, c.added_by, c.assigned_to, c.status "
+                    "FROM fact_decor_expense e JOIN dim_decor_client c ON c.client_key = e.client_key WHERE e.expense_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
             return {"ok": False, "msg": "Invalid row index"}
+        if p.get("clientId") and r["client_code"] != str(p["clientId"]).strip():
+            return {"ok": False, "msg": "Row does not belong to this client"}
         _lock(who, r)
+        new_date = _day(p.get("date"))
+        _audit(cur, user, "decor.edit_expense", f"{r['client_code']}#{r['expense_key']}",
+               {"before": {"type": r["expense_type"], "amount": _f(r["amount"]), "exp_date": str(r["exp_date"]), "notes": r["notes"]},
+                "after": {"type": str(p.get("type") or "")[:100], "amount": round(amount, 2), "exp_date": str(new_date), "notes": p.get("notes") or None}})
         cur.execute("UPDATE fact_decor_expense SET expense_type = %s, amount = %s, exp_date = %s, notes = %s WHERE expense_key = %s",
-                    (str(p.get("type") or "")[:100], round(amount, 2), _day(p.get("date")), p.get("notes") or None, r["expense_key"]))
+                    (str(p.get("type") or "")[:100], round(amount, 2), new_date, p.get("notes") or None, r["expense_key"]))
     return {"ok": True}
 
 

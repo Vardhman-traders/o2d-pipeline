@@ -48,6 +48,8 @@ PAGES: dict[str, tuple[str, str]] = {
     "pay_challan": ("Payments", "Payments - Upload challan (upload challan photos / PDFs and see the list; View only = look, not upload)"),
     "pay_expense": ("Payments", "Payments - Regular expenses (record expenses, see the balance, export)"),
     "pay_expense_manage": ("Payments", "Payments - Regular expenses manager (also add money to the account and void wrong entries)"),
+    "pay_expense_void": ("Payments", "Payments - Regular expenses: cancel anyone's entry (on top of Regular expenses; cancels a wrong entry of any person or "
+                                     "day, but cannot add money to the account; the admin always can; View only = no)"),
     # ---- Delegation
     "deleg_mine": ("Delegation", "Delegation - My tasks"),
     "deleg_week": ("Delegation", "Delegation - My week (planned vs actual)"),
@@ -58,6 +60,8 @@ PAGES: dict[str, tuple[str, str]] = {
     "chk_mine": ("Checklist", "Checklist - My checklist (mark my items Done / Not Done)"),
     "chk_calendar": ("Checklist", "Checklist - Compliance calendar (my own items; a manager sees everyone's)"),
     "chk_manage": ("Checklist", "Checklist - Manager (create, edit, assign and stop checklists, see everyone's)"),
+    "chk_edit": ("Checklist", "Checklist - Edit anyone's items (on top of My checklist: see everyone's list and mark Done / Not Done / re-open items "
+                              "given to other people; the admin always can; View only = no)"),
     # ---- Purchase report
     "po_godown": ("Purchase", "Purchase - Godown entries"),
     "po_shop": ("Purchase", "Purchase - Shop entries"),
@@ -65,6 +69,8 @@ PAGES: dict[str, tuple[str, str]] = {
     # ---- VT Decor
     "decor_owner": ("VT Decor", "VT Decor - Owner (every client, GP & profit, ledger, staff view, settings, edit and delete)"),
     "decor_staff": ("VT Decor", "VT Decor - Staff (own clients, payments, expenses, photos, quotations)"),
+    "decor_edit": ("VT Decor", "VT Decor - Edit & delete (on top of Staff or Owner: delete payments, expenses, items and photos, revise the contract "
+                               "amount, mark Completed / Active, on the clients the person can see; the admin always can; View only = no)"),
     # ---- Attendance (the check-in page needs no sign-in: it is a button on the login page, so it is not a page here)
     "att_owner": ("Attendance", "Attendance - Owner dashboard (today, reports, salary, advances, PINs, employees)"),
 }

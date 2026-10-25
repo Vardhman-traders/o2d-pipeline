@@ -369,7 +369,18 @@ function detectLocation(){
             document.getElementById('distShop').textContent=r.distShop+'m away';
             document.getElementById('distShop').className='site-dist '+(r.distShop<=100?'ok':'far');
           }
-          if(r.status==='ok'){
+          if(r.status==='ok' && r.anywhere){
+            // no work place is set for this person: any position is accepted and the row records where the phone was
+            detectedSite=r.site;
+            document.getElementById('siteGodown').className='site-card';
+            document.getElementById('siteShop').className='site-card';
+            setLoc('ok','📍','Location received ✓','No fixed work place for you - you can mark from anywhere');
+            document.getElementById('badgeIcon').textContent='📍';
+            document.getElementById('badgeText').textContent='At: Anywhere';
+            document.getElementById('badgeSub').textContent='No fixed work place is set for you';
+            document.getElementById('siteBadge').className='site-badge show';
+            locationOk=true; checkNext();
+          } else if(r.status==='ok'){
             detectedSite=r.site;
             if(r.site==='Godown'){
               document.getElementById('distGodown').textContent=r.dist+'m — ✓ You\'re here';
@@ -709,8 +720,8 @@ function showCheckinSuccess(name,time,dist,site){
   document.getElementById('doneMsg').textContent='Thank you, '+name+'! Your attendance is marked at '+site+'.';
   if(photoB64){var sp=document.getElementById('doneSelfie');sp.src=photoB64;sp.style.display='block';}
   var now=new Date();
-  var siteIcon=site==='Godown'?'🏭':'🏪';
-  buildDoneCard([['👤 Name',name],['🕐 Check-in',time||now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})],['📅 Date',now.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})],[siteIcon+' Location',site],['📍 Distance',dist+'m'],['📸 Photo','Saved ✓'],['📲 WhatsApp',WA_ROW_HTML],['🏁 Check-out','Please check out before leaving']]);
+  var siteIcon=site==='Godown'?'🏭':(site==='Shop'?'🏪':'📍');
+  buildDoneCard([['👤 Name',name],['🕐 Check-in',time||now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})],['📅 Date',now.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})],[siteIcon+' Location',site],['📍 Distance',(dist===null||dist===undefined)?'-':dist+'m'],['📸 Photo','Saved ✓'],['📲 WhatsApp',WA_ROW_HTML],['🏁 Check-out','Please check out before leaving']]);
 }
 
 function showCheckoutSuccess(name,time,hoursWorked,checkInTime){

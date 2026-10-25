@@ -6,12 +6,14 @@ How it works:
   - the accounts (opening balance) and the expense categories are master lists (Setup > Dropdown values); the list of people
     a spend can be recorded against is the portal's own people (dim_user), dates are dim_date;
   - an entry is never edited or deleted: a wrong one is voided with a reason (who and when are kept), so the balance can
-    always be explained. The person who entered it can void it the same day; a manager can void any;
+    always be explained. The person who entered it can void it the same day; a manager can void any, and so can anyone given the
+    page "Payments - Regular expenses: cancel anyone's entry" (Setup > Access) - which does not allow adding money to the account;
   - recording an expense needs the page "Payments - Regular expenses"; adding money to the account and voiding other
     people's entries need "... manager" - so the balance cannot be topped up by the person spending from it;
   - an expense that takes the balance below zero is saved (the money was spent) and the screen says the account is
     overdrawn, so the missing top-up gets noticed rather than hidden.
 """
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,6 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from . import access, auth, db, modcommon as mc, roles
 from .admin import audit
 
+log = logging.getLogger("expenses")
 router = APIRouter(prefix="/payments/expenses", tags=["expenses"])
 PAGES = ("pay_expense", "pay_expense_manage")
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -53,6 +56,11 @@ def _level(user) -> str:
     if "pay_expense" in held:
         return "enter"
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
+
+
+def _may_void_any(user, level: str) -> bool:
+    """Cancel an entry of any person or day: the manager level, or the add-on page "cancel anyone's entry" at full (not View only) access."""
+    return level == "manage" or access.effective_access(user).get("pay_expense_void") == "edit"
 
 
 def _can_write(user):
@@ -91,13 +99,13 @@ def _account(cur, name: str | None) -> int:
     raise HTTPException(422, f"Account '{name}' not found.")
 
 
-def _entry(r: dict, today: date, user, level: str, running: float | None = None) -> dict:
+def _entry(r: dict, today: date, user, level: str, running: float | None = None, void_any: bool = False) -> dict:
     mine_today = r["created_by_key"] == user["user_key"] and r["created_at"].astimezone(mc.IST).date() == today
     return {"key": r["entry_key"], "no": r["entry_no"], "date": r["entry_date"].isoformat(), "account": r["account_name"], "kind": r["kind"],
             "amount": float(r["amount"]), "category": r["category_name"] or "", "spentBy": r["spent_by"] or "", "paidTo": r["paid_to"] or "",
             "description": r["description"] or "", "enteredBy": r["created_by"] or "", "enteredAt": mc.iso(r["created_at"]),
             "voided": r["voided_at"] is not None, "voidReason": r["void_reason"] or "", "voidedBy": r["voided_by"] or "",
-            "canVoid": r["voided_at"] is None and (level == "manage" or mine_today), "balanceAfter": running}
+            "canVoid": r["voided_at"] is None and (level == "manage" or void_any or mine_today), "balanceAfter": running}
 
 
 @router.get("/bootstrap")
@@ -111,7 +119,7 @@ def bootstrap(user=Depends(ANY)):
         cur.execute("SELECT username, display_name FROM dim_user WHERE (user_key = ANY(%s) OR role = 'admin' OR user_key = %s) "
                     "AND password_hash <> %s ORDER BY lower(display_name)", (keys, user["user_key"], auth.DISABLED_HASH))
         people = [{"id": r["username"], "name": r["display_name"]} for r in cur.fetchall()]
-    return {"ok": True, "level": level, "canWrite": not access.is_view_only(user, *PAGES), "me": user["username"], "myName": user["display_name"],
+    return {"ok": True, "level": level, "canVoidAny": _may_void_any(user, level) and not access.is_view_only(user, *PAGES), "canWrite": not access.is_view_only(user, *PAGES), "me": user["username"], "myName": user["display_name"],
             "today": mc.today_ist().isoformat(), "accounts": list(bal.values()), "categories": cats, "people": people}
 
 
@@ -166,6 +174,7 @@ def entries(account: str = Query(default=""), date_from: str = Query(default="")
     if kind not in ("", "Topup", "Expense"):
         raise HTTPException(422, "Kind must be Topup or Expense.")
     today = mc.today_ist()
+    void_any = _may_void_any(user, level)
     d_from, d_to = mc.parse_date(date_from, "From date"), mc.parse_date(date_to, "To date")
     with db.cursor() as cur:
         key = _account(cur, account)
@@ -176,7 +185,7 @@ def entries(account: str = Query(default=""), date_from: str = Query(default="")
     for r in rows:
         if r["voided_at"] is None:
             running = round(running + _signed(r["kind"], r["amount"]), 2)
-        item = _entry(r, today, user, level, None if r["voided_at"] else running)
+        item = _entry(r, today, user, level, None if r["voided_at"] else running, void_any)
         if d_from and r["entry_date"] < d_from or d_to and r["entry_date"] > d_to:
             continue
         if kind and r["kind"] != kind or category and (r["category_name"] or "").lower() != category.lower():
@@ -272,8 +281,11 @@ def void_entry(entry_key: int, body: VoidIn, user=Depends(ANY)):
         if e["voided_at"] is not None:
             raise HTTPException(409, "That entry is already cancelled.")
         own_today = e["created_by_user_key"] == user["user_key"] and e["created_at"].astimezone(mc.IST).date() == today
-        if level != "manage" and not own_today:
-            raise HTTPException(403, "You can cancel your own entry on the day you made it. Ask the manager for anything older.")
+        if not _may_void_any(user, level) and not own_today:
+            log.warning("expense void refused: user %s (%s) tried to cancel entry %s (made by user %s on %s)", user["user_key"], user["username"],
+                        e["entry_no"], e["created_by_user_key"], e["created_at"].date())
+            raise HTTPException(403, "You can cancel your own entry on the day you made it. Ask the manager for anything older "
+                                     "(or an admin to give you \"cancel anyone's entry\" in Setup > Access).")
         cur.execute("UPDATE fact_expense_entry SET voided_at = now(), voided_by_user_key = %s, void_reason = %s WHERE entry_key = %s",
                     (user["user_key"], reason, entry_key))
         bal = balances(cur, e["account_key"])[e["account_key"]]

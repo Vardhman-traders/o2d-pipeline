@@ -1116,6 +1116,9 @@ async function renderModuleSettings(panel) {
       } });
       return h('div', { class: 'row', style: 'margin:8px 0;align-items:center;gap:10px;flex-wrap:wrap' }, h('label', { style: 'flex:1;min-width:220px', text: s.label }), input, save, msg);
     })));
+  cards.push(h('div', { class: 'card', style: 'margin-bottom:16px' },
+    h('h2', { style: 'font-size:15px;margin-bottom:6px', text: 'Challan / invoice check (PERFECT)' }),
+    h('p', { class: 'note', text: 'PDFs attached to an order are read automatically. To also read PHOTOS of challans, the server administrator must set the environment variables DOC_CHECK_VISION=1 and ANTHROPIC_API_KEY on the web service (this sends the photo to the Anthropic API to read the number, date and total). Until then photos are not read and are never marked PERFECT.' })));
   panel.replaceChildren(...cards);
 }
 

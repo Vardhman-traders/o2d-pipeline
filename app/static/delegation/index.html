@@ -403,6 +403,17 @@
           <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h3 class="vt-display font-bold text-slate-800 text-lg"><i class="fa-solid fa-list-check vt-text-navy mr-2"></i>My Checklist</h3>
             <p class="text-xs text-slate-500 mt-1">Mark each item <b>Done</b> when finished, or <b>Not Done</b> with a reason.</p>
+            <div class="flex flex-wrap items-center gap-3 mt-3">
+              <div id="chkMineWho" class="hidden flex items-center gap-2">
+                <label for="chkMinePerson" class="text-xs font-semibold text-slate-500">Employee</label>
+                <select id="chkMinePerson" onchange="chkLoadMine()" class="px-3 py-2 bg-slate-50 border rounded-xl text-sm"></select>
+              </div>
+              <div class="inline-flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold" role="group" aria-label="Group the checklist by">
+                <button id="chkModeStatus" type="button" onclick="chkSetMode('status')" class="px-3 py-2">By status</button>
+                <button id="chkModeFreq" type="button" onclick="chkSetMode('freq')" class="px-3 py-2 border-l border-slate-200">Daily / Weekly / Monthly</button>
+              </div>
+            </div>
+            <p id="chkMineNote" class="hidden text-xs text-amber-700 mt-2"></p>
           </div>
           <div id="chkMineBody" class="space-y-4"></div>
         </div>
@@ -841,6 +852,7 @@
     function chkOn_(p) { return !!DELEG_PAGES && DELEG_PAGES.indexOf(p) !== -1; }
     function chkFmt(iso) { var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : ''; }
     function chkIsManager() { return chkOn_('chk_manage'); }
+    function chkCanEditOthers() { return !!(CHK && CHK.canEditOthers); }
     function chkBoot(then) {
       if (CHK) return then();
       VT.run.withSuccessHandler(function (r) { CHK = r; then(); }).withFailureHandler(onGenericError).chkMe();
@@ -870,12 +882,12 @@
       return '<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">Pending</span>';
     }
     function chkRow(it, showWho) {
-      var mine = it.assigneeId === currentUser.id, can = mine || chkIsManager();
+      var mine = it.assigneeId === currentUser.id, can = mine || chkCanEditOthers();
       var btns = '';
       if (it.status === 'Pending' && can) {
         btns = '<button onclick="chkDone(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white">&#10003; Done</button>' +
                '<button onclick="chkNotDone(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 bg-white">Not done</button>';
-      } else if (it.status !== 'Pending' && chkIsManager()) {
+      } else if (it.status !== 'Pending' && chkCanEditOthers()) {
         btns = '<button onclick="chkReopen(' + it.key + ')" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-600 bg-white">Re-open</button>';
       }
       return '<div class="flex flex-wrap items-center gap-3 justify-between border border-slate-100 rounded-xl px-4 py-3">' +
@@ -917,22 +929,65 @@
     function chkCloseMark() { document.getElementById('chkMarkModal').classList.add('hidden'); }
 
     // ---- My checklist
-    var chkOpenSecs = {};
-    function chkSection(title, items, tone, empty) {
-      return '<details class="vt-collapse bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"' + (chkOpenSecs[title] ? ' open' : '') + ' ontoggle="chkOpenSecs[this.dataset.k] = this.open" data-k="' + escapeHtml(title) + '">' +
+    var chkOpenSecs = {}, chkMineData = null, chkMode = 'status';
+    var CHK_FREQ_ORDER = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly', 'Once'];
+    function chkSection(title, items, tone, empty, showWho, key, hint) {
+      return '<details class="vt-collapse bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"' + (chkOpenSecs[key || title] ? ' open' : '') + ' ontoggle="chkOpenSecs[this.dataset.k] = this.open" data-k="' + escapeHtml(key || title) + '">' +
         '<summary class="p-4 flex items-center justify-between cursor-pointer select-none"><h4 class="font-bold text-sm ' + tone + '">' +
-        '<i class="fa-solid fa-chevron-right vt-chev text-slate-400 text-xs mr-2 transition-transform"></i>' + title + '</h4>' +
+        '<i class="fa-solid fa-chevron-right vt-chev text-slate-400 text-xs mr-2 transition-transform"></i>' + title +
+        (hint ? ' <span class="ml-2 text-xs font-medium text-slate-500">' + hint + '</span>' : '') + '</h4>' +
         '<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">' + items.length + '</span></summary>' +
-        '<div class="p-4 space-y-3">' + (items.length ? items.map(function (i) { return chkRow(i, false); }).join('') : '<p class="text-sm text-slate-400">' + empty + '</p>') + '</div></details>';
+        '<div class="p-4 space-y-3">' + (items.length ? items.map(function (i) { return chkRow(i, showWho); }).join('') : '<p class="text-sm text-slate-400">' + empty + '</p>') + '</div></details>';
+    }
+    function chkSetMode(m) {
+      chkMode = m;
+      try { localStorage.setItem('vt_chk_mode', m); } catch (e) { /* storage blocked: the choice just is not remembered */ }
+      chkRenderMine();
+    }
+    function chkRenderMine() {
+      var r = chkMineData; if (!r) return;
+      var on = 'px-3 py-2 bg-indigo-600 text-white', off = 'px-3 py-2 bg-white text-slate-600';
+      document.getElementById('chkModeStatus').className = (chkMode === 'status' ? on : off);
+      document.getElementById('chkModeFreq').className = (chkMode === 'freq' ? on : off) + ' border-l border-slate-200';
+      var showWho = r.scope !== 'me', note = document.getElementById('chkMineNote');
+      note.classList.toggle('hidden', !r.truncated);
+      note.textContent = r.truncated ? 'Showing the first ' + (r.overdue.length + r.dueToday.length + r.upcoming.length + r.finished.length) + ' items only - pick one employee to see everything.' : '';
+      if (chkMode === 'freq') {
+        var all = r.overdue.concat(r.dueToday, r.upcoming, r.finished), by = {};
+        all.forEach(function (it) { (by[it.frequency] = by[it.frequency] || []).push(it); });
+        var order = CHK_FREQ_ORDER.concat(Object.keys(by).filter(function (f) { return CHK_FREQ_ORDER.indexOf(f) === -1; }));
+        document.getElementById('chkMineBody').innerHTML = order.map(function (f) {
+          var items = (by[f] || []).slice().sort(function (a, b) {
+            var pa = a.status === 'Pending' ? 0 : 1, pb = b.status === 'Pending' ? 0 : 1;
+            return pa !== pb ? pa - pb : (pa === 0 ? (a.due < b.due ? -1 : 1) : (a.due < b.due ? 1 : -1));
+          });
+          var open = items.filter(function (i) { return i.status === 'Pending'; }).length, late = items.filter(function (i) { return i.overdue; }).length;
+          var hint = items.length ? open + ' open' + (late ? ' &middot; <span class="text-red-600">' + late + ' overdue</span>' : '') : '';
+          return chkSection(escapeHtml(f), items, late ? 'text-red-600' : 'text-slate-700', 'No ' + escapeHtml(f.toLowerCase()) + ' items.', showWho, 'f:' + f, hint);
+        }).join('');
+        return;
+      }
+      document.getElementById('chkMineBody').innerHTML =
+        chkSection('Overdue', r.overdue, 'text-red-600', 'Nothing overdue. Well done.', showWho) +
+        chkSection('Due today', r.dueToday, 'text-amber-600', 'Nothing due today.', showWho) +
+        chkSection('Coming up', r.upcoming, 'text-slate-700', 'Nothing in the next few weeks.', showWho) +
+        chkSection('Finished in the last 2 weeks', r.finished, 'text-emerald-700', 'Nothing finished yet.', showWho);
+    }
+    function chkFillPeople() {
+      var wrap = document.getElementById('chkMineWho'), sel = document.getElementById('chkMinePerson');
+      if (!CHK || !CHK.canSeeEveryone) { wrap.classList.add('hidden'); return; }
+      if (sel.options.length) { wrap.classList.remove('hidden'); return; }   // already filled (keeps the choice across reloads)
+      var opts = '<option value="">Me</option><option value="all">All employees</option>';
+      (CHK.people || []).forEach(function (p) { if (p.id !== currentUser.id) opts += '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + '</option>'; });
+      sel.innerHTML = opts;
+      wrap.classList.remove('hidden');
     }
     function chkLoadMine() {
-      VT.run.withSuccessHandler(function (r) {
-        document.getElementById('chkMineBody').innerHTML =
-          chkSection('Overdue', r.overdue, 'text-red-600', 'Nothing overdue. Well done.') +
-          chkSection('Due today', r.dueToday, 'text-amber-600', 'Nothing due today.') +
-          chkSection('Coming up', r.upcoming, 'text-slate-700', 'Nothing in the next few weeks.') +
-          chkSection('Finished in the last 2 weeks', r.finished, 'text-emerald-700', 'Nothing finished yet.');
-      }).withFailureHandler(onGenericError).chkMine();
+      try { chkMode = localStorage.getItem('vt_chk_mode') === 'freq' ? 'freq' : chkMode; } catch (e) { /* storage blocked: keep the mode in memory */ }
+      chkFillPeople();
+      var sel = document.getElementById('chkMinePerson'), who = (CHK && CHK.canSeeEveryone && sel.value) || '';
+      document.getElementById('chkMineBody').innerHTML = '<p class="text-sm text-slate-400 px-1">Loading&hellip;</p>';
+      VT.run.withSuccessHandler(function (r) { chkMineData = r; chkRenderMine(); }).withFailureHandler(onGenericError).chkMine(who);
     }
 
     // ---- compliance calendar

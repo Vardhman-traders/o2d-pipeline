@@ -164,24 +164,31 @@ def allowed_place_keys(cur, emp_key: int | None) -> list[int]:
     return [r["location_key"] for r in cur.fetchall()]
 
 
+ANYWHERE = "Anywhere (no fixed work place)"
+
+
 def check_location(cur, lat, lng, emp_key: int | None = None) -> dict:
-    """Nearest work place whose own radius contains the phone; otherwise 'out_of_range' with every distance.
+    """Nearest work place whose own radius contains the phone.
 
     An employee tagged to particular work places can only mark from those: standing at another work place (or anywhere else)
-    gives 'wrong_location' with a sentence naming where they may mark from."""
+    gives 'wrong_location' with a sentence naming where they may mark from or 'out_of_range' with every distance.
+    An employee with NO work place set may mark from anywhere: status 'ok', site ANYWHERE, location_key None, anywhere True
+    (a phone position is still required, so every mark carries where it was made)."""
     try:
         lat, lng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"status": "error", "msg": "Location not received. Allow location access and try again."}
     cur.execute("SELECT * FROM dim_att_location ORDER BY sort_order, location_key")
     places = [(p, _haversine(lat, lng, float(p["latitude"]), float(p["longitude"]))) for p in cur.fetchall()]
+    allowed = allowed_place_keys(cur, emp_key)
     if not places:
+        if not allowed:   # nothing is set up and nobody is tied to a place: the phone's position is all there is to go on
+            return {"status": "ok", "site": ANYWHERE, "dist": None, "location_key": None, "icon": "📍", "anywhere": True}
         return {"status": "error", "msg": "No work location is set up. Ask the administrator (Setup > Dropdown values)."}
     inside = [(p, d) for p, d in places if d <= p["radius_m"]]
     out: dict = {"radius": max(p["radius_m"] for p, _ in places)}
     for p, d in places:   # the page shows the two spots as "Godown" / "Shop"
         out["dist" + p["location_name"].strip().title().replace(" ", "")] = _round(d)
-    allowed = allowed_place_keys(cur, emp_key)
     if allowed:
         mine = [(p, d) for p, d in places if p["location_key"] in allowed]
         if mine and not any(p["location_key"] in allowed for p, _ in inside):
@@ -197,6 +204,8 @@ def check_location(cur, lat, lng, emp_key: int | None = None) -> dict:
         p, d = min(inside, key=lambda x: x[1])
         return {**out, "status": "ok", "site": p["location_name"], "dist": _round(d), "location_key": p["location_key"], "icon": p["icon"]}
     p, d = min(places, key=lambda x: x[1])
+    if not allowed:   # no work place is set for this person: they may mark from anywhere (the row records no work place)
+        return {**out, "status": "ok", "site": ANYWHERE, "dist": _round(d), "location_key": None, "icon": "📍", "anywhere": True}
     return {**out, "status": "out_of_range", "site": p["location_name"], "dist": _round(d)}
 
 
@@ -241,7 +250,7 @@ ROW_SQL = """SELECT a.*, e.employee_name, e.skip_whatsapp, l.location_name, l.ic
 def _in_values(r: dict, rules: Rules) -> dict:
     st = rules.checkin_status(_mins(r["check_in_time"]))
     return {"icon": {"Present": "🟢", "Late": "🟡"}.get(st, "🟠"), "name": r["employee_name"], "time": _to12h(_hhmm(r["check_in_time"])),
-            "status": st, "site_icon": r["icon"] or "📍", "site": r["location_name"] or "",
+            "status": st, "site_icon": r["icon"] or "📍", "site": r["location_name"] or "Anywhere",
             "dist": f" ({r['distance_m']}m)" if r["distance_m"] is not None else "", "date": r["work_date"].strftime("%d %b %Y")}
 
 
