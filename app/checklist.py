@@ -12,6 +12,7 @@ How it works:
     setting, and checklists can be bulk uploaded from Setup > Import.
 """
 import calendar
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,6 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from . import access, auth, db, modcommon as mc, notify, roles
 from .admin import audit
 
+log = logging.getLogger("checklist")
 router = APIRouter(prefix="/checklist", tags=["checklist"])
 PAGES = ("chk_mine", "chk_calendar", "chk_manage")
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -118,6 +120,20 @@ def _need_page(user, page: str):
         raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 
 
+def _may_edit_others(user) -> bool:
+    """Marking, un-marking and re-opening ANYONE's item: the admin always; a manager with full (not View only) Checklist - Manager access; or
+    anyone given the page "Checklist - Edit anyone's items" at full access (Setup > Access)."""
+    if user["role"] == "admin":
+        return True
+    held = access.effective_access(user)
+    return held.get("chk_manage") == "edit" or held.get("chk_edit") == "edit"
+
+
+def _sees_everyone(user) -> bool:
+    """May look at other people's items on My checklist (and filter by person): managers, and anyone holding Edit anyone's items."""
+    return user["role"] == "admin" or bool({"chk_manage", "chk_edit"} & set(access.effective_access(user)))
+
+
 def _need_manager(user):
     _need_page(user, "chk_manage")
     access.require_edit(user, "chk_manage")
@@ -162,25 +178,53 @@ def me(user=Depends(ANY)):
         cur.execute("SELECT category_key, category_name FROM dim_checklist_category ORDER BY sort_order, lower(category_name)")
         cats = [r["category_name"] for r in cur.fetchall()]
         staff = assignable_users(cur) if "chk_manage" in pages else []
+        people = staff if staff or not _sees_everyone(user) else assignable_users(cur)
     return {"success": True, "id": user["username"], "name": user["display_name"], "role": who, "pages": pages,
             "canWrite": user["role"] == "admin" or not access.is_view_only(user, "chk_manage"),
+            "canEditOthers": _may_edit_others(user), "canSeeEveryone": _sees_everyone(user), "people": people,
             "today": mc.today_ist().isoformat(), "categories": cats, "staff": staff,
             "frequencies": list(FREQUENCIES), "weeklyOffDay": _off_day()}
 
 
+MAX_MINE_ITEMS = 3000     # the cap on one "My checklist" answer when it covers several people
+
+
 @router.get("/mine")
-def mine(user=Depends(ANY)):
-    """My checklist: what is overdue, due today, coming up, and what I finished lately."""
+def mine(assignee: str = Query(default=""), user=Depends(ANY)):
+    """My checklist: what is overdue, due today, coming up, and what was finished lately - each item also says how often it comes back
+    (the page groups them by that as well). `assignee`: blank = me; a username = that person; "all" = everyone. Only someone who may see
+    everyone's items (a manager, or anyone given "Checklist - Edit anyone's items") may ask for anyone but themself."""
     _need_page(user, "chk_mine")
     today = mc.today_ist()
     lo, hi = today - timedelta(days=LOOK_BACK_DAYS), today + timedelta(days=LOOK_AHEAD_DAYS)
+    who_label, scope = user["display_name"], user["user_key"]
     with db.cursor() as cur:
-        _materialize(cur, lo, hi, assignee_key=user["user_key"])
-        cur.execute(ITEM_SQL + " WHERE o.assignee_user_key = %s AND dd.full_date BETWEEN %s AND %s AND (c.is_active OR o.status <> 'Pending') "
-                    "ORDER BY dd.full_date, lower(c.title)", (user["user_key"], lo, hi))
-        rows = [_item(r, today) for r in cur.fetchall()]
+        if assignee and assignee.strip().lower() not in (user["username"].lower(), "me"):
+            if not _sees_everyone(user):
+                log.warning("checklist/mine refused: user %s (%s, %s) asked for assignee=%r without the right to see others' items",
+                            user["user_key"], user["username"], user["role"], assignee)
+                raise HTTPException(403, "You can only see your own checklist. Ask an admin for access to see other people's.")
+            if assignee.strip().lower() == "all":
+                scope, who_label = None, "Everyone"
+            else:
+                cur.execute("SELECT user_key, display_name FROM dim_user WHERE lower(username) = lower(%s) AND password_hash <> %s",
+                            (assignee.strip(), auth.DISABLED_HASH))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(404, f"Person not found: {assignee}")
+                scope, who_label = row["user_key"], row["display_name"]
+        _materialize(cur, lo, hi, assignee_key=scope)
+        cur.execute(ITEM_SQL + " WHERE (%s::int IS NULL OR o.assignee_user_key = %s) AND dd.full_date BETWEEN %s AND %s "
+                    "AND (c.is_active OR o.status <> 'Pending') ORDER BY dd.full_date, lower(c.title), lower(u.display_name) LIMIT %s",
+                    (scope, scope, lo, hi, MAX_MINE_ITEMS + 1))
+        fetched = cur.fetchall()
+    truncated = len(fetched) > MAX_MINE_ITEMS
+    if truncated:
+        log.warning("checklist/mine truncated at %s items: user %s (%s) assignee=%r", MAX_MINE_ITEMS, user["user_key"], user["username"], assignee)
+    rows = [_item(r, today) for r in fetched[:MAX_MINE_ITEMS]]
     recent = today - timedelta(days=14)
-    return {"today": today.isoformat(),
+    return {"today": today.isoformat(), "scope": "all" if scope is None else ("me" if scope == user["user_key"] else "person"),
+            "scopeName": who_label, "truncated": truncated,
             "overdue": [r for r in rows if r["overdue"]],
             "dueToday": [r for r in rows if r["status"] == "Pending" and r["due"] == today.isoformat()],
             "upcoming": [r for r in rows if r["status"] == "Pending" and r["due"] > today.isoformat()],
@@ -207,18 +251,21 @@ def mark(occurrence_key: int, body: MarkIn, user=Depends(ANY)):
         if not o:
             raise HTTPException(404, "Checklist item not found.")
         manager = who in ("Admin", "Manager") and _has(user, "chk_manage")
-        if o["assignee_user_key"] != user["user_key"] and not manager:
+        editor = manager or _may_edit_others(user)       # may act on someone else's item (and re-open a marked one)
+        if o["assignee_user_key"] != user["user_key"] and not editor:
+            log.warning("checklist mark refused: user %s (%s) tried to mark occurrence %s of user %s as %r",
+                        user["user_key"], user["username"], occurrence_key, o["assignee_user_key"], body.status)
             raise HTTPException(403, "This checklist item belongs to someone else.")
         if o["assignee_user_key"] == user["user_key"]:
             if not _has(user, "chk_mine"):
                 raise HTTPException(403, access.NO_ACCESS_MESSAGE)
             access.require_edit(user, "chk_mine")
-        else:
-            access.require_edit(user, "chk_manage")
+        elif not _may_edit_others(user):          # holds Manager or Edit-anyone's-items, but only as "View only"
+            access.require_edit(user, "chk_manage" if manager else "chk_edit")
         if body.status == "Pending":
-            if not manager:
+            if not editor:
                 raise HTTPException(403, "Only a manager can re-open a finished item.")
-        elif o["status"] != "Pending" and not manager:
+        elif o["status"] != "Pending" and not editor:
             raise HTTPException(403, "This item is already marked. Ask a manager to re-open it if it needs to change.")
         if body.status == "Not Done":
             if o["due_date"] > today:

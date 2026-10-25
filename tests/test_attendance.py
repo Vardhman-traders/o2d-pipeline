@@ -62,8 +62,8 @@ def test_check_in_out_flow_with_location_photo_and_whatsapp(client, db_conn, see
         ok = pub(client, "checkLocation", *GODOWN)
         assert ok["status"] == "ok" and ok["site"] == "Godown" and ok["dist"] <= 1 and ok["radius"] == 40
         far = pub(client, "checkLocation", *FAR)
-        assert far["status"] == "out_of_range" and far["distGodown"] > 1000 and far["distShop"] > 1000
-        assert pub(client, "saveAttendance", {"name": name, "lat": FAR[0], "lng": FAR[1]})["status"] == "out_of_range"
+        # nobody is tied to a work place here, so being far from both is fine: they may mark from anywhere (see test_attendance_anywhere.py)
+        assert far["status"] == "ok" and far["anywhere"] is True and far["distGodown"] > 1000 and far["distShop"] > 1000
         assert pub(client, "saveAttendance", {"name": "Nobody", "lat": GODOWN[0], "lng": GODOWN[1]})["status"] == "error"
 
         # check in with a photo; a second tap says "already marked" and does not make a second record
@@ -222,10 +222,11 @@ def test_link_switch_and_setup_lists(client, db_conn, seed):
                                                                          "radius_m": 5, "icon": "🏭"}, headers=admin)
     assert r.status_code == 200, r.text
     near = pub(client, "checkLocation", GODOWN[0] + 0.0002, GODOWN[1])       # about 22 m away
-    assert near["status"] == "out_of_range"
+    assert near["status"] == "ok" and near["anywhere"] is True and near["site"] != "Godown"   # outside the radius, no work place set: anywhere
     client.put(f"/admin/masters/att_location/{godown['key']}", json={"name": "Godown", "latitude": 28.7004323, "longitude": 77.1288457,
                                                                      "radius_m": 40, "icon": "🏭"}, headers=admin)
-    assert pub(client, "checkLocation", GODOWN[0] + 0.0002, GODOWN[1])["status"] == "ok"
+    back = pub(client, "checkLocation", GODOWN[0] + 0.0002, GODOWN[1])
+    assert back["status"] == "ok" and back["site"] == "Godown" and not back.get("anywhere")
     bad = client.post("/admin/masters/att_location", json={"name": "Moon", "latitude": 95, "longitude": 10, "radius_m": 40}, headers=admin)
     assert bad.status_code == 422
     # the open link can be switched off in Setup

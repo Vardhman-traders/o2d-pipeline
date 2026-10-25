@@ -108,6 +108,16 @@
   .bulk-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
   .bulk-cb { width: 17px; height: 17px; cursor: pointer; }
   .bulk-modal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+  .dc-badge { display: inline-block; margin-left: 10px; padding: 3px 12px; border-radius: 999px; font-size: 13px; font-weight: 800; letter-spacing: .04em; vertical-align: middle; color: #fff; background: var(--muted); }
+  .dc-badge.perfect { background: var(--green); }
+  .dc-badge.mismatch { background: var(--red); }
+  .dc-badge.review { background: var(--amber); }
+  .dc-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--panel-2); font-size: 13px; }
+  .dc-box.perfect { border-color: var(--green); } .dc-box.mismatch { border-color: var(--red); } .dc-box.review { border-color: var(--amber); }
+  .dc-no { font-size: 22px; font-weight: 800; color: var(--navy); line-height: 1.2; }
+  .dc-tbl { border-collapse: collapse; margin: 8px 0; font-size: 12px; } .dc-tbl td, .dc-tbl th { padding: 3px 12px 3px 0; text-align: left; }
+  .dc-ok { color: var(--green); font-weight: 700; } .dc-bad { color: var(--red); font-weight: 700; }
+  .pdf-tile { display: flex; align-items: center; justify-content: center; flex-direction: column; width: 100%; height: 100%; background: var(--panel-2); color: var(--navy); font-weight: 800; font-size: 13px; text-decoration: none; }
   .photo-chip { border: 1px solid var(--border); background: var(--surface, #fff); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: var(--navy); }
   .photo-chip:hover { border-color: var(--blue-2); }
   .photo-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -1044,9 +1054,7 @@
         body.appendChild(el_('h3', null, k[1] + ' (' + list.length + ')'));
         var grid = el_('div', { class: 'photo-grid' });
         list.forEach(function (p) {
-          var a = el_('a', { href: p.url, target: '_blank', rel: 'noopener', title: 'Added by ' + p.uploadedBy + ' - ' + String(p.uploadedAt).replace('T', ' ').slice(0, 16) });
-          a.appendChild(el_('img', { src: p.url, alt: k[1] + ' photo' }));
-          grid.appendChild(a);
+          grid.appendChild(photoThumbLink_(p, k[1]));
         });
         body.appendChild(grid);
       });
@@ -1435,7 +1443,10 @@
   function fmtMoney_(v) { return v == null ? '' : '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 
   function openOrderModal(o) {
-    document.getElementById('ovModalTitle').textContent = (o.dcNo || ('Sl ' + o.slNo)) + ' · ' + o.stage;
+    var title = document.getElementById('ovModalTitle');
+    title.textContent = (o.dcNo ? 'DC / Invoice no. ' + o.dcNo : 'Sl ' + o.slNo) + ' · ' + o.stage;
+    var badge = el_('span', { class: 'dc-badge', id: 'ovBadge', style: 'display:none;' });
+    title.appendChild(badge);
     var rows = [['Sl no.', o.slNo], ['DC / Invoice no.', o.dcNo], ['Order date', formatDateDisplay(o.orderDate)], ['Stage', o.stage],
       ['Logged by', o.createdBy], ['Order via', o.channel], ['Submission type', o.submissionType], ['Shipping location', o.shippingLocation],
       ['Remarks', o.remarks], ['Ready by', o.readyBy], ['Colour making by', o.colourMakingBy], ['Delivery status', o.deliveryStatus],
@@ -1448,6 +1459,7 @@
       dl.appendChild(el_('dd', null, r[1] === '' || r[1] == null ? '–' : String(r[1])));
     });
     document.getElementById('ovModalBody').replaceChildren(dl);
+    docCheckBox_(document.getElementById('ovModalBody'), o, badge);
     if (o.photoCount) showOrderPhotosIn_(document.getElementById('ovModalBody'), o.slNo);
 
     buildRemindBox(o);
@@ -1455,6 +1467,61 @@
   }
 
   // The dispatch / receiving photos saved on an order, shown inside the order details.
+  // The challan / invoice check at the top of an order card: the number, whether the attached document shows the same number AND date
+  // (PERFECT), and a button to read the attached file now. Photos can only be read if the admin switched the picture reader on.
+  function docCheckBox_(host, o, badge) {
+    var box = el_('div', { class: 'dc-box' });
+    box.appendChild(el_('div', { class: 'dc-no' }, o.dcNo ? 'DC / Invoice no. ' + o.dcNo : 'No DC / Invoice number entered'));
+    var msg = el_('div', { style: 'margin-top:4px;color:var(--muted);' }, o.photoCount ? 'Checking the attached document...' : 'No challan or invoice is attached to this order.');
+    var table = el_('div'), actions = el_('div', { style: 'margin-top:6px;' });
+    box.appendChild(msg); box.appendChild(table); box.appendChild(actions);
+    host.insertBefore(box, host.firstChild);
+    function show(d) {
+      var v = d.verdict || {};
+      if (v.status === 'skipped') { badge.style.display = 'none'; box.className = 'dc-box'; msg.textContent = ''; table.replaceChildren(); actions.replaceChildren(); return; }
+      badge.style.display = v.status && v.status !== 'none' ? 'inline-block' : 'none';
+      badge.className = 'dc-badge ' + (v.status || ''); badge.textContent = v.status === 'perfect' ? '\u2713 PERFECT' : (v.label || '');
+      box.className = 'dc-box ' + (v.status || '');
+      msg.textContent = v.message || '';
+      table.replaceChildren();
+      if (v.checks && v.checks.length) {
+        var t = el_('table', { class: 'dc-tbl' }), h = el_('tr');
+        ['', 'On the order', 'On the document', ''].forEach(function (x) { h.appendChild(el_('th', null, x)); });
+        t.appendChild(h);
+        v.checks.forEach(function (c) {
+          var tr = el_('tr');
+          tr.appendChild(el_('td', null, c.field)); tr.appendChild(el_('td', null, c.entered || '-')); tr.appendChild(el_('td', null, c.found || '-'));
+          tr.appendChild(el_('td', { class: c.ok === true ? 'dc-ok' : (c.ok === false ? 'dc-bad' : '') }, c.ok === true ? '\u2713' : (c.ok === false ? '\u2717' : '')));
+          t.appendChild(tr);
+        });
+        table.appendChild(t);
+      }
+      if (d.problems && d.problems.length) table.appendChild(el_('div', { class: 'dc-bad' }, 'Could not read: ' + d.problems.join(' | ')));
+      actions.replaceChildren();
+      if (v.status && v.status !== 'none' && v.status !== 'perfect') {
+        var b = el_('button', { type: 'button', class: 'small' }, v.status === 'unchecked' ? 'Check attached document' : 'Check again');
+        b.onclick = function () {
+          b.disabled = true; msg.textContent = 'Reading the attached document...';
+          VT.run.withSuccessHandler(function (r) { if (!r || r.ok === false) { b.disabled = false; msg.textContent = (r && r.error) || 'Could not check.'; msg.style.color = 'var(--red)'; return; } show(r); })
+            .withFailureHandler(function (e) { b.disabled = false; msg.style.color = 'var(--red)'; msg.textContent = 'Could not check: ' + e.message; })
+            .runOrderDocCheck(CURRENT_TOKEN, o.slNo);
+        };
+        actions.appendChild(b);
+      }
+    }
+    if (!o.photoCount) { badge.style.display = 'none'; return; }
+    VT.run.withSuccessHandler(function (d) {
+      if (!d || d.ok === false) { msg.textContent = (d && d.error) || 'Could not load the document check.'; return; }
+      show(d);
+    }).withFailureHandler(function (e) { msg.textContent = 'Could not load the document check: ' + e.message; }).getOrderDocCheck(CURRENT_TOKEN, o.slNo);
+  }
+
+  function photoThumbLink_(p, label) {
+    var a = el_('a', { href: p.url, target: '_blank', rel: 'noopener', title: 'Added by ' + p.uploadedBy + ' - ' + String(p.uploadedAt).replace('T', ' ').slice(0, 16) });
+    if (p.contentType === 'application/pdf') { var t = el_('span', { class: 'pdf-tile' }); t.appendChild(el_('span', null, 'PDF')); t.appendChild(el_('span', { style: 'font-weight:400;font-size:11px;' }, 'tap to open')); a.appendChild(t); }
+    else a.appendChild(el_('img', { src: p.url, alt: label + ' photo' }));
+    return a;
+  }
   function showOrderPhotosIn_(host, slNo) {
     var box = el_('div', { id: 'ovPhotos' }, 'Loading photos...');
     host.appendChild(box);
@@ -1469,9 +1536,7 @@
         box.appendChild(el_('h3', { style: 'font-size:13px;color:var(--muted);margin:12px 0 6px;' }, k[1] + ' photos (' + list.length + ')'));
         var grid = el_('div', { class: 'photo-grid' });
         list.forEach(function (p) {
-          var a = el_('a', { href: p.url, target: '_blank', rel: 'noopener', title: 'Added by ' + p.uploadedBy + ' - ' + String(p.uploadedAt).replace('T', ' ').slice(0, 16) });
-          a.appendChild(el_('img', { src: p.url, alt: k[1] + ' photo' }));
-          grid.appendChild(a);
+          grid.appendChild(photoThumbLink_(p, k[1]));
         });
         box.appendChild(grid);
       });
@@ -2018,9 +2083,9 @@
     if (box.dataset.ready) return;
     box.dataset.ready = '1';
     box.innerHTML = '<label>' + label + ' <span style="font-weight:400;">(optional)</span></label>' +
-      '<input type="file" accept="image/*" multiple id="' + prefix + '_file" style="display:none;">' +
+      '<input type="file" accept="image/*,application/pdf" multiple id="' + prefix + '_file" style="display:none;">' +
       '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-        '<button type="button" id="' + prefix + '_upBtn" style="' + UPL_BTN_STYLE_ + '" title="Choose photos from this device" aria-label="Choose photos from this device">' + UP_ICON_ + '</button>' +
+        '<button type="button" id="' + prefix + '_upBtn" style="' + UPL_BTN_STYLE_ + '" title="Choose photos or a PDF from this device" aria-label="Choose photos or a PDF from this device">' + UP_ICON_ + '</button>' +
         '<button type="button" id="' + prefix + '_camBtn" style="' + UPL_BTN_STYLE_ + '" title="Take photo with camera" aria-label="Take photo with camera">' + CAM_ICON_ + '</button>' +
         '<span id="' + prefix + '_camInfo" style="font-size:12px;color:#64748b;"></span>' +
         '<input type="file" accept="image/*" capture="environment" id="' + prefix + '_cam" style="display:none;">' +
@@ -2067,10 +2132,7 @@
     VT.run.withSuccessHandler(function (d) {
       if (!d || !d.ok || !d.enabled) return;
       d.photos.filter(function (p) { return p.kind === kind; }).forEach(function (p) {
-        var a = document.createElement('a');
-        a.href = p.url; a.target = '_blank'; a.rel = 'noopener'; a.title = 'Added by ' + p.uploadedBy;
-        var img = document.createElement('img'); img.src = p.url; img.alt = 'Order photo';
-        a.appendChild(img); thumbs.appendChild(a);
+        thumbs.appendChild(photoThumbLink_(p, 'Order'));
       });
     }).getOrderPhotos(CURRENT_TOKEN, slNo);
   }

@@ -9,7 +9,7 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from . import access, auth, db, roles
@@ -22,6 +22,7 @@ MAX_BYTES = 8 * 1024 * 1024          # the screens shrink photos first; this onl
 MAX_PER_KIND = 5                     # photos per order and kind
 LINK_SECONDS = 600
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic"}
+ORDER_DOC_TYPES = {**EXT, "application/pdf": "pdf"}   # what may be attached to an order: a photo of the challan, or its PDF (read by doc_check)
 PDF_MODULES = {"decor", "challan"}   # modules whose documents (challans) may also be a PDF
 # which O2D pages may attach / see each kind of photo
 UPLOAD_PAGES = {"dispatch": ("o2d_shop_dispatch", "o2d_godown_dispatch"),
@@ -67,7 +68,7 @@ def _may_upload(user, kind: str) -> bool:
 
 def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> dict:
     order = _visible_order(user, sl_no)
-    key = f"orders/{order['order_key']}/{kind}/{uuid.uuid4().hex}.{EXT[content_type]}"
+    key = f"orders/{order['order_key']}/{kind}/{uuid.uuid4().hex}.{ORDER_DOC_TYPES[content_type]}"
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM order_attachments WHERE order_key = %s AND kind = %s",
                     (order["order_key"], kind))
@@ -81,7 +82,7 @@ def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> d
                 "uploaded_by_key, uploaded_by) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
                 (order["order_key"], kind, key, content_type, len(data), user["user_key"],
                  user.get("display_name") or user["username"]))
-            return {"id": cur.fetchone()["attachment_key"]}
+            return {"id": cur.fetchone()["attachment_key"], "orderKey": order["order_key"]}
     except Exception:
         try:  # don't leave an orphan object behind
             storage().delete_object(Bucket=_bucket(), Key=key)
@@ -122,15 +123,16 @@ def list_photos(user, sl_no: int) -> list[dict]:
     for r in rows:
         url = storage().generate_presigned_url(
             "get_object", Params={"Bucket": _bucket(), "Key": r["object_key"]}, ExpiresIn=LINK_SECONDS)
-        out.append({"id": r["attachment_key"], "kind": r["kind"], "url": url, "uploadedBy": r["uploaded_by"] or "",
+        out.append({"id": r["attachment_key"], "kind": r["kind"], "url": url, "contentType": r["content_type"], "uploadedBy": r["uploaded_by"] or "",
                     "uploadedAt": r["uploaded_at"].isoformat(), "size": r["size_bytes"]})
     return out
 
 
 @router.post("/orders/{sl_no}/photos")
-async def upload_photo(sl_no: int, request: Request, kind: str = Query(pattern="^(dispatch|receiving)$"),
+async def upload_photo(sl_no: int, request: Request, background: BackgroundTasks, kind: str = Query(pattern="^(dispatch|receiving)$"),
                        user=Depends(ANY_VIEWER)):
-    """Body is the raw image (Content-Type image/jpeg|png|webp|heic) - no multipart needed."""
+    """Body is the raw file (Content-Type image/jpeg|png|webp|heic, or application/pdf) - no multipart needed. Once saved, the file is read in the
+    background for the PERFECT check (doc_check)."""
     if not configured():
         raise HTTPException(503, "Photo storage is not set up yet. Ask the administrator.")
     if user["role"] != "admin":   # an admin adds photos from All orders > Edit, whatever the stage
@@ -138,15 +140,17 @@ async def upload_photo(sl_no: int, request: Request, kind: str = Query(pattern="
             raise HTTPException(403, access.NO_ACCESS_MESSAGE)
         access.require_edit(user, *UPLOAD_PAGES[kind])
     ctype = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if ctype not in EXT:
-        raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image.")
+    if ctype not in ORDER_DOC_TYPES:
+        raise HTTPException(415, "The file must be a JPEG, PNG, WebP or HEIC photo, or a PDF.")
     if int(request.headers.get("content-length") or 0) > MAX_BYTES:
         raise HTTPException(413, "Photo is too large (8 MB maximum).")
     data = await request.body()
     if not data or len(data) > MAX_BYTES:
         raise HTTPException(413 if data else 422, "Photo is too large (8 MB maximum)." if data else "Empty photo.")
     res = await run_in_threadpool(save_photo, user, sl_no, kind, data, ctype)
-    return {"ok": True, "success": True, **res}
+    from . import doc_check
+    background.add_task(doc_check.check_after_upload, res["orderKey"], res["id"], user)
+    return {"ok": True, "success": True, "id": res["id"]}
 
 
 @router.get("/orders/{sl_no}/photos")
