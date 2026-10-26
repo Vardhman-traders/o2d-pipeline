@@ -44,9 +44,10 @@ def test_staff_can_edit_their_own_payment_and_expense_but_not_delete_them(client
     assert d["payments"][0]["amount"] == 3500 and d["payments"][0]["mode"] == "UPI" and d["payments"][0]["pnum"] == "R1"
     assert d["expenses"][0]["amount"] == 2500 and d["expenses"][0]["type"] == "Labour"
     # every change leaves who, old and new values behind
-    edits = _audit(db_conn, "decor.edit_payment")
+    # (only this client's rows: the audit log is shared by every test of the session)
+    edits = [a for a in _audit(db_conn, "decor.edit_payment") if a["target"] == f"{code}#{pay}"]
     assert len(edits) == 1 and edits[0]["details"]["before"]["amount"] == 3000 and edits[0]["details"]["after"]["amount"] == 3500
-    assert len(_audit(db_conn, "decor.edit_expense")) == 1
+    assert len([a for a in _audit(db_conn, "decor.edit_expense") if a["target"] == f"{code}#{exp}"]) == 1
 
     # a wrong amount is refused, not defaulted
     assert rpc(client, asha, "editPayment", clientId=code, rowIndex=pay, stage=stage, amount=0)["ok"] is False
@@ -67,8 +68,8 @@ def test_the_decor_edit_page_lets_a_staff_member_delete_and_revise(client, db_co
     assert rpc(client, asha, "reviseAmount", clientId=code, newAmount=90000, reason="scope")["ok"]
     assert rpc(client, asha, "deleteExpense", clientId=code, rowIndex=exp)["ok"]
     assert rpc(client, asha, "deletePayment", clientId=code, rowIndex=pay)["ok"]
-    assert [a["target"] for a in _audit(db_conn, "decor.delete_payment")] == [f"{code}#{pay}"]
-    assert _audit(db_conn, "decor.delete_payment")[0]["details"]["amount"] == 3000
+    deleted = [a for a in _audit(db_conn, "decor.delete_payment") if a["target"] == f"{code}#{pay}"]   # this client's rows only
+    assert len(deleted) == 1 and deleted[0]["details"]["amount"] == 3000
 
 
 def test_decor_edit_view_only_gives_no_delete_and_it_does_not_widen_what_is_visible(client, db_conn, seed):
@@ -137,7 +138,16 @@ def _checklist(client, admin, assignee, title, freq="Daily", **kw):
     assert r.status_code == 201, r.text
 
 
-def test_my_checklist_person_filter_and_frequency_on_every_item(client, db_conn, days, seed):
+def _not_the_weekly_off_day(monkeypatch):
+    """The weekly off day (default Monday) has no Daily items, so on that day these tests would find nothing due: move it to a day that is
+    neither today nor tomorrow (Sunday = 0 ... Saturday = 6, as the setting counts)."""
+    from app import checklist
+    today_dow = (modcommon.today_ist().weekday() + 1) % 7
+    monkeypatch.setattr(checklist, "_off_day", lambda: (today_dow + 3) % 7)
+
+
+def test_my_checklist_person_filter_and_frequency_on_every_item(client, db_conn, days, seed, monkeypatch):
+    _not_the_weekly_off_day(monkeypatch)
     admin = login(client, db_conn, "admin")
     emp1, n1 = user(client, db_conn, "cashier")
     emp2, n2 = user(client, db_conn, "cashier")
@@ -169,7 +179,8 @@ def test_my_checklist_person_filter_and_frequency_on_every_item(client, db_conn,
     assert client.get("/checklist/me", headers=emp1).json()["canSeeEveryone"] is False
 
 
-def test_checklist_edit_page_marks_and_reopens_for_others_view_only_does_not(client, db_conn, days, seed):
+def test_checklist_edit_page_marks_and_reopens_for_others_view_only_does_not(client, db_conn, days, seed, monkeypatch):
+    _not_the_weekly_off_day(monkeypatch)
     admin = login(client, db_conn, "admin")
     emp, ename = user(client, db_conn, "cashier")
     helper, hname = user(client, db_conn, "cashier")

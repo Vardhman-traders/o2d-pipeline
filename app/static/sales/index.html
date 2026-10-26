@@ -552,6 +552,15 @@
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">6</span>Detailed Remarks</label>
               <textarea id="shop_detailedRemarks" placeholder="Full shipping address, contact number, rate notes, etc."></textarea>
             </div>
+            <div class="field">
+              <label>Advance Amount (Rs) <span style="font-weight:400;color:var(--muted);">- if money was taken now</span></label>
+              <input type="number" id="shop_advanceAmount" min="0" step="1" placeholder="0">
+            </div>
+            <div class="field">
+              <label>Advance Paid By</label>
+              <select id="shop_advanceMode"><option value="">-- select --</option></select>
+            </div>
+            <div style="grid-column:span 2;font-size:11.5px;color:var(--muted);">The advance goes straight to the cashier and is locked: Shop Dispatch &amp; Receiving and Godown Receiving cannot change it. Only the cashier (until it is merged) or an admin can correct a mistake.</div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="shop_saveBtn">Save Order</button>
@@ -849,12 +858,13 @@
         <h2>✅ Confirm Money Received <span id="cashier_editingInfo"></span></h2>
         <form id="cashierEditForm">
           <div class="grid">
-            <div class="field"><label>Payment</label><input type="text" id="cashier_payment" readonly></div>
+            <div class="field"><label>Payment</label><input type="text" id="cashier_payment" readonly><select id="cashier_paymentSel" style="display:none;"></select></div>
             <div class="field"><label>Amount Received (Rs)</label><input type="text" id="cashier_amount" readonly></div>
             <div class="field"><label>Note (optional)</label><input type="text" id="cashier_noteInput" maxlength="300" placeholder="e.g. counted, deposited in bank"></div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="cashier_saveBtn">Confirm received</button>
+            <button type="button" class="ghost" id="cashier_correctBtn" style="display:none;" onclick="cashierCorrect_()">Save correction</button>
             <button type="button" class="ghost" onclick="cashierCloseEdit()">Cancel</button>
             <span id="cashier_statusMsg" class="status-msg"></span>
           </div>
@@ -1843,6 +1853,7 @@
         EITHER_TYPES = data.dropdowns.eitherTypes || [];
         fillSelect_('shop_orderVia', data.dropdowns.orderVia);
         fillSelect_('shop_typeOfSubmission', data.dropdowns.typeOfSubmission);
+        fillSelect_('shop_advanceMode', data.dropdowns.advanceMode || []);
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
         fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
         shopRenderOrders(data.recentOrders);
@@ -1940,7 +1951,9 @@
       dcNo: document.getElementById('shop_dcNo').value,
       typeOfSubmission: document.getElementById('shop_typeOfSubmission').value,
       billSeries: billValue_('shop'),
-      detailedRemarks: document.getElementById('shop_detailedRemarks').value
+      detailedRemarks: document.getElementById('shop_detailedRemarks').value,
+      advanceAmount: document.getElementById('shop_advanceAmount').value,
+      advanceMode: document.getElementById('shop_advanceMode').value
     };
     VT.run
       .withSuccessHandler(function(res) {
@@ -2266,6 +2279,7 @@
       setDatePickerValue('dispatch_dateOfReceiving', o.dateOfReceiving || isoToday_());
       document.getElementById('dispatch_paymentStatus').value = o.paymentStatus || '';
       document.getElementById('dispatch_amountReceived').value = o.amountReceivedRaw || '';
+      lockAmountFields_(document.getElementById('dispatch_paymentStatus'), document.getElementById('dispatch_amountReceived'), o);
     } else {
       receivingField.style.display = 'none';
       paymentField.style.display = 'none';
@@ -2529,6 +2543,7 @@
   /* ================= CASHIER ================= */
   var CASHIER_ORDERS = {};
   var CASHIER_CAN_EDIT = false;
+  var CASHIER_MODES = [];
 
   function initCashier() {
     setupVisibleTo_('cashier', 'cashier_visibleTo');
@@ -2564,7 +2579,7 @@
     document.getElementById('cashier_modes').textContent = d.summary.awaiting.byMode.length
       ? 'Awaiting by payment: ' + d.summary.awaiting.byMode.map(function (m) { return m.mode + ' - ' + m.orders + ' order' + (m.orders === 1 ? '' : 's') + ', ₹ ' + cartageMoney_(m.amount); }).join('  ·  ') : '';
 
-    CASHIER_ORDERS = {};
+    CASHIER_ORDERS = {}; CASHIER_MODES = d.modes || [];
     document.getElementById('cashier_pendingCount').textContent = d.awaiting.length;
     document.getElementById('cashier_pendingEmpty').style.display = d.awaiting.length ? 'none' : 'block';
     var pb = document.getElementById('cashier_pendingBody'); pb.innerHTML = '';
@@ -2600,10 +2615,36 @@
     document.getElementById('cashier_editingInfo').textContent = '- ' + (o.shippingLocation || '') + ' (DC ' + o.dcNo + ')';
     document.getElementById('cashierEditForm').dataset.slNo = slNo;
     document.getElementById('cashier_payment').value = o.paymentStatus || '';
-    document.getElementById('cashier_amount').value = o.amountReceived == null ? '' : cartageMoney_(o.amountReceived);
+    var amt = document.getElementById('cashier_amount'), sel = document.getElementById('cashier_paymentSel'), fix = !!o.canCorrect;
+    amt.type = fix ? 'number' : 'text'; amt.readOnly = !fix;
+    document.getElementById('cashier_correctBtn').style.display = fix ? '' : 'none';
+    document.getElementById('cashier_payment').style.display = fix ? 'none' : ''; sel.style.display = fix ? '' : 'none';
+    if (fix) {
+      // an advance taken at the shop can be corrected until it is merged into Payments; the amount is typed as entered (the screens show it / 100)
+      amt.step = '1'; amt.min = '0'; amt.value = o.amountRaw == null ? '' : o.amountRaw;
+      var modes = (CASHIER_MODES || []).slice(); if (modes.indexOf(o.paymentStatus) < 0) modes.push(o.paymentStatus);
+      sel.innerHTML = ''; modes.forEach(function (n) { var op = document.createElement('option'); op.value = op.textContent = n; sel.appendChild(op); });
+      sel.value = o.paymentStatus || '';
+    } else {
+      amt.value = o.amountReceived == null ? '' : cartageMoney_(o.amountReceived);
+    }
     document.getElementById('cashier_noteInput').value = '';
     document.getElementById('cashier_statusMsg').textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function cashierCorrect_() {
+    var form = document.getElementById('cashierEditForm'), msg = document.getElementById('cashier_statusMsg'), btn = document.getElementById('cashier_correctBtn');
+    if (btn.disabled) return;
+    btn.disabled = true; msg.className = 'status-msg'; msg.textContent = 'Saving...';
+    VT.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res || !res.ok || !res.success) { msg.className = 'status-msg error'; msg.textContent = (res && (res.message || res.error)) || 'No response'; return; }
+        cashierCloseEdit(); initCashier();
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
+      .correctCashier(CURRENT_TOKEN, Number(form.dataset.slNo), { amount: document.getElementById('cashier_amount').value,
+        paymentStatus: document.getElementById('cashier_paymentSel').value, note: document.getElementById('cashier_noteInput').value });
   }
   function cashierCloseEdit() {
     document.getElementById('cashier_editCard').style.display = 'none';
@@ -2643,6 +2684,24 @@
       });
     });
   });
+
+  /* The amount and payment mode of an order whose advance was entered at the shop: shown, but read-only on the receiving screens. */
+  function lockAmountFields_(selectEl, inputEl, o) {
+    if (!selectEl || !inputEl) return;
+    var locked = !!(o && o.amountLocked);
+    if (locked && o.paymentStatus) {
+      var has = Array.prototype.some.call(selectEl.options, function (op) { return op.value === o.paymentStatus; });
+      if (!has) { var opt = document.createElement('option'); opt.value = opt.textContent = o.paymentStatus; opt.dataset.lockedOnly = '1'; selectEl.appendChild(opt); }
+      selectEl.value = o.paymentStatus;
+    } else {
+      Array.prototype.slice.call(selectEl.querySelectorAll('option[data-locked-only]')).forEach(function (op) { op.remove(); });
+    }
+    selectEl.disabled = locked; inputEl.readOnly = locked;
+    if (locked) selectEl.removeAttribute('required');
+    else if (selectEl.id === 'receiving_paymentStatus') selectEl.setAttribute('required', '');
+    var tip = locked ? 'Entered at the shop (advance) - locked. The cashier or an admin can correct it.' : '';
+    selectEl.title = inputEl.title = tip;
+  }
 
   /* ================= RECEIVING ================= */
   var RECEIVING_ORDERS = {};
@@ -2709,6 +2768,7 @@
     setDatePickerValue('receiving_dateOfReceiving', o.dateOfReceiving || isoToday_());
     document.getElementById('receiving_paymentStatus').value = o.paymentStatus || '';
     document.getElementById('receiving_amountReceived').value = o.amountReceivedRaw || '';
+    lockAmountFields_(document.getElementById('receiving_paymentStatus'), document.getElementById('receiving_amountReceived'), o);
     photoBoxInit_('receivingPhoto', '📷 Receiving photo');
     photoShowExisting_('receivingPhoto', slNo, 'receiving');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2863,6 +2923,10 @@
       if (sec.inputs.dateOfReceiving) sec.inputs.dateOfReceiving.value = o.dateOfReceiving || isoToday_();
       if (sec.inputs.paymentStatus) sec.inputs.paymentStatus.value = o.paymentStatus || '';
       if (sec.inputs.amountReceived) sec.inputs.amountReceived.value = o.amountReceivedRaw || '';
+      if (sec.inputs.paymentStatus && sec.inputs.amountReceived) {
+        lockAmountFields_(sec.inputs.paymentStatus, sec.inputs.amountReceived, o);
+        if (o.amountLocked) sec.inputs.paymentStatus.required = false;
+      }
       if (sec.inputs.deliveredByDetail) {
         sec.inputs.deliveredByWhom.onchange = function () { toggleDetail(sec); };
         sec.wraps.deliveredByDetail.style.display = needsDeliveredByDetail_(sec.inputs.deliveredByWhom.value) ? '' : 'none';

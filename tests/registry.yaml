@@ -318,3 +318,11 @@ entries:
       - tests/test_payment_merge.py::test_cancelled_order_merges_as_a_sale_return
       - tests/test_payment_merge.py::test_order_edited_after_merge_updates_the_same_entry_and_only_flags_an_approved_one
       - tests/test_payment_merge.py::test_withdrawing_a_confirmation_removes_its_waiting_row_and_sales_are_not_typed_by_hand
+  - id: O2D-ADVANCE-1
+    what: Shop advance (amount + payment mode) is saved with the order, reaches the cashier at once, is locked for dispatch / receiving / bulk saves, and the cashier corrects it only until it is merged (then admin only)
+    speed: fast
+    tests:
+      - tests/test_shop_advance.py::test_shop_advance_reaches_the_cashier_at_once_and_is_locked_downstream
+      - tests/test_shop_advance.py::test_godown_receiving_cannot_change_a_locked_amount_but_an_admin_can
+      - tests/test_shop_advance.py::test_advance_needs_both_fields_and_a_cashier_mode
+      - tests/test_shop_advance.py::test_cashier_corrects_a_pending_advance_but_not_a_merged_one
