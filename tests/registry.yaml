@@ -326,3 +326,5 @@ entries:
       - tests/test_shop_advance.py::test_godown_receiving_cannot_change_a_locked_amount_but_an_admin_can
       - tests/test_shop_advance.py::test_advance_needs_both_fields_and_a_cashier_mode
       - tests/test_shop_advance.py::test_cashier_corrects_a_pending_advance_but_not_a_merged_one
+      - tests/test_shop_advance.py::test_shop_edit_adds_changes_and_removes_an_advance_until_the_cashier_confirms
+      - tests/test_shop_advance.py::test_shop_edit_cannot_add_an_advance_to_an_amount_set_at_receiving

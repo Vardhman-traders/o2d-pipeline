@@ -508,6 +508,15 @@
               <label class="with-badge"><span class="field-badge" style="background:var(--shop-color);">6</span>Detailed Remarks</label>
               <textarea id="shopedit_detailedRemarks" placeholder="Full shipping address, contact number, rate notes, etc."></textarea>
             </div>
+            <div class="field">
+              <label>Advance Amount (Rs) <span style="font-weight:400;color:var(--muted);">- if money was taken now</span></label>
+              <input type="number" id="shopedit_advanceAmount" min="0" step="1" placeholder="0">
+            </div>
+            <div class="field">
+              <label>Advance Paid By</label>
+              <select id="shopedit_advanceMode"><option value="">-- select --</option></select>
+            </div>
+            <div id="shopedit_advanceNote" style="grid-column:span 2;font-size:11.5px;color:var(--muted);">You can add, change or clear the advance until the cashier confirms it. Clear both fields to remove it.</div>
           </div>
           <div class="actions">
             <button type="submit" class="primary" id="shopedit_saveBtn">Save Changes</button>
@@ -1856,6 +1865,7 @@
         fillSelect_('shop_advanceMode', data.dropdowns.advanceMode || []);
         fillSelect_('shopedit_orderVia', data.dropdowns.orderVia);
         fillSelect_('shopedit_typeOfSubmission', data.dropdowns.typeOfSubmission);
+        fillSelect_('shopedit_advanceMode', data.dropdowns.advanceMode || []);
         shopRenderOrders(data.recentOrders);
         document.getElementById('shop_dateWindowNote').textContent = '📋 New Orders tracks every order that is not fully closed, with its Godown status and Delivered by updating as it moves on. Orders that were fully closed stay listed until they are archived. Use Search for older records.';
       })
@@ -1894,6 +1904,19 @@
     document.getElementById('shopedit_dcNo').value = o.dcNo || '';
     document.getElementById('shopedit_shippingLocation').value = o.shippingLocation || '';
     document.getElementById('shopedit_detailedRemarks').value = o.detailedRemarks || '';
+    // the advance: editable until the cashier confirms it; an amount set at the receiving screens (not an advance) is not the shop's to edit
+    var advAmt = document.getElementById('shopedit_advanceAmount'), advMode = document.getElementById('shopedit_advanceMode');
+    var advNote = document.getElementById('shopedit_advanceNote');
+    Array.prototype.slice.call(advMode.querySelectorAll('option[data-extra]')).forEach(function (op) { op.remove(); });
+    if (o.paymentStatus && !Array.prototype.some.call(advMode.options, function (op) { return op.value === o.paymentStatus; })) {
+      var extra = document.createElement('option'); extra.value = extra.textContent = o.paymentStatus; extra.dataset.extra = '1'; advMode.appendChild(extra);
+    }
+    advAmt.value = o.amountReceivedRaw || ''; advMode.value = o.paymentStatus || '';
+    advAmt.disabled = advMode.disabled = !o.advanceEditable;
+    advNote.textContent = o.advanceEditable
+      ? 'You can add, change or clear the advance until the cashier confirms it. Clear both fields to remove it.'
+      : (o.amountLocked ? 'The cashier has confirmed this advance, so it is locked. The cashier (until merged into Payments) or an admin can correct it.'
+                        : 'The amount of this order was entered at receiving, so it cannot be changed here.');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1917,7 +1940,10 @@
       billSeries: billValue_('shopedit'),
       dcNo: document.getElementById('shopedit_dcNo').value,
       shippingLocation: document.getElementById('shopedit_shippingLocation').value,
-      detailedRemarks: document.getElementById('shopedit_detailedRemarks').value
+      detailedRemarks: document.getElementById('shopedit_detailedRemarks').value,
+      advanceEdit: !document.getElementById('shopedit_advanceAmount').disabled,
+      advanceAmount: document.getElementById('shopedit_advanceAmount').value,
+      advanceMode: document.getElementById('shopedit_advanceMode').value
     };
     VT.run
       .withSuccessHandler(function(res) {

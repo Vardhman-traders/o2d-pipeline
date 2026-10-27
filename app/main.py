@@ -277,7 +277,7 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        o.shipping_location, o.detailed_remarks, o.timestamp_created,
        o.material_delivery_datetime, rd.full_date AS date_of_receiving,
        o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail, o.bill_series,
-       o.amount_locked_at, o.amount_locked_stage
+       o.amount_locked_at, o.amount_locked_stage, o.cashier_confirmed_at
 """ + ORDER_FROM
 
 Money = Optional[Decimal]
@@ -464,12 +464,12 @@ def update_order(sl_no: int, body: OrderPatch, archived: Optional[bool] = Query(
     return save_order(sl_no, body, archived, user, allow_closed=user["role"] == "admin")
 
 
-def save_order(sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False):
+def save_order(sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False, shop_advance: dict | None = None):
     """update_order for in-process callers. allow_closed lets an admin change a closed order (All orders > Edit); it is deliberately
     not something a request can ask for."""
     try:
         with db.cursor() as cur:
-            return apply_order_update(cur, sl_no, body, archived, user, allow_closed=allow_closed)[1]
+            return apply_order_update(cur, sl_no, body, archived, user, allow_closed=allow_closed, shop_advance=shop_advance)[1]
     except pgerr.ForeignKeyViolation as e:
         raise _fk_error(e)
 
@@ -486,9 +486,32 @@ def is_closed(o: dict) -> bool:
             and o.get("date_of_receiving") is not None and o.get("payment_status_key") is not None)
 
 
-def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False):
+def _shop_advance_change(before: dict, wanted: dict, user) -> tuple[dict, str]:
+    """What the shop's edit form may do to the advance: (order fields to write, "lock" / "unlock" / "").
+    The shop can add an advance to an order that has no amount yet, and change or remove it until the cashier has confirmed it; after that
+    only the cashier (until it is merged into Payments) or an admin can. Repeating the saved values changes nothing."""
+    amount, mode = wanted.get("amount_received"), wanted.get("payment_status_key")
+    if before.get("amount_locked_at"):
+        if amount == before["amount_received"] and mode == before["payment_status_key"]:
+            return {}, ""
+        if before.get("cashier_confirmed_at") and user["role"] != "admin":
+            raise HTTPException(403, "The cashier has already confirmed this advance, so it can no longer be changed here. "
+                                     "Ask the cashier to correct it (until it is merged into Payments) or an admin.")
+        if not wanted:
+            return {"amount_received": None, "payment_status_key": None}, "unlock"
+        return {"amount_received": amount, "payment_status_key": mode}, ""
+    if not wanted:
+        return {}, ""
+    if before["amount_received"] is not None or before["payment_status_key"] is not None:
+        raise HTTPException(409, "This order already has an amount and payment mode from the receiving screen, so an advance cannot be added here.")
+    return {"amount_received": amount, "payment_status_key": mode}, "lock"
+
+
+def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_closed: bool = False, shop_advance: dict | None = None):
     """The one update path (permission, test-account, visibility and bill-number checks, the write and the order_event row) on a cursor
     the caller owns - so the bulk "Mark done" can save several orders in one transaction with exactly the single-order rules.
+    shop_advance: the advance the shop edit form carries - None (the form says nothing about it), {} (no advance) or
+    {amount_received, payment_status_key}. See _shop_advance_change.
     Returns (order before, order after)."""
     fields = body.model_dump(exclude_unset=True)
     _check_editable(fields, user)
@@ -517,6 +540,16 @@ def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_
             if fields[k] != before[k]:
                 raise HTTPException(403, AMOUNT_LOCKED_MESSAGE)
             del fields[k]
+        if not fields and shop_advance is None:
+            return before, before
+    lock_sql, lock_params = "", []
+    if shop_advance is not None:
+        change, lock = _shop_advance_change(before, shop_advance, user)
+        fields.update(change)
+        if lock == "lock":
+            lock_sql, lock_params = ", amount_locked_at = now(), amount_locked_by_user_key = %s, amount_locked_stage = 'shop'", [user["user_key"]]
+        elif lock == "unlock":
+            lock_sql = ", amount_locked_at = NULL, amount_locked_by_user_key = NULL, amount_locked_stage = NULL"
         if not fields:
             return before, before
     cols = _db_columns(fields)
@@ -527,9 +560,9 @@ def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_
         params.append(fields["delivery_status_key"])
     _check_doc_number(cur, user, fields, before)
     cur.execute(
-        f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
+        f"UPDATE fact_orders SET {', '.join(sets)}{lock_sql}, last_updated_by_user_key = %s, "
         f"last_updated_at = now() WHERE order_key = %s",
-        params + [user["user_key"], row["order_key"]])
+        params + lock_params + [user["user_key"], row["order_key"]])
     cur.execute(ORDER_SELECT + " WHERE o.order_key = %s", (row["order_key"],))
     after = cur.fetchone()
     timeline.record_update(cur, row["order_key"], user, before, after)
