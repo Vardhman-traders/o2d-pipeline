@@ -95,6 +95,9 @@ def map_order(o: dict) -> dict:
         "cartage": _num(o["cartage"]), "lastUpdatedBy": o["last_updated_by"] or "",
         "createdBy": o["created_by"] or "",
         "amountLocked": bool(o.get("amount_locked_at")),     # entered at the shop: the receiving screens show it read-only
+        # the shop's own edit form: an advance can be added / changed until the cashier confirms it (main._shop_advance_change)
+        "advanceEditable": (not o.get("cashier_confirmed_at")) if o.get("amount_locked_at")
+        else (o["amount_received"] is None and o["payment_status"] is None),
     }
 
 
@@ -223,13 +226,14 @@ def _screen_orders(user, screen: str) -> list[dict]:
     return _open_then_closed(user, roles.screen_filter(screen), "o.timestamp_created DESC")
 
 
-def _write(user, sl_no: int, payload: dict, archived: bool | None = None, allow_closed: bool = False) -> dict:
+def _write(user, sl_no: int, payload: dict, archived: bool | None = None, allow_closed: bool = False, shop_advance: dict | None = None) -> dict:
     """Apply a partial update through the one real update path; translate errors to {success: False}."""
     from . import main
     if any(k.endswith("_key") and v is None for k, v in payload.items()):
         return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
     try:
-        row = main.save_order(sl_no, main.OrderPatch(**payload), archived, user, allow_closed=allow_closed or user["role"] == "admin")   # an admin may change an order at any stage
+        row = main.save_order(sl_no, main.OrderPatch(**payload), archived, user, allow_closed=allow_closed or user["role"] == "admin",
+                              shop_advance=shop_advance)   # an admin may change an order at any stage
     except HTTPException as e:
         return {"ok": True, "success": False, "message": str(e.detail)}
     except ValueError as e:  # pydantic validation
@@ -674,6 +678,7 @@ class Form(BaseModel):
     paymentStatus: str | None = None
     amountReceived: Any = None
     advanceAmount: Any = None      # shop only, on a NEW order: the advance taken at the counter ...
+    advanceEdit: bool = False      # shop EDIT form: the advance fields are on offer (so empty means "remove it"); false = leave the advance alone
     advanceMode: str | None = None     # ... and how it was paid (a payment status that goes to the Cashier dashboard)
     photosFollow: bool = False     # dispatch save: photos are uploaded next, so the WhatsApp message waits for them (the page asks for it afterwards)
 
@@ -748,7 +753,12 @@ def update_shop(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     missing = _missing_required(form)
     if missing:
         return {"ok": True, "success": False, "message": "Missing required field(s): " + ", ".join(missing)}
-    return _write(user, sl_no, _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types")))
+    advance, err = _advance_fields(form) if form.advanceEdit else ({}, None)
+    if err:
+        return {"ok": True, "success": False, "message": err}
+    # advanceEdit: filled = add / change the advance, empty = remove it (see main._shop_advance_change); otherwise it is left alone
+    return _write(user, sl_no, _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types")),
+                  shop_advance=advance if form.advanceEdit else None)
 
 
 def _receiving_fields(form: Form, payments) -> dict:

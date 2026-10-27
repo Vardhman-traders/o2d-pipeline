@@ -139,3 +139,72 @@ def test_cashier_corrects_a_pending_advance_but_not_a_merged_one(client, db_conn
         cur.execute("SELECT title FROM order_event WHERE event_type = 'cashier' AND title LIKE 'Cashier corrected the advance%%' "
                     "AND order_key = (SELECT order_key FROM fact_orders WHERE sl_no = %s)", (sl,))
         assert len(cur.fetchall()) == 2
+
+
+def _edit(client, shop, sl, order, **extra):
+    """The shop's Edit My Order form: the same fields it was created with, plus the advance (advanceEdit = the fields are on offer)."""
+    body = {"orderRcvdDate": order["orderRcvdDate"], "orderVia": "Call", "dcNo": order["dcNo"], "typeOfSubmission": "Challan",
+            "advanceEdit": True, **extra}
+    return client.put(f"/o2d/orders/{sl}/shop", headers=shop, json=body).json()
+
+
+def _shop_screen_order(client, shop, sl):
+    d = client.get("/o2d/shop", headers=shop).json()
+    return next(o for o in d["recentOrders"] if o["slNo"] == sl)
+
+
+def test_shop_edit_adds_changes_and_removes_an_advance_until_the_cashier_confirms(client, db_conn, seed):
+    admin = login(client, db_conn, "admin")
+    cash, bank = _status(client, admin, True), _status(client, admin, True)
+    cashier = _cashier(client, db_conn)
+    shop = login(client, db_conn, "shop")
+    sl = _shop_order(client, db_conn, shop)["slNo"]                       # punched without an advance
+    order = _shop_screen_order(client, shop, sl)
+    assert order["advanceEditable"] is True and order["amountLocked"] is False
+
+    # add it afterwards: it is saved, locked and reaches the cashier
+    assert _edit(client, shop, sl, order, advanceAmount=3000, advanceMode=cash)["success"] is True
+    amount, _, locked_at, stage = _order_row(db_conn, sl)
+    assert float(amount) == 3000 and locked_at is not None and stage == "shop"
+    assert sl in {o["slNo"] for o in client.get("/o2d/cashier", headers=cashier).json()["awaiting"]}
+
+    # change it, then repeat the same values (nothing happens), then half-fill it (refused)
+    assert _edit(client, shop, sl, order, advanceAmount=3500, advanceMode=bank)["success"] is True
+    assert float(_order_row(db_conn, sl)[0]) == 3500
+    assert _edit(client, shop, sl, order, advanceAmount=3500, advanceMode=bank)["success"] is True
+    assert _edit(client, shop, sl, order, advanceAmount=3500)["success"] is False
+    assert float(_order_row(db_conn, sl)[0]) == 3500
+
+    # clearing both removes the advance and unlocks the order; the cashier no longer sees it
+    assert _edit(client, shop, sl, order)["success"] is True
+    assert _order_row(db_conn, sl) == (None, None, None, None)
+    assert sl not in {o["slNo"] for o in client.get("/o2d/cashier", headers=cashier).json()["awaiting"]}
+
+    # once the cashier confirmed it the shop can no longer touch it (the form offers it read-only)
+    assert _edit(client, shop, sl, order, advanceAmount=4000, advanceMode=cash)["success"] is True
+    assert _confirm(client, cashier, sl).json()["success"] is True
+    assert _shop_screen_order(client, shop, sl)["advanceEditable"] is False
+    refused = _edit(client, shop, sl, order, advanceAmount=9000, advanceMode=cash)
+    assert refused["success"] is False and "confirmed" in refused["message"]
+    assert _edit(client, shop, sl, order, advanceAmount=4000, advanceMode=cash)["success"] is True      # unchanged values are fine
+    assert float(_order_row(db_conn, sl)[0]) == 4000
+    # the form not offering the advance (advanceEdit false) leaves it alone, even with other fields changed
+    body = {"orderRcvdDate": order["orderRcvdDate"], "orderVia": "Call", "dcNo": order["dcNo"], "typeOfSubmission": "Challan",
+            "shippingLocation": "New address"}
+    assert client.put(f"/o2d/orders/{sl}/shop", headers=shop, json=body).json()["success"] is True
+    assert float(_order_row(db_conn, sl)[0]) == 4000
+
+
+def test_shop_edit_cannot_add_an_advance_to_an_amount_set_at_receiving(client, db_conn, seed):
+    admin = login(client, db_conn, "admin")
+    cash = _status(client, admin, True)
+    shop = login(client, db_conn, "shop")
+    sl = _shop_order(client, db_conn, shop)["slNo"]
+    sd = _to_shop_dispatch(client, db_conn, sl)
+    today = o2d_screens.today_ist().isoformat()
+    assert client.put(f"/o2d/orders/{sl}/dispatch", headers=sd, json={
+        "materialDeliveryDateTime": f"{today}T11:00", "deliveredByWhom": "Amit", "paymentStatus": cash, "amountReceived": 800}).json()["success"]
+    order = _shop_screen_order(client, shop, sl)
+    assert order["advanceEditable"] is False and order["amountLocked"] is False
+    assert _edit(client, shop, sl, order, advanceAmount=500, advanceMode=cash)["success"] is False
+    assert float(_order_row(db_conn, sl)[0]) == 800
