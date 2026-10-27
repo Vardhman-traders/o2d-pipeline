@@ -109,14 +109,14 @@ ALERTS: dict[str, dict] = {
         "sample": {"date": "19-10-2026", "time": "9:00 PM", "list": "1. Awaiting receiving (25 orders)\nhttps://example.com/r/3\n2. Godown - pending orders (38 orders)\nhttps://example.com/r/4"},
         "template": "*Reports - {time}* - Vardhman Traders\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
     "deleg_assigned": {
-        "label": "Delegation - task given", "group_label": "Delegation group", "app_title": "New task: {task}",
+        "setup": False, "label": "Delegation - task given", "group_label": "Delegation group", "app_title": "New task: {task}",
         "when": "As soon as a task is given (or handed to someone else). The person it is for and every admin also get it on the web bell.",
         "placeholders": {"name": "Who the task is for", "task": "The task", "due": "Deadline (dd-mm-yyyy)", "assigned_by": "Who gave it", "task_id": "Task number"},
         "sample": {"name": "Asha Verma", "task": "Count and tag the new stock in rack B", "due": "25-10-2026", "assigned_by": "Meera Manager", "task_id": "T-00123"},
         "template": ("*New task* - Vardhman Traders\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due}\n🙋 Given by: {assigned_by}\n"
                      "🔖 {task_id}\n" + RULE)},
     "deleg_done": {
-        "label": "Delegation - task completed", "group_label": "Delegation group", "group_from": "deleg_assigned", "app_title": "Task completed by {name}: {task}",
+        "setup": False, "label": "Delegation - task completed", "group_label": "Delegation group", "group_from": "deleg_assigned", "app_title": "Task completed by {name}: {task}",
         "when": "When a person marks a task complete. Empty group = the 'task given' group. Every admin also gets it on the web bell.",
         "placeholders": {"name": "Who did the task", "task": "The task", "due": "Deadline (dd-mm-yyyy)", "timing": "'on time' or 'late'",
                          "score": "Points earned", "notes": "The note they wrote (or a dash)", "task_id": "Task number"},
@@ -125,13 +125,13 @@ ALERTS: dict[str, dict] = {
         "template": ("*Task completed* - Vardhman Traders\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due} ({timing})\n"
                      "⭐ Points: {score}\n🗒️ {notes}\n🔖 {task_id}\n" + RULE)},
     "chk_assigned": {
-        "label": "Checklist - checklist given", "group_label": "Checklist group", "app_title": "New checklist: {title}",
+        "setup": False, "label": "Checklist - checklist given", "group_label": "Checklist group", "app_title": "New checklist: {title}",
         "when": "When a checklist is created for someone (or handed to someone else). The person and every admin also get it on the web bell.",
         "placeholders": {"name": "Who the checklist is for", "title": "The checklist", "when": "How often, like 'Every Saturday'", "assigned_by": "Who set it"},
         "sample": {"name": "Sunil Yadav", "title": "Close the cash register and lock the godown", "when": "Every day (except the weekly off)", "assigned_by": "Meera Manager"},
         "template": ("*New checklist* - Vardhman Traders\n" + RULE + "\n👤 {name}\n✅ {title}\n🔁 {when}\n🙋 Set by: {assigned_by}\n" + RULE)},
     "chk_done": {
-        "label": "Checklist - item marked", "group_label": "Checklist group", "group_from": "chk_assigned", "app_title": "Checklist {status}: {title} ({name})",
+        "setup": False, "label": "Checklist - item marked", "group_label": "Checklist group", "group_from": "chk_assigned", "app_title": "Checklist {status}: {title} ({name})",
         "when": "Each time a checklist item is marked Done or Not Done. Off to start with - a daily checklist sends one message per item. Empty group = the 'checklist given' group.",
         "placeholders": {"name": "Who the item belongs to", "title": "The checklist", "due": "Due date (dd-mm-yyyy)", "status": "Done / Not Done",
                          "remark": "The reason (or a dash)", "marked_by": "Who marked it"},
@@ -271,6 +271,7 @@ def list_alerts(admin=Depends(ADMIN)):
                     "group_from_label": ALERTS[spec["group_from"]]["label"] if spec.get("group_from") else "",
                     "group_effective": bool(eff["group_id"]), "group_source": eff["group_source"],
                     "sample": spec["sample"], "web_bell": bool(spec.get("app_title")),
+                    "hidden": spec.get("setup") is False,        # kept working (the web bell), but not offered in Setup > WhatsApp
                     "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None})
     return {"alerts": out, "credentials_set": credentials_set()}
 

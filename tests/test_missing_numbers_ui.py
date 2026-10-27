@@ -82,6 +82,6 @@ def test_reports_are_one_multi_select_and_download_one_pdf_each(base_url, migrat
         expect(page.locator("#rep_msg")).to_have_text("Downloaded 3 reports.", timeout=20000)
         # the cartage and "not cash" reports are no longer offered in the picker
         page.click("#rep_pickBtn")
-        for kind in ("cartage-detail", "cartage-by-employee", "godown-received-other", "shop-received-other"):
+        for kind in ("cartage-detail", "cartage-by-employee", "godown-received-other", "shop-received-other"):   # (the "not cash" reports are gone for good)
             assert page.locator(f'#rep_picker input[data-report="{kind}"]').count() == 0
         browser.close()

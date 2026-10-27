@@ -19,11 +19,11 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import access, auth, config, db, payment_merge, roles, timeline
-from .o2d_screens import MAX_ADVANCE, _advance_modes, _key_by_name, cleanup_cutoff
+from .o2d_screens import MAX_ADVANCE, _advance_modes, _key_by_name, cleanup_cutoff, screen_response
 
 router = APIRouter(prefix="/o2d/cashier", tags=["o2d-cashier"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -108,6 +108,7 @@ def fetch_cashier(user) -> tuple[list[dict], list[dict]]:
     older ones), latest confirmation first in the other. Nothing is cut off: every awaiting order is listed."""
     guard = _test_guard(user)
     with db.cursor() as cur:
+        db.plan_cheaply(cur)
         cur.execute(_select() + " WHERE ps.cashier_review = 'yes' AND o.cashier_confirmed_at IS NULL"
                     f"{guard} ORDER BY o.last_updated_at DESC, o.sl_no DESC")
         awaiting = cur.fetchall()
@@ -131,13 +132,14 @@ def _summary(rows: list[dict]) -> dict:
 
 
 @router.get("")
-def cashier_screen(user=Depends(access.require_page(PAGE))):
-    awaiting, confirmed = fetch_cashier(user)
-    pend, done = [_row(r) for r in awaiting], [_row(r) for r in confirmed]
-    return {"ok": True, "awaiting": pend, "confirmed": done, "canEdit": not access.is_view_only(user, PAGE),
-            "modes": [m["name"] for m in _advance_modes()],     # what an advance can be corrected to
-
-            "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": False}
+def cashier_screen(request: Request, user=Depends(access.require_page(PAGE))):
+    def build():
+        awaiting, confirmed = fetch_cashier(user)
+        pend, done = [_row(r) for r in awaiting], [_row(r) for r in confirmed]
+        return {"ok": True, "awaiting": pend, "confirmed": done, "canEdit": not access.is_view_only(user, PAGE),
+                "modes": [m["name"] for m in _advance_modes()],     # what an advance can be corrected to
+                "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": False}
+    return screen_response(request, user, build)
 
 
 @router.get("/visible-to")

@@ -36,8 +36,8 @@ router = APIRouter(prefix="/o2d/daily-reports", tags=["daily-reports"])
 # kinds = every order-based report kept for the batch (the Reports card's); whatsapp = the ones listed in the group message, in order
 BATCHES = {
     "evening": {"at": time(19, 30), "label": "7:30 PM", "persons": True, "alert": "reports_evening",
-                "kinds": ("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other", "received-bank", "received-other-all"),
-                "whatsapp": ("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other")},
+                "kinds": ("godown-received-cash", "shop-received-cash", "received-bank", "received-other-all"),
+                "whatsapp": ("godown-received-cash", "shop-received-cash")},
     "night": {"at": time(21, 0), "label": "9:00 PM", "persons": False, "alert": "reports_night",
               "kinds": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending"),
               "whatsapp": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending")},

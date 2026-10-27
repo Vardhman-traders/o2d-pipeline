@@ -328,3 +328,20 @@ entries:
       - tests/test_shop_advance.py::test_cashier_corrects_a_pending_advance_but_not_a_merged_one
       - tests/test_shop_advance.py::test_shop_edit_adds_changes_and_removes_an_advance_until_the_cashier_confirms
       - tests/test_shop_advance.py::test_shop_edit_cannot_add_an_advance_to_an_amount_set_at_receiving
+  - id: O2D-DASH-1
+    what: Dashboard clean-up - Overview board smallest number first, All orders opens on open orders (closed one click away), the admin edit form reaches every pipeline column, Setup > WhatsApp hides the delegation / checklist alerts, fast duplicate finder
+    speed: fast
+    tests:
+      - tests/test_dashboard_batch.py::test_board_cards_run_from_the_smallest_number_to_the_largest
+      - tests/test_dashboard_batch.py::test_all_orders_opens_without_closed_entries_but_keeps_them_one_click_away
+      - tests/test_dashboard_batch.py::test_the_admin_edit_form_reaches_every_column_of_the_pipeline
+      - tests/test_dashboard_batch.py::test_setup_whatsapp_hides_the_delegation_and_checklist_alerts_but_they_keep_working
+      - tests/test_dashboard_batch.py::test_duplicate_finder_is_exact_where_it_matters_and_fast_on_a_long_list
+  - id: PERF-1
+    what: The order screens keep their finished answer per person until a write is committed (and drop it after 20 s), compressed and never shared between people
+    speed: fast
+    tests: [tests/test_dashboard_batch.py::test_screen_responses_are_kept_until_something_is_written]
+  - id: O2D-REPORTS-2
+    what: Reports - Godown Cash, Shop Cash, Godown + Shop Bank, Godown + Shop Received Signed Copy; the not-cash reports are gone
+    speed: fast
+    tests: [tests/test_receiving_reports.py::test_godown_and_shop_receiving_reports_each_hold_only_their_side]

@@ -204,7 +204,7 @@ function formDialog({ title, fields, submitLabel = 'Save', onSubmit, extraButton
       const el = inputs[f.name];
       if (f.type === 'checks') values[f.name] = Array.from(el.querySelectorAll('input:checked'), (c) => c.value);
       else if (f.type === 'bool') values[f.name] = el.checked;
-      else if (f.type === 'number') values[f.name] = Number(el.value || 0);
+      else if (f.type === 'number') values[f.name] = f.optional && el.value === '' ? '' : Number(el.value || 0);   // optional: left empty stays empty (not 0)
       else values[f.name] = el.value.trim();
       if (f.required && (values[f.name] === '' || values[f.name] == null)) { err.textContent = `${f.label} is required.`; return; }
     }

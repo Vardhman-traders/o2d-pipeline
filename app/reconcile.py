@@ -110,22 +110,50 @@ def _rows(cur, spec) -> list[dict]:
     return rows
 
 
-def suggest(rows: list[dict]) -> list[dict]:
-    """Pairs that look like the same thing spelled two ways (same role for people)."""
-    out = []
-    norm = [(r, _norm(r["name"])) for r in rows]
-    for i, (a, na) in enumerate(norm):
-        for b, nb in norm[i + 1:]:
-            if a["role"] != b["role"] or not na or not nb:
+_SUGGEST_CACHE: dict = {}
+
+
+def suggest(rows: list[dict], similar: float = SIMILAR, limit: int = MAX_SUGGESTIONS) -> list[dict]:
+    """Pairs that look like the same thing spelled two ways (same role for people).
+
+    Cheap on long lists (the party list can hold thousands of names): identical spellings are found with a dictionary, and the fuzzy
+    comparison only runs between names that start with the same letter and are close in length - the way two spellings of one name
+    nearly always look. The answer is remembered until the list changes, so opening the Setup tab again costs nothing."""
+    stamp = (similar, limit, hash(tuple((r["key"], r["name"], r["role"]) for r in rows)))
+    if stamp in _SUGGEST_CACHE:
+        return _SUGGEST_CACHE[stamp]
+    out, seen = [], set()
+    groups: dict[tuple, list] = {}
+    for r in rows:
+        n = _norm(r["name"])
+        if n:
+            groups.setdefault((r["role"], n), []).append(r)
+    for (role, n), same_rows in groups.items():      # the same name written two ways (capitals, spaces, dots ...)
+        for i, a in enumerate(same_rows):
+            for b in same_rows[i + 1:]:
+                out.append({"keys": [a["key"], b["key"]], "names": [a["name"], b["name"]], "role": role, "score": 1.0})
+                seen.add((a["key"], b["key"]))
+    blocks: dict[tuple, list] = {}
+    for (role, n), same_rows in groups.items():
+        blocks.setdefault((role, n[0]), []).append((n, same_rows[0]))
+    longest = (2 - similar) / similar                # two names can only be similar when the longer is at most this much longer
+    for items in blocks.values():
+        items.sort(key=lambda x: len(x[0]))
+        for i, (na, a) in enumerate(items):
+            if len(na) < 3:
                 continue
-            same = na == nb
-            sm = SequenceMatcher(None, na, nb)
-            if same or (min(len(na), len(nb)) >= 3 and sm.real_quick_ratio() >= SIMILAR
-                        and sm.quick_ratio() >= SIMILAR and sm.ratio() >= SIMILAR):
-                out.append({"keys": [a["key"], b["key"]], "names": [a["name"], b["name"]], "role": a["role"],
-                            "score": 1.0 if same else round(sm.ratio(), 2)})
+            for nb, b in items[i + 1:]:
+                if len(nb) > len(na) * longest:
+                    break
+                sm = SequenceMatcher(None, na, nb)
+                if sm.real_quick_ratio() >= similar and sm.quick_ratio() >= similar and sm.ratio() >= similar:
+                    out.append({"keys": [a["key"], b["key"]], "names": [a["name"], b["name"]], "role": a["role"], "score": round(sm.ratio(), 2)})
     out.sort(key=lambda s: -s["score"])
-    return out[:MAX_SUGGESTIONS]
+    out = out[:limit]
+    if len(_SUGGEST_CACHE) > 16:
+        _SUGGEST_CACHE.clear()
+    _SUGGEST_CACHE[stamp] = out
+    return out
 
 
 @router.get("")
@@ -146,7 +174,9 @@ def values(kind: str, admin=Depends(ADMIN)):
     with db.cursor() as cur:
         rows = _rows(cur, spec)
     return {"kind": kind, "label": spec["label"], "protected": sorted(spec["protected"]),
-            "role_labels": ROLE_LABEL if spec["role"] else None, "values": rows, "suggestions": suggest(rows)}
+            "role_labels": ROLE_LABEL if spec["role"] else None, "values": rows,
+            # the party list is long and mostly clean: only near-identical spellings are worth the admin's time
+            "suggestions": suggest(rows, 0.92, 40) if kind == "party" else suggest(rows)}
 
 
 class RenameIn(BaseModel):

@@ -47,11 +47,14 @@ def test_goods_return_is_subtracted_in_dashboards_exports_and_pdf_reports(client
     day = today - timedelta(days=22)               # a day of its own: the test database is shared by the whole run
     ensure_date(db_conn, day)
     sale, ret = _dc(), _dc()
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO dim_payment_status (status_name) VALUES ('Received signed copy') ON CONFLICT DO NOTHING")
+    db_conn.commit()
     for dc, status, amount in ((sale, "Sent to the Company", 10000), (ret, "Goods Return", 3000)):
         sl = add(client, h["shop"], day, dc)["slNo"]
         _status(client, h, sl, status)
         _dispatch(client, h, "godown_dispatch", sl)               # Goods Return is a normal godown-side status: it goes to Godown Dispatch
-        _receive(client, h, sl, day, amount)                      # received that same day: the received & payments PDF filters on the date of receiving
+        _receive(client, h, sl, day, amount, payment="Received signed copy")    # received that same day: the received & payments PDF filters on the date of receiving
     seen = {o["dcNo"]: o["amountReceived"] for o in client.get("/o2d/receiving", headers=h["receiving"]).json()["completed"]}
     assert seen[sale] == 100.0 and seen[ret] == -30.0                                                # the return shows as minus
 
@@ -63,7 +66,7 @@ def test_goods_return_is_subtracted_in_dashboards_exports_and_pdf_reports(client
     summary = {a: b for a, b, *_ in load_workbook(io.BytesIO(r.content))["Summary"].iter_rows(values_only=True)}
     assert float(summary["Amount received (Rs)"]) == 70.0                                            # Excel export summary
 
-    pdf = client.get("/o2d/reports/godown-received-other.pdf", params={"date_from": day.isoformat(), "date_to": day.isoformat()}, headers=h["admin"])
+    pdf = client.get("/o2d/reports/received-other-all.pdf", params={"date_from": day.isoformat(), "date_to": day.isoformat()}, headers=h["admin"])
     text = _pdf_text(pdf.content)
     assert "100.00" in text and "-30.00" in text and "70.00" in text                                 # rows and the total of the PDF report
 
