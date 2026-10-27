@@ -35,6 +35,8 @@ _RECEIVED = "o.date_of_receiving_key IS NOT NULL AND o.payment_status_key IS NOT
 # non-cash status) would silently drop out of every "not cash" / "all other" report.
 _CASH = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'cash' OR COALESCE(ps.payments_split, '') = 'cash')"
 _BANK = "(lower(btrim(COALESCE(ps.status_name, ''))) = 'bank' OR COALESCE(ps.payments_split, '') = 'bank')"
+# The payment mode "Received signed copy" (matched by name, ignoring case and extra spaces).
+_SIGNED_COPY = "lower(regexp_replace(btrim(COALESCE(ps.status_name, '')), '[[:space:]]+', ' ', 'g')) = 'received signed copy'"
 # Highest doc (DC / Inv) number first; numbers are compared as numbers (so 100 comes before 99), blanks last.
 _BY_DOC_NO = "NULLIF(regexp_replace(o.dc_inv_no, '[^0-9]', '', 'g'), '')::numeric DESC NULLS LAST, o.dc_inv_no DESC, o.sl_no DESC"
 _ORDERED_ON = "d.full_date"                       # what the From / To dates mean for the pending reports: the order date ...
@@ -60,12 +62,11 @@ _RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No"
                   ("Payment mode / status", "payment_status", 32, "L"), ("Cartage (Rs)", "cartage", 22, "R"),
                   ("Amount received (Rs)", "amount_received", 30, "R")]
 _DISPATCH_COLS = ORDER_COLS + [("Ready by", "ready_by", 24, "L"), ("Delivery status", "delivery_status", 24, "L")]
-def _received_report(side: str, label: str, mode: str, color: str) -> dict:
-    side_sql, cash_sql = (_SHOP if side == "shop" else _GODOWN_RECEIVING), (_CASH if mode == "cash" else f"NOT ({_CASH})")
-    what = "paid in cash" if mode == "cash" else "paid by any mode except cash (bank + other)"
-    return {"title": f"{label} Receiving - Received & Payments ({'Cash' if mode == 'cash' else 'Not cash - bank + other'})",
-            "file": f"{side}_received_{mode}", "color": color, "order": _NEWEST_RECEIVED, "date_field": _RECEIVED_ON,
-            "sections": [(f"{label} orders received, {what}", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {cash_sql}",
+def _received_cash_report(side: str, label: str, color: str) -> dict:
+    """Shop Cash / Godown Cash: the orders received on that side whose payment mode is cash."""
+    side_sql = _SHOP if side == "shop" else _GODOWN_RECEIVING
+    return {"title": f"{label} Cash", "file": f"{side}_received_cash", "color": color, "order": _NEWEST_RECEIVED, "date_field": _RECEIVED_ON,
+            "sections": [(f"{label} orders received, paid in cash", f"{_LIVE} AND {side_sql} AND {_DELIVERED} AND {_RECEIVED} AND {_CASH}",
                           _RECEIVED_COLS, True)]}
 
 
@@ -113,14 +114,13 @@ REPORTS = {
                       [("Delivery person", "employee", 90, "L"), ("Deliveries", "deliveries", 34, "R"),
                        ("With cartage", "with_cartage", 34, "R"), ("Total cartage (Rs)", "total", 46, "R"),
                        ("Average per paid delivery (Rs)", "average", 56, "R", "nosum")], True)]},
-    "godown-received-cash": _received_report("godown", "Godown", "cash", "#2563eb"),
-    "godown-received-other": _received_report("godown", "Godown", "other", "#1d4ed8"),
-    "shop-received-cash": _received_report("shop", "Shop", "cash", "#0f766e"),
-    "shop-received-other": _received_report("shop", "Shop", "other", "#115e59"),
-    "received-bank": _combined_report("received-bank", "Godown + Shop - Received & Payments (Bank)", "Godown and shop orders received, paid by bank",
+    "godown-received-cash": _received_cash_report("godown", "Godown", "#2563eb"),
+    "shop-received-cash": _received_cash_report("shop", "Shop", "#0f766e"),
+    "received-bank": _combined_report("received-bank", "Godown + Shop - Bank", "Godown and shop orders received, paid by bank",
                                       _BANK, "#4338ca"),
-    "received-other-all": _combined_report("received-other-all", "Godown + Shop - Received & Payments (All other transactions)",
-                                           "Godown and shop orders received, paid by neither cash nor bank", f"NOT ({_CASH}) AND NOT ({_BANK})", "#9d174d"),
+    # (the key stays "received-other-all": the daily batches and their history know it by that name)
+    "received-other-all": _combined_report("received-other-all", "Godown + Shop - Received Signed Copy",
+                                           "Godown and shop orders received, payment mode: Received signed copy", _SIGNED_COPY, "#9d174d"),
 }
 
 

@@ -197,8 +197,8 @@ def test_evening_reports_go_to_the_reports_group_with_working_links(client, peop
     assert [s["to"] for s in wa] == ["REPORTS@g.us"]
     text = wa[0]["text"]
     assert text.startswith("*Reports - 7:30 PM*") and today.strftime("%d-%m-%Y") in text
-    # the document's order: each delivery person, then Godown cash, Shop cash, Godown other mode, Shop other mode
-    order_of = [text.index(t) for t in ["Delivery - Amit"] + titles("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other")]
+    # the document's order: each delivery person, then Godown cash, Shop cash
+    order_of = [text.index(t) for t in ["Delivery - Amit"] + titles("godown-received-cash", "shop-received-cash")]
     assert order_of == sorted(order_of)
     assert "Awaiting" not in text and "Pending Orders" not in text                                   # the 9:00 PM reports are not in this message
     link = re.search(r"https://vt\.example\.com(/o2d/daily-reports/shared/\d+\.pdf\?exp=\d+&sig=[0-9a-f]+)", text).group(1)
@@ -244,7 +244,7 @@ def test_without_a_public_address_the_message_still_lists_the_reports_and_a_long
     daily_reports.send_reports(today, "evening", stored)
     assert len(wa) > 1 and all(s["to"] == "REPORTS@g.us" and s["text"].startswith("*Reports - 7:30 PM*") for s in wa)
     joined = "\n".join(s["text"] for s in wa)
-    assert all(t in joined for t in titles("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other"))
+    assert all(t in joined for t in titles("godown-received-cash", "shop-received-cash"))
 
 
 def test_both_batches_run_once_each_day_and_message_the_group(client, people, db_conn, wa, monkeypatch):

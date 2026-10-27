@@ -35,6 +35,9 @@ VIEWS = {"total": None,
          "archived": "v.archived_at IS NOT NULL",
          "in_progress": "(v.archived_at IS NULL AND NOT v.is_cancelled AND v.stage <> 'Closed')",
          "closed": "v.stage = 'Closed'",
+         # the All orders page opens on this: everything still running, with the fully closed entries out of the way
+         # (they stay one click away on the Closed card, or by searching their number)
+         "open": "(v.archived_at IS NULL AND v.stage <> 'Closed')",
          "cancelled": "v.is_cancelled"}
 FILTER_KEYS = ({"date_from", "date_to", "q", "sl_no", "cancelled", "include_archived", "view", "batch_id"}
                | set(MULTI) | set(NUMBERS))
@@ -137,7 +140,9 @@ RESULT_COLUMNS = ("v.sl_no, v.dc_inv_no, v.order_date, v.stage, v.channel, v.sub
                   "v.payment_status, v.ready_by, v.colour_making_by, v.delivered_by, v.shipping_location, "
                   "v.detailed_remarks, v.material_delivery_datetime, v.date_of_receiving, v.amount_received, "
                   "v.cartage, v.hours_to_deliver, v.created_by, v.is_cancelled, "
-                  "(v.archived_at IS NOT NULL) AS archived, f.import_batch_id")
+                  "(v.archived_at IS NOT NULL) AS archived, f.import_batch_id, "
+                  # what the edit form starts from (the amount exactly as entered, the porter details, the bill tag, the shop advance lock)
+                  "v.amount_received_entered, v.delivered_by_detail, f.bill_series, (f.amount_locked_at IS NOT NULL) AS amount_locked")
 
 
 @router.get("/orders/filter-options")
@@ -172,6 +177,7 @@ def search_orders(request: Request, sort: str = "order_date", direction: str = Q
     order_col = SORTS.get(sort, "v.order_date")
     order_dir = "ASC" if direction.lower() == "asc" else "DESC"
     with db.cursor() as cur:
+        db.plan_cheaply(cur)
         cur.execute(f"SELECT count(*) AS n {ORDERS_FROM} WHERE {where}", params)
         total = cur.fetchone()["n"]
         cur.execute(f"SELECT {RESULT_COLUMNS} {ORDERS_FROM} WHERE {where} "
@@ -189,8 +195,10 @@ def orders_summary(request: Request, viewer=Depends(access.require_page("dashboa
     f["include_archived"] = True
     where, params = build_where(f)
     with db.cursor() as cur:
+        db.plan_cheaply(cur)
         cur.execute("SELECT count(*) AS total, "
                     "count(*) FILTER (WHERE v.archived_at IS NULL) AS active, "
+                    f"count(*) FILTER (WHERE {VIEWS['open']}) AS open, "
                     "count(*) FILTER (WHERE v.archived_at IS NOT NULL) AS archived, "
                     f"count(*) FILTER (WHERE {VIEWS['in_progress']}) AS in_progress, "
                     "count(*) FILTER (WHERE v.stage = 'Closed') AS closed, "

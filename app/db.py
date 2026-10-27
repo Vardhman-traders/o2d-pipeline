@@ -227,6 +227,20 @@ def _snapshot(tables) -> tuple:
         return tuple(_versions.get(t, 0) for t in (*tables, "*"))
 
 
+def global_version() -> int:
+    """How many committed writes (to any table) this process has seen: a copy of something built from the database is still true while
+    this number has not moved. Used by the screens' response cache (o2d_screens._screen_response)."""
+    with _versions_lock:
+        return sum(_versions.values())
+
+
+def plan_cheaply(cur) -> None:
+    """For the big order queries, which join a dozen small lookup tables and are already written in the order they should be joined:
+    stop Postgres trying every join order (that planning cost 10-20 ms per query - several times the cost of running it). Lasts
+    for this transaction only."""
+    cur.execute("SET LOCAL join_collapse_limit = 1")
+
+
 def read(sql: str, params=None, *, tables) -> list[dict]:
     """The rows of a SELECT over `tables`, from a copy kept while none of those tables has been written (and for at most
     READ_CACHE_TTL). A caller that has written one of them in its own open transaction always reads the database, so it sees its change."""

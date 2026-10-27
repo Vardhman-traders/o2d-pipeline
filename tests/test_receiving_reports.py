@@ -21,14 +21,14 @@ def test_godown_and_shop_receiving_reports_each_hold_only_their_side(client, peo
     ensure_date(db_conn, day)
     with db_conn.cursor() as cur:
         cur.execute("INSERT INTO dim_delivery_status (status_name, dispatch_route) VALUES ('Shop', 'shop') ON CONFLICT DO NOTHING")
-        for name, split in (("Cash", "cash"), ("Bank", "bank"), ("Paid", None)):
+        for name, split in (("Cash", "cash"), ("Bank", "bank"), ("Paid", None), ("Received signed copy", None)):
             cur.execute("INSERT INTO dim_payment_status (status_name) VALUES (%s) ON CONFLICT DO NOTHING", (name,))
             cur.execute("UPDATE dim_payment_status SET payments_split = %s WHERE status_name = %s", (split, name))
     db_conn.commit()
 
     made: dict = {}
     for side, status, role in (("godown", "Godown to Dispatch", "godown_dispatch"), ("shop", "Shop", "shop_dispatch")):
-        for pay in ("Cash", "Cash", "Bank", "Paid"):
+        for pay in ("Cash", "Cash", "Bank", "Paid", "Received signed copy"):
             dc = _dc()
             sl = add(client, h["shop"], day, dc)["slNo"]
             _status(client, h, sl, status)
@@ -44,12 +44,13 @@ def test_godown_and_shop_receiving_reports_each_hold_only_their_side(client, peo
 
     assert _fetch("godown-received-cash", day) == side("godown", "Cash")
     assert _fetch("shop-received-cash", day) == side("shop", "Cash")
-    assert _fetch("godown-received-other", day) == side("godown", "Bank", "Paid")
-    assert _fetch("shop-received-other", day) == side("shop", "Bank", "Paid")
     assert _fetch("received-bank", day) == side("godown", "Bank") | side("shop", "Bank")
-    assert _fetch("received-other-all", day) == side("godown", "Paid") | side("shop", "Paid")
+    # only the payment mode "Received signed copy": another non-cash mode ("Paid") is in none of the reports
+    assert _fetch("received-other-all", day) == side("godown", "Received signed copy") | side("shop", "Received signed copy")
+    assert not {"godown-received-other", "shop-received-other"} & set(o2d_reports.REPORTS)             # the "not cash" reports are gone
+    assert [o2d_reports.REPORTS[k]["title"] for k in ("godown-received-cash", "shop-received-cash")] == ["Godown Cash", "Shop Cash"]
 
-    for kind in ("godown-received-cash", "shop-received-cash", "godown-received-other", "shop-received-other", "received-bank", "received-other-all"):
+    for kind in ("godown-received-cash", "shop-received-cash", "received-bank", "received-other-all"):
         r = client.get(f"/o2d/reports/{kind}.pdf", params={"date_from": day.isoformat(), "date_to": day.isoformat()}, headers=h["admin"])
         assert r.status_code == 200 and r.content.startswith(b"%PDF"), kind
 

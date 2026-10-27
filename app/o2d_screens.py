@@ -7,16 +7,20 @@ Response shapes are {ok, success, message, ...} with camelCase orders, which is 
 (see static/sales/api.js).
 """
 import contextvars
+import gzip
+import json
 import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import access, attachments, auth, config, db, doc_numbers, roles, timeline, whatsapp
@@ -206,6 +210,34 @@ OPEN_ROWS = 500
 CLOSED_ROWS_NO_CLEANUP = 150
 
 
+# Every open screen asks the server again every 20 s, and most of the time nothing has changed. The finished answer (already compressed) is
+# kept per person and screen while no write has been committed anywhere (db.global_version) and for at most SCREEN_CACHE_TTL seconds
+# (the day / 11 PM cut-offs move with the clock). VT_SCREEN_CACHE_TTL=0 turns it off; the tests do (they edit tables on their own connection).
+SCREEN_CACHE_TTL = float(os.environ.get("VT_SCREEN_CACHE_TTL", "20"))
+SCREEN_CACHE_MAX = 300
+_SCREEN_CACHE: dict = {}
+
+
+def screen_response(request: Request, user, build):
+    """`build()` is the screen's dict. Returns it as it is when caching is off, else a ready-made (compressed) JSON response."""
+    if SCREEN_CACHE_TTL <= 0 or db.READ_CACHE_TTL <= 0:
+        return build()
+    zipped = "gzip" in (request.headers.get("accept-encoding") or "")
+    key = (user["user_key"], request.url.path, request.url.query, zipped)
+    version = db.global_version()       # read before building: a write that commits meanwhile makes this copy stale on arrival
+    hit = _SCREEN_CACHE.get(key)
+    if hit and hit[0] == version and monotonic() - hit[1] < SCREEN_CACHE_TTL:
+        return Response(hit[2], media_type="application/json", headers=hit[3])
+    body = json.dumps(jsonable_encoder(build()), ensure_ascii=False, separators=(",", ":")).encode()
+    headers: dict = {}
+    if zipped and len(body) >= 1024:
+        body, headers = gzip.compress(body, 5), {"Content-Encoding": "gzip", "Vary": "Accept-Encoding"}
+    if len(_SCREEN_CACHE) >= SCREEN_CACHE_MAX:
+        _SCREEN_CACHE.clear()
+    _SCREEN_CACHE[key] = (version, monotonic(), body, headers)
+    return Response(body, media_type="application/json", headers=headers)
+
+
 def _open_then_closed(user, where: str, open_order: str) -> list[dict]:
     """ORDER_SELECT rows matching `where` (on top of the user's visibility): the open orders (sorted by open_order) followed by the
     closed ones, most recently closed first. One query; each half has its own cap, so closed history can never push an open order out
@@ -215,6 +247,7 @@ def _open_then_closed(user, where: str, open_order: str) -> list[dict]:
     base = main.ORDER_SELECT + f" WHERE {vis_sql} AND {where} AND "
     closed_rows = OPEN_ROWS if config.cleanup_enabled() else CLOSED_ROWS_NO_CLEANUP
     with db.cursor() as cur:
+        db.plan_cheaply(cur)
         cur.execute(f"({base} NOT {roles._CLOSED} ORDER BY {open_order}, o.order_key DESC LIMIT %s) UNION ALL "
                     f"({base} {roles._CLOSED} ORDER BY o.last_updated_at DESC, o.order_key DESC LIMIT %s)",
                     vis_params + [OPEN_ROWS] + vis_params + [closed_rows])
@@ -352,24 +385,28 @@ def _shop_box_orders(user) -> list[dict]:
 
 # ------------------------------------------------------------------ read screens
 @router.get("/shop")
-def shop_screen(user=Depends(access.require_page("o2d_shop"))):
+def shop_screen(request: Request, user=Depends(access.require_page("o2d_shop"))):
     # "recentOrders" is the Shop's New Orders box: every order that is not fully closed, plus the ones closed since the last 11 PM
     # (the status columns update as the order moves on; at 11 PM the closed ones drop off)
-    recent = [o for o in _shop_box_orders(user) if not is_closed(o) or closed_since_cleanup(o)]
-    _with_photos(recent)
-    return {"ok": True, "dropdowns": _dropdowns("shop"), "recentOrders": recent, "dateWindow": dashboard_window()}
+    def build():
+        recent = [o for o in _shop_box_orders(user) if not is_closed(o) or closed_since_cleanup(o)]
+        _with_photos(recent)
+        return {"ok": True, "dropdowns": _dropdowns("shop"), "recentOrders": recent, "dateWindow": dashboard_window()}
+    return screen_response(request, user, build)
 
 
 @router.get("/godown")
-def godown_screen(user=Depends(access.require_page("o2d_godown"))):
-    orders = _screen_orders(user, "godown")
-    pending, completed = [o for o in orders if awaiting_godown(o)], [o for o in orders if under_processing(o)]
-    _with_photos(pending, completed)
-    return {"ok": True, "dropdowns": _dropdowns("godown"), "pending": pending, "completed": completed, "dateWindow": dashboard_window()}
+def godown_screen(request: Request, user=Depends(access.require_page("o2d_godown"))):
+    def build():
+        orders = _screen_orders(user, "godown")
+        pending, completed = [o for o in orders if awaiting_godown(o)], [o for o in orders if under_processing(o)]
+        _with_photos(pending, completed)
+        return {"ok": True, "dropdowns": _dropdowns("godown"), "pending": pending, "completed": completed, "dateWindow": dashboard_window()}
+    return screen_response(request, user, build)
 
 
 @router.get("/dispatch")
-def dispatch_screen(view_as: str | None = Query(default=None),
+def dispatch_screen(request: Request, view_as: str | None = Query(default=None),
                     user=Depends(access.require_page("o2d_shop_dispatch", "o2d_godown_dispatch"))):
     # The side comes from the SCREEN being opened, never from who is looking: Godown Dispatch lists godown-route orders only and
     # Shop Dispatch & Receiving lists shop-route orders only, for admin and for any role that was given the page.
@@ -380,29 +417,34 @@ def dispatch_screen(view_as: str | None = Query(default=None),
     # the screen asked for, if this person holds its page; otherwise the one they hold (their own screen first)
     role = view_as if view_as in held else (user["role"] if user["role"] in held else (sorted(held)[0] if held else "godown_dispatch"))
     side = {"shop_dispatch": "shop", "godown_dispatch": "godown"}[role]
-    orders = _screen_orders(user, role)
-    pending = [o for o in orders if ready_for_dispatch(o, side)]
-    for o in pending:
-        if _delivered(o):
-            o["stuckReason"] = "Receiving pending"      # shop side: dispatched, receiving details still to fill
-    # second box: Godown Dispatch -> "Awaiting receiving"; Shop Dispatch & Receiving -> "Received" (closed, until 11 PM)
-    completed = [o for o in orders if (awaiting_receiving_dispatch(o) if side == "godown" else received_shop(o) if side == "shop"
-                                       else awaiting_receiving_dispatch(o) or received_shop(o))]
-    for o in completed:
-        if not _received(o):
-            o["stuckReason"] = "Receiving pending"
-    _with_photos(pending, completed)
-    return {"ok": True, "dropdowns": _dropdowns(role), "pending": pending, "completed": completed,
-            "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
+
+    def build():
+        orders = _screen_orders(user, role)
+        pending = [o for o in orders if ready_for_dispatch(o, side)]
+        for o in pending:
+            if _delivered(o):
+                o["stuckReason"] = "Receiving pending"      # shop side: dispatched, receiving details still to fill
+        # second box: Godown Dispatch -> "Awaiting receiving"; Shop Dispatch & Receiving -> "Received" (closed, until 11 PM)
+        completed = [o for o in orders if (awaiting_receiving_dispatch(o) if side == "godown" else received_shop(o) if side == "shop"
+                                           else awaiting_receiving_dispatch(o) or received_shop(o))]
+        for o in completed:
+            if not _received(o):
+                o["stuckReason"] = "Receiving pending"
+        _with_photos(pending, completed)
+        return {"ok": True, "dropdowns": _dropdowns(role), "pending": pending, "completed": completed,
+                "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
+    return screen_response(request, user, build)
 
 
 @router.get("/receiving")
-def receiving_screen(user=Depends(access.require_page("o2d_receiving"))):
-    orders = _screen_orders(user, "receiving")
-    pending, completed = [o for o in orders if awaiting_receiving_godown(o)], [o for o in orders if received_godown(o)]
-    _with_photos(pending, completed)
-    return {"ok": True, "dropdowns": _dropdowns("receiving"), "pending": pending, "completed": completed,
-            "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
+def receiving_screen(request: Request, user=Depends(access.require_page("o2d_receiving"))):
+    def build():
+        orders = _screen_orders(user, "receiving")
+        pending, completed = [o for o in orders if awaiting_receiving_godown(o)], [o for o in orders if received_godown(o)]
+        _with_photos(pending, completed)
+        return {"ok": True, "dropdowns": _dropdowns("receiving"), "pending": pending, "completed": completed,
+                "dateWindow": dashboard_window(), "photosEnabled": attachments.configured()}
+    return screen_response(request, user, build)
 
 
 @router.get("/admin/orders")
@@ -424,6 +466,12 @@ CARD_COLUMNS = ("order_key, sl_no, dc_inv_no, order_date, stage, created_by, amo
                 "delivered_by, cartage, material_delivery_datetime, date_of_receiving")
 
 
+def _by_doc_no(card: dict):
+    """Board order inside a stage: smallest DC / Inv number first (compared as a number, so 9 comes before 10), blanks last."""
+    digits = re.sub(r"\D", "", card["dcNo"])
+    return (not digits, int(digits) if digits else 0, card["dcNo"], card["slNo"])
+
+
 def _card(r: dict) -> dict:
     iso = lambda v: v.isoformat() if v is not None else ""  # noqa: E731
     return {"slNo": r["sl_no"], "orderKey": r["order_key"], "dcNo": r["dc_inv_no"] or "", "orderDate": iso(r["order_date"]), "stage": r["stage"],
@@ -439,6 +487,10 @@ def _card(r: dict) -> dict:
 @router.get("/admin/kanban")
 def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=500),
                  user=Depends(access.require_page("o2d_overview"))):
+    return screen_response(request, user, lambda: _kanban(request, per_stage, user))
+
+
+def _kanban(request: Request, per_stage: int, user):
     """One card per order, grouped by stage, for the admin Overview board. Takes the same filters as the dashboard
     (period + stage, order via, ... logged by). The scorecards count every stage under those filters; the Stage
     filter (which the scorecards also set) decides which columns the board shows."""
@@ -452,6 +504,7 @@ def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=5
         params = params + [find, f"%{find}%"]
     cols = ", ".join("v." + c.strip() for c in CARD_COLUMNS.split(","))
     with db.cursor() as cur:
+        db.plan_cheaply(cur)
         cur.execute(f"SELECT v.stage, count(*) AS n {admin_tools.ORDERS_FROM} WHERE {where} GROUP BY v.stage", params)
         counts = {row["stage"]: row["n"] for row in cur.fetchall()}
         # the Godown dashboard's "Under Processing": a delivery status is set and the order has not been dispatched yet
@@ -464,11 +517,11 @@ def admin_kanban(request: Request, per_stage: int = Query(default=25, ge=1, le=5
                 continue
             cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND v.stage = %s "
                         f"ORDER BY v.timestamp_created DESC LIMIT %s", params + [stage, per_stage])
-            columns[stage] = [_card(r) for r in cur.fetchall()]
+            columns[stage] = sorted((_card(r) for r in cur.fetchall()), key=_by_doc_no)   # the newest per_stage orders, smallest number first
         if chosen and UNDER_PROCESSING in chosen:       # the Under processing scorecard was clicked: its own column
             cur.execute(f"SELECT {cols} {admin_tools.ORDERS_FROM} WHERE {where} AND {UNDER_PROCESSING_SQL} "
                         "ORDER BY v.timestamp_created DESC LIMIT %s", params + [per_stage])
-            columns[UNDER_PROCESSING] = [_card(r) for r in cur.fetchall()]
+            columns[UNDER_PROCESSING] = sorted((_card(r) for r in cur.fetchall()), key=_by_doc_no)
     shown = [o for lst in columns.values() for o in lst]
     photos = attachments.photo_counts(sorted({o["orderKey"] for o in shown}))   # the cards carry a camera badge
     for o in shown:
@@ -1058,6 +1111,19 @@ def update_receiving(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     return result
 
 
+def _admin_bill_series(sl_no: int, form: Form) -> str | None:
+    with db.cursor() as cur:
+        type_name = form.typeOfSubmission
+        if not type_name:
+            cur.execute("SELECT st.type_name FROM fact_orders o JOIN dim_submission_type st ON st.submission_type_key = o.submission_type_key "
+                        "WHERE o.sl_no = %s", (sl_no,))
+            row = cur.fetchone()
+            type_name = row["type_name"] if row else None
+        if type_name and doc_numbers.series_of(cur, type_name) in ("Both", "Goods Return"):
+            return form.billSeries
+    return None
+
+
 @router.put("/orders/{sl_no}/admin")
 def update_admin(sl_no: int, form: Form, archived: bool = False, user=Depends(ADMIN_ONLY)):
     p = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
@@ -1080,6 +1146,12 @@ def update_admin(sl_no: int, form: Form, archived: bool = False, user=Depends(AD
         err = _delivered_by(p, form, None)
         if err:
             return {"ok": True, "success": False, "message": err}
+    if form.deliveredByDetail is not None and "delivered_by_detail" not in p:   # Porter / Company / Transport details on their own
+        p["delivered_by_detail"] = " ".join(form.deliveredByDetail.split())[:200] or None
+    if form.billSeries in ("challan", "invoice"):   # Challan / Invoice tag of an "either" submission type (the type in the form, else the order's own)
+        series = _admin_bill_series(sl_no, form)
+        if series:
+            p["bill_series"] = series
     if _has(form.cartage):
         p["cartage"] = float(form.cartage)
     p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))

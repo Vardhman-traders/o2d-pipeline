@@ -13,6 +13,12 @@ const ORDER_COLS = [['sl_no', 'Sl'], ['order_date', 'Order date'], ['dc_inv_no',
 
 // Admin can edit or permanently delete any order here, active or archived - no need to go through
 // the O2D "view as" screens first. Edit reuses the same endpoint those screens' admin form uses.
+// "2026-10-25T11:00:00+00:00" -> "2026-10-25T11:00": the wall-clock time exactly as the dispatch screens store and show it (no zone shift),
+// so saving the form without touching the box leaves the delivery time as it was.
+function localInput(iso) {
+  return iso ? String(iso).replace(' ', 'T').slice(0, 16) : '';
+}
+
 function openOrderEdit(row, options, onSaved) {
   const photos = h('div', { id: 'editPhotos' });
   showOrderPhotos(row.sl_no, photos, true);   // the order's photos, each with a Delete photo button, plus Add photo
@@ -30,8 +36,14 @@ function openOrderEdit(row, options, onSaved) {
       { name: 'readyByWhom', label: 'Ready by', type: 'select', options: sel('ready_by'), value: row.ready_by || '' },
       { name: 'colourMakingBy', label: 'Colour making by', type: 'select', options: sel('colour_making_by'), value: row.colour_making_by || '' },
       { name: 'deliveredByWhom', label: 'Delivered by', type: 'select', options: sel('delivered_by'), value: row.delivered_by || '' },
-      { name: 'amountReceived', label: 'Amount received (as entered; dashboards show it ÷ 100)', type: 'number', value: row.amount_received_entered ?? '' },
-      { name: 'cartage', label: 'Cartage', type: 'number', value: row.cartage ?? '' },
+      { name: 'deliveredByDetail', label: 'Porter / Company / Transport details', value: row.delivered_by_detail || '' },
+      { name: 'materialDeliveryDateTime', label: 'Material delivery date & time', type: 'datetime-local', value: localInput(row.material_delivery_datetime) },
+      { name: 'dateOfReceiving', label: 'Date of receiving', type: 'date', value: row.date_of_receiving ? String(row.date_of_receiving).slice(0, 10) : '' },
+      { name: 'billSeries', label: 'Challan / Invoice tag (only for a type that can be either)', type: 'select',
+        options: [['', '-- no change --'], ['challan', 'Challan'], ['invoice', 'Invoice']], value: row.bill_series || '' },
+      { name: 'amountReceived', optional: true, type: 'number', value: row.amount_received_entered ?? '',
+        label: 'Amount received (as entered; dashboards show it ÷ 100)' + (row.amount_locked ? ' - entered at the shop as an advance' : '') },
+      { name: 'cartage', label: 'Cartage', type: 'number', optional: true, value: row.cartage ?? '' },
       { name: 'shippingLocation', label: 'Address', value: row.shipping_location || '' },
       { name: 'detailedRemarks', label: 'Remarks', value: row.detailed_remarks || '' },
     ],
@@ -47,14 +59,16 @@ const EDIT_FIELDS = [['orderRcvdDate', 'order_date', 'Order date'], ['dcNo', 'dc
   ['orderVia', 'channel', 'Order via'], ['typeOfSubmission', 'submission_type', 'Submission type'],
   ['deliveryStatus', 'delivery_status', 'Delivery status'], ['paymentStatus', 'payment_status', 'Payment status'],
   ['readyByWhom', 'ready_by', 'Ready by'], ['colourMakingBy', 'colour_making_by', 'Colour making by'],
-  ['deliveredByWhom', 'delivered_by', 'Delivered by'], ['amountReceived', 'amount_received_entered', 'Amount received'],
+  ['deliveredByWhom', 'delivered_by', 'Delivered by'], ['deliveredByDetail', 'delivered_by_detail', 'Porter / Company / Transport details'],
+  ['dateOfReceiving', 'date_of_receiving', 'Date of receiving'], ['amountReceived', 'amount_received_entered', 'Amount received'],
   ['cartage', 'cartage', 'Cartage'], ['shippingLocation', 'shipping_location', 'Address'],
   ['detailedRemarks', 'detailed_remarks', 'Remarks']];
 
 function editSummary(row, v) {
   const changes = [];
   for (const [form, col, label] of EDIT_FIELDS) {
-    if (v[form] === '' && ['orderVia', 'typeOfSubmission', 'deliveryStatus', 'paymentStatus', 'readyByWhom', 'colourMakingBy', 'deliveredByWhom'].includes(form)) continue; // "no change"
+    if (v[form] === '' && ['orderVia', 'typeOfSubmission', 'deliveryStatus', 'paymentStatus', 'readyByWhom', 'colourMakingBy', 'deliveredByWhom',
+      'dateOfReceiving'].includes(form)) continue; // "no change"
     const before = row[col] == null ? '' : String(row[col]);
     const after = v[form] == null ? '' : String(v[form]);
     const numeric = form === 'amountReceived' || form === 'cartage';
@@ -168,7 +182,7 @@ async function renderOrders(panel) {
   inputs.date_from = h('input', { type: 'date', id: 'f_from', value: d0.from, 'aria-label': 'From date' });
   inputs.date_to = h('input', { type: 'date', id: 'f_to', value: d0.to, 'aria-label': 'To date' });
   inputs.sl_no = h('input', { type: 'search', id: 'f_sl', placeholder: 'Sl no. or DC/Inv no.', 'aria-label': 'Search by Sl number', autocomplete: 'off' });
-  let view = 'active';  // which KPI card is selected; it filters the whole page
+  let view = 'open';  // which KPI card is selected; it filters the whole page (opens on the orders still running: closed ones are one click away)
   const selections = {};  // key -> Set of chosen values, owned by each multiSelect widget
   const groups = FILTER_GROUPS.map(([key, label]) => {
     selections[key] = new Set();
@@ -184,7 +198,8 @@ async function renderOrders(panel) {
     } else {
       if (inputs.date_from.value) f.date_from = inputs.date_from.value;
       if (inputs.date_to.value) f.date_to = inputs.date_to.value;
-      f.view = view;
+      // Choosing the Closed stage in the Stage filter is asking to see them, so the "open" start view steps aside
+      f.view = view === 'open' && selections.stage.has('Closed') ? 'active' : view;
     }
     for (const [key] of FILTER_GROUPS) { if (selections[key].size) f[key] = [...selections[key]]; }
     return f;
@@ -268,7 +283,8 @@ async function renderOrders(panel) {
       h('span', { class: 'note', text: 'Searches all dates, including archived orders.' }))];
   // Counts for the current filters. Each card is also a filter: click one to narrow the whole page to it.
   const kpis = h('div', { class: 'kpi-strip', id: 'orderKpis' });
-  const KPI_CARDS = [['total', 'Total orders', 'all orders, archived included', ''], ['active', 'Active', 'shown by default', 'k-active'],
+  const KPI_CARDS = [['open', 'Open orders', 'shown by default - closed ones are hidden', 'k-active'], ['total', 'Total orders', 'all orders, archived included', ''],
+    ['active', 'Active', 'including closed ones', ''],
     ['archived', 'Archived', 'closed or cancelled, 7+ days old', 'k-archived'], ['in_progress', 'In progress', 'active, not yet closed', ''],
     ['closed', 'Closed', 'delivered, received, paid', ''], ['cancelled', 'Cancelled', '', '']];
   let kpiSeq = 0;
@@ -280,7 +296,7 @@ async function renderOrders(panel) {
       kpis.replaceChildren(...KPI_CARDS.map(([key, label, sub, cls]) => h('button', {
         type: 'button', class: 'kpi clickable ' + cls + (view === key ? ' selected' : ''), 'data-view': key, 'aria-pressed': String(view === key),
         title: 'Show only: ' + label,
-        onclick: () => { view = view === key && key !== 'active' ? 'active' : key; run(); } },
+        onclick: () => { view = view === key && key !== 'open' ? 'open' : key; run(); } },
         h('div', { class: 'k-label', text: label }), h('div', { class: 'k-value', text: fmtInt(k[key]) }), sub ? h('div', { class: 'k-sub', text: sub }) : null)));
     } catch { kpis.replaceChildren(); }
   };
@@ -444,11 +460,17 @@ function shrinkPhoto(file) {
 async function showOrderPhotos(slNo, body, canAdd) {
   let d;
   try { d = await api(`/o2d/orders/${slNo}/photos`); } catch { return; }
-  if (!d || !d.enabled || (!d.photos.length && !canAdd)) return;
-  const title = h('h3', { class: 'tl-title', text: `Photos (${d.photos.length})` });
-  const grid = h('div', { id: 'orderPhotos', style: 'display:flex;flex-wrap:wrap;gap:10px' });
+  if (!d || !d.enabled) {
+    if (canAdd) body.append(h('p', { class: 'note', text: 'Photos: storage is not set up on this server, so dispatch / receiving photos cannot be shown or added here.' }));
+    return;
+  }
+  if (!d.photos.length && !canAdd) return;
   const err = h('div', { class: 'msg error' });
-  const recount = () => { title.textContent = `Photos (${grid.children.length})`; };
+  // Viewing: one list. Editing: a Dispatch and a Receiving section, each with its own Add photo button and a Delete on every photo.
+  const kinds = canAdd ? [['dispatch', 'Dispatch photos', 'Add dispatch photo'], ['receiving', 'Receiving photos', 'Add receiving photo']] : [[null, 'Photos', null]];
+  const sections = kinds.map(([kind, label, addLabel]) => ({ kind, label, addLabel, title: h('h3', { class: 'tl-title' }),
+    grid: h('div', { style: 'display:flex;flex-wrap:wrap;gap:10px' }) }));
+  const recount = () => sections.forEach((x) => { x.title.textContent = `${x.label} (${x.grid.children.length})`; });
   const tile = (p) => {
     const box = h('div', { style: 'width:140px' });
     const del = h('button', { type: 'button', class: 'btn danger', text: 'Delete photo', style: 'width:100%;margin-top:4px', onclick: async () => {
@@ -463,29 +485,35 @@ async function showOrderPhotos(slNo, body, canAdd) {
       h('img', { src: p.url, alt: p.kind + ' photo', style: 'width:100%;height:100%;object-fit:cover' })), del);
     return box;
   };
-  d.photos.forEach((p) => grid.append(tile(p)));
-  body.append(title, err, grid);
-  if (!canAdd) return;
-  const kind = h('select', { style: 'margin-right:8px' }, h('option', { value: 'dispatch', text: 'Dispatch photo' }), h('option', { value: 'receiving', text: 'Receiving photo' }));
-  const file = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none' });
-  const add = h('button', { type: 'button', class: 'btn', text: 'Add photo', onclick: () => file.click() });
-  file.addEventListener('change', async () => {
-    const files = [...file.files]; file.value = '';
-    add.disabled = true; err.textContent = '';
-    try {
-      for (const f of files) {
-        add.textContent = 'Uploading...';
-        const blob = await shrinkPhoto(f);
-        const res = await fetch(`/o2d/orders/${slNo}/photos?kind=${kind.value}`, { method: 'POST', body: blob,
-          headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': blob.type || 'image/jpeg' } });
-        if (!res.ok) { let m = res.statusText; try { const j = await res.json(); if (typeof j.detail === 'string') m = j.detail; } catch { /* default */ } throw new Error(m); }
-      }
-    } catch (ex) { err.textContent = ex.message || 'Could not add the photo.'; }
-    add.disabled = false; add.textContent = 'Add photo';
-    const fresh = await api(`/o2d/orders/${slNo}/photos`).catch(() => null);   // reload the tiles so the new photos show (and can be deleted)
-    if (fresh && fresh.photos) { grid.replaceChildren(); fresh.photos.forEach((p) => grid.append(tile(p))); recount(); }
+  const fill = (photos) => {
+    sections.forEach((x) => { x.grid.replaceChildren(); photos.filter((p) => !x.kind || p.kind === x.kind).forEach((p) => x.grid.append(tile(p))); });
+    recount();
+  };
+  fill(d.photos);
+  body.append(err);
+  sections.forEach((x) => {
+    body.append(x.title, x.grid);
+    if (!x.kind) return;
+    const file = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none' });
+    const add = h('button', { type: 'button', class: 'btn', text: x.addLabel, onclick: () => file.click() });
+    file.addEventListener('change', async () => {
+      const files = [...file.files]; file.value = '';
+      add.disabled = true; err.textContent = '';
+      try {
+        for (const f of files) {
+          add.textContent = 'Uploading...';
+          const blob = await shrinkPhoto(f);
+          const res = await fetch(`/o2d/orders/${slNo}/photos?kind=${x.kind}`, { method: 'POST', body: blob,
+            headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': blob.type || 'image/jpeg' } });
+          if (!res.ok) { let m = res.statusText; try { const j = await res.json(); if (typeof j.detail === 'string') m = j.detail; } catch { /* default */ } throw new Error(m); }
+        }
+      } catch (ex) { err.textContent = ex.message || 'Could not add the photo.'; }
+      add.disabled = false; add.textContent = x.addLabel;
+      const fresh = await api(`/o2d/orders/${slNo}/photos`).catch(() => null);   // reload the tiles so the new photos show (and can be deleted)
+      if (fresh && fresh.photos) fill(fresh.photos);
+    });
+    body.append(h('div', { style: 'margin:6px 0 12px' }, add, file));
   });
-  body.append(h('div', { style: 'margin-top:10px' }, kind, add, file));
 }
 
 // ------------------------------------------------------------------ Setup > Access & permissions (one page)
@@ -916,6 +944,14 @@ async function renderReconcile(panel, tab) {
     }).filter((g) => g.items.length);
   const kinds = groupPicker('lists', pickerGroups, tab, (id) => renderReconcile(panel, id), 'list-tabs');
 
+  const longList = !!(master && master.reviewed);          // typed-in lists (parties, vendors, companies) can run to thousands of names
+  let reviewOnly = longList && [...mrows.values()].some((r) => r.review_status === 'pending');   // open on what needs a decision
+  let shownLimit = 100;
+  const filterBtn = h('button', { class: 'btn', id: 'rc_filter', type: 'button', style: longList ? '' : 'display:none', onclick: () => { reviewOnly = !reviewOnly; shownLimit = 100; draw(); } });
+  const moreBtn = h('button', { class: 'btn', id: 'rc_more', type: 'button', style: 'display:none;margin-top:8px', onclick: () => { shownLimit += 100; draw(); } });
+  const approveSel = h('button', { class: 'btn', id: 'rc_approveSel', type: 'button', text: 'Approve selected', style: longList ? '' : 'display:none', disabled: true, onclick: async () => {
+    try { for (const k of [...picked]) { if (isNew(byKey.get(k) || { key: k })) await api(`/admin/masters/${master.id}/${k}/approve`, { method: 'POST' }); } reload(); }
+    catch (ex) { alert(ex.message); } } });
   const search = h('input', { type: 'search', id: 'rc_search', placeholder: 'Search ' + tabLabel.toLowerCase(), 'aria-label': 'Search values', style: 'max-width:260px' });
   const mergeBtn = h('button', { class: 'btn', id: 'rc_mergeBtn', text: 'Merge selected…', disabled: true, onclick: () => openMerge([...picked]) });
   const addBtn = h('button', { class: 'btn primary', id: 'rc_addBtn', text: '+ Add ' + tabLabel.toLowerCase(), onclick: () => openAdd() });
@@ -1033,12 +1069,20 @@ async function renderReconcile(panel, tab) {
 
   const draw = () => {
     const q = search.value.trim().toLowerCase();
-    const shown = values.filter((v) => !q || v.name.toLowerCase().includes(q) || (v.label || '').toLowerCase().includes(q));
-    const canMove = !q && values.length > 1;
-    orderNote.textContent = q ? 'Clear the search to change the order.' : (values.length > 1 ? 'Drag a row (or use the arrows) to set the order these values appear in the dropdowns.' : '');
+    const matching = values.filter((v) => (!q || v.name.toLowerCase().includes(q) || (v.label || '').toLowerCase().includes(q)) && (!reviewOnly || q || isNew(v)));
+    const shown = longList ? matching.slice(0, shownLimit) : matching;
+    // a typed-in list is alphabetical (no dragging); the other lists keep their hand-set order
+    const canMove = !q && values.length > 1 && !longList && !reviewOnly;
+    if (longList) {
+      filterBtn.textContent = reviewOnly ? `Showing: needs review (${newCount}) - show all ${values.length}` : (newCount ? `Showing: all ${values.length} - show only the ${newCount} to review` : `All ${values.length}`);
+      filterBtn.disabled = !newCount && !reviewOnly;
+      moreBtn.style.display = matching.length > shown.length ? '' : 'none';
+      moreBtn.textContent = `Show 100 more (${matching.length - shown.length} not shown - or type in the search box)`;
+    }
+    orderNote.textContent = longList ? '' : q ? 'Clear the search to change the order.' : (values.length > 1 ? 'Drag a row (or use the arrows) to set the order these values appear in the dropdowns.' : '');
     const rows = shown.map((v) => {
       const box = h('input', { type: 'checkbox', 'aria-label': 'Select ' + v.name, checked: picked.has(v.key) });
-      box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; });
+      box.addEventListener('change', () => { if (box.checked) picked.add(v.key); else picked.delete(v.key); mergeBtn.disabled = picked.size < 2; approveSel.disabled = !picked.size; });
       const idx = values.findIndex((x) => x.key === v.key);
       const tr = h('tr', { 'data-key': v.key, draggable: canMove ? 'true' : null });
       if (canMove) {
@@ -1068,23 +1112,27 @@ async function renderReconcile(panel, tab) {
           h('button', { class: 'btn small danger', text: 'Delete', onclick: () => remove(v) })))].filter(Boolean));
       return tr;
     });
-    tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 7, class: 'empty', text: values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
+    tbody.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 7, class: 'empty', text: reviewOnly && !q ? 'Nothing left to review.' : values.length ? 'No values match.' : 'Nothing yet - add the first one.' }))]));
   };
   search.addEventListener('input', draw);
 
-  dupBox.replaceChildren(...(dups.length ? [h('div', { class: 'card', style: 'margin-bottom:16px' },
-    h('h3', { text: `Possible duplicates (${dups.length})` }),
+  let dupLimit = longList ? 10 : dups.length;
+  const drawDups = () => dupBox.replaceChildren(...(dups.length ? [h('details', { class: 'card', style: 'margin-bottom:16px', open: longList ? null : '' },
+    h('summary', { style: 'cursor:pointer;font-weight:700', text: `Possible duplicates (${dups.length})` + (longList ? ' - click to open' : '') }),
     h('p', { class: 'note', text: 'These look like the same thing spelled differently. Review each pair, and merge it if it really is the same.' }),
-    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.map((sg) => h('tr', {},
+    h('div', { class: 'table-wrap' }, h('table', { id: 'rc_dups' }, h('tbody', {}, dups.slice(0, dupLimit).map((sg) => h('tr', {},
       h('td', { text: sg.names[0] }), h('td', { text: '≈' }), h('td', { text: sg.names[1] }),
-      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(sg.keys) }))))))))] : []));
+      h('td', {}, h('button', { class: 'btn small', text: 'Review & merge', onclick: () => openMerge(sg.keys) }))))))),
+    dups.length > dupLimit ? h('button', { class: 'btn small', type: 'button', style: 'margin-top:8px', text: `Show all ${dups.length}`, onclick: () => { dupLimit = dups.length; drawDups(); } }) : null)] : []));
+  drawDups();
 
   panel.replaceChildren(
     h('p', { class: 'note', style: 'margin-bottom:12px', text: 'The values behind every dropdown and dashboard filter. Add, rename, delete or merge look-alike spellings here: each change is saved to the database at once, shows on all order screens and dashboards, and is kept in the audit trail. A value that orders still use cannot be deleted - merge it into the right one instead.' }),
     kinds, reviewBox, dupBox,
-    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, h('span', { class: 'grow' }), mergeBtn, addBtn), orderNote,
+    h('div', { class: 'row', style: 'margin-bottom:10px' }, search, filterBtn, h('span', { class: 'grow' }), approveSel, mergeBtn, addBtn), orderNote,
     h('div', { class: 'table-wrap' }, h('table', { id: 'rc_table' },
-      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Order' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' || screenOpts ? h('th', { text: 'Offered on' }) : null, ...(extraFields ? extraFields.map((f) => h('th', { text: f.label })) : []), h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)));
+      h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: 'Order' }), h('th', { text: 'Value' }), role ? h('th', { text: 'Phone' }) : null, ...(master ? mdef.fields.map((f) => h('th', { text: f.label })) : []), role === 'delivery' || screenOpts ? h('th', { text: 'Offered on' }) : null, ...(extraFields ? extraFields.map((f) => h('th', { text: f.label })) : []), h('th', { class: 'num', text: master ? 'Used by' : 'Orders using it' }), h('th', { text: '' }))), tbody)),
+    moreBtn);
   draw();
 }
 
@@ -1131,6 +1179,7 @@ async function renderWhatsApp(panel) {
   let data;
   try { data = await api('/admin/whatsapp'); } catch (ex) { return panel.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
   const fill = (a, t) => t.replace(/\{(\w+)\}/g, (m, k) => (k in a.sample ? String(a.sample[k]) : m));
+  data.alerts = data.alerts.filter((a) => !a.hidden);   // Delegation / Checklist alerts are not managed here (their web bell still works)
   const cards = data.alerts.map((a) => {
     const group = h('input', { type: 'text', id: 'wa_group_' + a.key, value: a.group_id, maxlength: '100', placeholder: 'e.g. 1234567890@g.us', 'aria-label': 'WhatsApp group ID', style: 'max-width:340px' });
     const on = h('input', { type: 'checkbox', id: 'wa_on_' + a.key, checked: a.enabled });

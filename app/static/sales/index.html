@@ -1299,8 +1299,19 @@
     if (AUTO_REFRESH_TIMER) clearInterval(AUTO_REFRESH_TIMER);
     // A tab left open in the background used to refresh every 20 s all day (three requests each time, from every shop / godown screen):
     // it now waits, and catches up the moment the tab is looked at again.
-    AUTO_REFRESH_TIMER = setInterval(function () { if (!document.hidden) refreshCurrent(); }, 20000);
+    // A screen nobody has touched for 10 minutes (left open on a counter PC all day) asks only every third time, i.e. each minute.
+    var idleTicks = 0;
+    AUTO_REFRESH_TIMER = setInterval(function () {
+      if (document.hidden) return;
+      if (Date.now() - LAST_ACTIVITY > 600000 && ++idleTicks % 3 !== 0) return;
+      refreshCurrent();
+    }, 20000);
   }
+
+  var LAST_ACTIVITY = Date.now();
+  ['mousemove', 'keydown', 'touchstart', 'click', 'scroll'].forEach(function (ev) {
+    document.addEventListener(ev, function () { LAST_ACTIVITY = Date.now(); }, { passive: true, capture: true });
+  });
 
   var LAST_REFRESH_AT = 0;
   document.addEventListener('visibilitychange', function () {
@@ -1613,9 +1624,8 @@
   var REPORT_CHOICES = [
     ['godown-pending', 'Godown - pending orders'], ['shop-dispatch-pending', 'Shop Dispatch - pending orders'],
     ['godown-dispatch-pending', 'Godown Dispatch - pending orders'], ['receiving-pending', 'Awaiting receiving'],
-    ['received-bank', 'Godown + Shop - bank'], ['godown-received-cash', 'Godown Receiving - cash'], ['shop-received-cash', 'Shop Receiving - cash'],
-    ['godown-received-other', 'Godown Receiving - not cash (bank + other)'], ['shop-received-other', 'Shop Receiving - not cash (bank + other)'],
-    ['received-other-all', 'Godown + Shop - all other transactions (neither cash nor bank)']];
+    ['received-bank', 'Godown + Shop - Bank'], ['godown-received-cash', 'Godown Cash'], ['shop-received-cash', 'Shop Cash'],
+    ['received-other-all', 'Godown + Shop - Received signed copy']];
   var REPORT_SEL = new Set();
 
   function buildReportPicker_() {
