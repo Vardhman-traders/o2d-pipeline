@@ -12,6 +12,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -37,6 +38,7 @@ def _need_edit(user, *pages: str):
     raise HTTPException(403, access.NO_ACCESS_MESSAGE)
 ADMIN_ONLY = auth.require_roles("admin")
 MAX_ROWS = 200
+MAX_ADVANCE = Decimal("99999999.99")
 MAX_BULK = 100       # most orders one "Mark done" may save at once
 UNKNOWN_VALUE = "Unknown dropdown value selected. Please refresh and try again."
 
@@ -92,6 +94,7 @@ def map_order(o: dict) -> dict:
         "deliveredByDetail": o.get("delivered_by_detail") or "",
         "cartage": _num(o["cartage"]), "lastUpdatedBy": o["last_updated_by"] or "",
         "createdBy": o["created_by"] or "",
+        "amountLocked": bool(o.get("amount_locked_at")),     # entered at the shop: the receiving screens show it read-only
     }
 
 
@@ -144,6 +147,13 @@ def _either_types() -> list[str]:
     return [r["type_name"] for r in rows]
 
 
+def _advance_modes() -> list[dict]:
+    """The payment modes an advance can be taken in: the payment statuses that go to the Cashier dashboard (Setup > Dropdown values)."""
+    return [r for r in _lookup_rows("payment-statuses")
+            if r["key"] in {x["payment_status_key"] for x in db.read(
+                "SELECT payment_status_key FROM dim_payment_status WHERE cashier_review = 'yes'", tables=("dim_payment_status",))}]
+
+
 def _dropdowns(role: str) -> dict:
     """The lists each role's form needs (by screen)."""
     out: dict[str, list] = {k: [] for k in (
@@ -154,6 +164,7 @@ def _dropdowns(role: str) -> dict:
     if role == "shop":
         out["orderVia"] = _names(_lookup_rows("channels"))
         out["typeOfSubmission"] = _names(_lookup_rows("submission-types"))
+        out["advanceMode"] = _names(_advance_modes())
     elif role == "godown":
         out["readyByWhom"] = _names(_people_rows("ready_by"))
         out["colourMakingBy"] = _names(_people_rows("colour_making"))
@@ -662,6 +673,8 @@ class Form(BaseModel):
     dateOfReceiving: str | None = None
     paymentStatus: str | None = None
     amountReceived: Any = None
+    advanceAmount: Any = None      # shop only, on a NEW order: the advance taken at the counter ...
+    advanceMode: str | None = None     # ... and how it was paid (a payment status that goes to the Cashier dashboard)
     photosFollow: bool = False     # dispatch save: photos are uploaded next, so the WhatsApp message waits for them (the page asks for it afterwards)
 
 
@@ -687,6 +700,24 @@ def _missing_required(form: Form) -> list[str]:
     return [label for attr, label in need if not getattr(form, attr)]
 
 
+def _advance_fields(form: Form) -> tuple[dict, str | None]:
+    """The advance taken at the shop: (order fields, error message). Amount and mode go together; the mode must be one the cashier confirms."""
+    if not _has(form.advanceAmount) and not form.advanceMode:
+        return {}, None
+    if not _has(form.advanceAmount) or not form.advanceMode:
+        return {}, "Fill in both the advance amount and how it was paid, or leave both empty."
+    try:
+        amount = Decimal(str(form.advanceAmount).strip())
+    except InvalidOperation:
+        return {}, "The advance amount must be a number."
+    if not amount.is_finite() or amount <= 0 or amount > MAX_ADVANCE:
+        return {}, "The advance amount must be more than 0 (and below 99,999,999.99)."
+    mode = _key_by_name(_advance_modes(), form.advanceMode)
+    if mode is None:
+        return {}, "Choose how the advance was paid from the list."
+    return {"amount_received": amount.quantize(Decimal("0.01")), "payment_status_key": mode}, None
+
+
 @router.post("/orders")
 def add_order(form: Form, user=Depends(access.require_page("o2d_shop"))):
     from . import main
@@ -697,8 +728,15 @@ def add_order(form: Form, user=Depends(access.require_page("o2d_shop"))):
     payload = _shop_payload(form, _lookup_rows("channels"), _lookup_rows("submission-types"))
     if not payload["order_via_key"] or not payload["submission_type_key"]:
         return {"ok": True, "success": False, "message": UNKNOWN_VALUE}
+    advance, err = _advance_fields(form)
+    if err:
+        return {"ok": True, "success": False, "message": err}
     try:
-        row = main.create_order(main.OrderIn(**payload), user=user)
+        if advance:
+            main._check_editable(payload, user)      # the advance itself is checked by _advance_fields, not by the role's field list
+            row = main.insert_order(main.OrderIn(**payload, **advance), user, check_fields=False, shop_advance=True)
+        else:
+            row = main.create_order(main.OrderIn(**payload), user=user)
     except HTTPException as e:
         return {"ok": True, "success": False, "message": str(e.detail)}
     return {"ok": True, "success": True, "slNo": row["sl_no"]}

@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import access, auth, config, db, payment_merge, roles, timeline
-from .o2d_screens import cleanup_cutoff
+from .o2d_screens import MAX_ADVANCE, _advance_modes, _key_by_name, cleanup_cutoff
 
 router = APIRouter(prefix="/o2d/cashier", tags=["o2d-cashier"])
 IST = ZoneInfo("Asia/Kolkata")
@@ -77,6 +77,11 @@ def _payments_state(r: dict) -> str:
     return "merged" if r["push_status"] == "merged" else "awaiting"
 
 
+def _advance_pending(r: dict) -> bool:
+    """An advance from the shop that has not reached receiving yet."""
+    return bool(r.get("amount_locked_at")) and not r.get("date_of_receiving")
+
+
 def _row(r: dict) -> dict:
     amount = _signed_amount(r)
     delivered_by = " - ".join(x for x in (r.get("delivered_by"), r.get("delivered_by_detail")) if x)
@@ -88,7 +93,11 @@ def _row(r: dict) -> dict:
             "amountReceived": None if amount is None else float(amount),
             "dateOfReceiving": _iso(r["date_of_receiving"]), "deliveredBy": delivered_by,
             # which dashboard the receiving was entered on, from the delivery status's "Goes to" setting
-            "receivedOn": "Shop Dispatch & Receiving" if r.get("dispatch_route") == "shop" else "Godown Receiving",
+            "receivedOn": "Shop (advance)" if _advance_pending(r) else
+            ("Shop Dispatch & Receiving" if r.get("dispatch_route") == "shop" else "Godown Receiving"),
+            # taken at the shop counter: locked, but the cashier may correct it until it is merged into Payments
+            "advance": bool(r.get("amount_locked_at")), "amountRaw": None if r["amount_received"] is None else float(r["amount_received"]),
+            "canCorrect": bool(r.get("amount_locked_at")) and not r.get("pushed_merged_at"),
             "receivedBy": r["last_updated_by"] or "", "lastUpdatedAt": _ist(r["last_updated_at"]),
             "confirmedAt": _ist(r["confirmed_at"]), "confirmedBy": r["confirmed_by"] or "",
             "note": r["confirm_note"] or "", "payments": _payments_state(r)}
@@ -126,6 +135,8 @@ def cashier_screen(user=Depends(access.require_page(PAGE))):
     awaiting, confirmed = fetch_cashier(user)
     pend, done = [_row(r) for r in awaiting], [_row(r) for r in confirmed]
     return {"ok": True, "awaiting": pend, "confirmed": done, "canEdit": not access.is_view_only(user, PAGE),
+            "modes": [m["name"] for m in _advance_modes()],     # what an advance can be corrected to
+
             "summary": {"awaiting": _summary(pend), "confirmed": _summary(done)}, "truncated": False}
 
 
@@ -157,6 +168,44 @@ def _event(cur, order_key: int, user: dict, title: str):
 
 def _refuse(message: str) -> dict:
     return {"ok": True, "success": False, "message": message}
+
+
+class CorrectIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    amount: Decimal = Field(gt=0, le=MAX_ADVANCE, max_digits=10, decimal_places=2)    # as entered (the screens show it / 100)
+    paymentStatus: str = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=300)
+
+
+@router.put("/{sl_no}/correct")
+def correct_advance(sl_no: int, body: CorrectIn, user=Depends(access.require_page(PAGE))):
+    """The cashier corrects an advance entered at the shop (a typing mistake in the amount, or the wrong mode) while it is not merged into
+    Payments yet. A confirmation already given is cleared by the database (migration 033) and the order comes back to be confirmed again.
+    After the merge only an admin can change it (All orders > Edit)."""
+    access.require_edit(user, PAGE)
+    mode = _key_by_name(_advance_modes(), body.paymentStatus)
+    if mode is None:
+        return _refuse("Choose how it was paid from the list.")
+    with db.cursor() as cur:
+        cur.execute(_select() + f" WHERE o.sl_no = %s{_test_guard(user)} FOR UPDATE OF o", (sl_no,))
+        o = cur.fetchone()
+        if not o:
+            raise HTTPException(404, "Order not found")
+        if not o["amount_locked_at"]:
+            return _refuse("Only an advance taken at the shop can be corrected here. Ask an admin to change this order.")
+        if o["pushed_merged_at"]:
+            return _refuse("This is already merged into Payments - ask an admin to correct it.")
+        amount = body.amount.quantize(Decimal("0.01"))
+        if o["amount_received"] == amount and o["payment_status_key"] == mode:
+            return _refuse("Nothing was changed.")
+        cur.execute("UPDATE fact_orders SET amount_received = %s, payment_status_key = %s, last_updated_by_user_key = %s, "
+                    "last_updated_at = now() WHERE order_key = %s", (amount, mode, user["user_key"], o["order_key"]))
+        old = config.shown_amount(o["amount_received"], o.get("amount_effect"))
+        new = config.shown_amount(amount, o.get("amount_effect"))
+        note = " ".join((body.note or "").split())
+        _event(cur, o["order_key"], user, f"Cashier corrected the advance: Rs {Decimal(old or 0):,.2f} {o['payment_status']} -> "
+               f"Rs {Decimal(new or 0):,.2f} {body.paymentStatus}" + (f" ({note})" if note else ""))
+    return {"ok": True, "success": True}
 
 
 @router.put("/{sl_no}/confirm")

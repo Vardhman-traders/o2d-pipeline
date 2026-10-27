@@ -127,6 +127,7 @@
         .then(function (r) { return r.ok ? r.data : { ok: false, error: detail(r) }; });
     },
     confirmCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/confirm', body: form }; }),
+    correctCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/correct', body: form }; }),
     downloadReport: function (token, kind, from, to, person) {
       var qs = [];
       if (person) qs.push('delivered_by=' + encodeURIComponent(person));

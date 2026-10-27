@@ -1,7 +1,7 @@
 """Vardhman Traders API. Run: uvicorn app.main:app"""
 import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal, Optional
@@ -276,7 +276,8 @@ SELECT o.order_key, o.sl_no, o.dc_inv_no,
        cu.display_name AS created_by, lu.display_name AS last_updated_by,
        o.shipping_location, o.detailed_remarks, o.timestamp_created,
        o.material_delivery_datetime, rd.full_date AS date_of_receiving,
-       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail, o.bill_series
+       o.last_updated_at, o.amount_received, o.cartage, o.is_cancelled, o.delivered_by_detail, o.bill_series,
+       o.amount_locked_at, o.amount_locked_stage
 """ + ORDER_FROM
 
 Money = Optional[Decimal]
@@ -312,6 +313,11 @@ class OrderIn(OrderFields):
 class OrderPatch(OrderFields):
     pass
 
+
+# The amount and the payment mode: entered at the shop as an advance, they are locked for everyone downstream (see apply_order_update).
+AMOUNT_FIELDS = {"amount_received", "payment_status_key"}
+AMOUNT_LOCKED_MESSAGE = ("The amount and payment mode of this order were entered at the shop and are locked. "
+                         "The cashier can correct them until they are merged into Payments; after that only an admin can.")
 
 PLAIN_COLUMNS = {
     "dc_inv_no", "bill_series", "order_via_key", "submission_type_key", "delivery_status_key",
@@ -420,14 +426,17 @@ def create_order(body: OrderIn, user=Depends(auth.require_roles(*roles.CREATE_OR
     return insert_order(body, user)
 
 
-def insert_order(body: OrderIn, user, *, check_fields: bool = True):
+def insert_order(body: OrderIn, user, *, check_fields: bool = True, shop_advance: bool = False):
     """The one create path. check_fields=False is for callers that already gated the person another way
-    (the O2D "missing number" entry, which is switched on per person under Setup > Access)."""
+    (the O2D "missing number" entry, which is switched on per person under Setup > Access).
+    shop_advance=True: the shop entered an advance (amount + payment mode) - the order is saved with it and the amount is locked."""
     fields = body.model_dump(exclude_unset=True)
     if check_fields:
-        _check_editable(fields, user)
+        _check_editable({k: v for k, v in fields.items() if not (shop_advance and k in AMOUNT_FIELDS)}, user)
     _check_test_dc({"dc_inv_no": fields.get("dc_inv_no")} if roles.is_test_user(user) else {}, user)
     cols = _db_columns(fields)
+    if shop_advance:
+        cols.update(amount_locked_at=datetime.now(UTC), amount_locked_by_user_key=user["user_key"], amount_locked_stage="shop")
     cols["created_by_user_key"] = cols["last_updated_by_user_key"] = user["user_key"]
     names = list(cols)
     try:
@@ -488,12 +497,6 @@ def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_
         raise HTTPException(422, "No fields to update")
     if fields.get("order_received_date", True) is None:
         raise HTTPException(422, "order_received_date cannot be null")
-    cols = _db_columns(fields)
-    sets = [f"{c} = %s" for c in cols]
-    params = list(cols.values())
-    if "delivery_status_key" in fields:
-        sets.append(f"is_cancelled = {CANCELLED_SQL}")
-        params.append(fields["delivery_status_key"])
     vis_sql, vis_params = roles.visibility(user, archived=archived)
     # Lock the row only if this user is allowed to see it.
     cur.execute(
@@ -508,6 +511,20 @@ def apply_order_update(cur, sl_no: int, body: OrderPatch, archived, user, allow_
     before = cur.fetchone()
     if not allow_closed and is_closed(before):   # a closed order is editable only by an admin from All orders (allow_closed)
         raise HTTPException(403, CLOSED_MESSAGE)
+    if before.get("amount_locked_at") and user["role"] != "admin":
+        # Entered at the shop: saving a form that merely repeats the locked values is fine, changing them is not.
+        for k in AMOUNT_FIELDS & set(fields):
+            if fields[k] != before[k]:
+                raise HTTPException(403, AMOUNT_LOCKED_MESSAGE)
+            del fields[k]
+        if not fields:
+            return before, before
+    cols = _db_columns(fields)
+    sets = [f"{c} = %s" for c in cols]
+    params = list(cols.values())
+    if "delivery_status_key" in fields:
+        sets.append(f"is_cancelled = {CANCELLED_SQL}")
+        params.append(fields["delivery_status_key"])
     _check_doc_number(cur, user, fields, before)
     cur.execute(
         f"UPDATE fact_orders SET {', '.join(sets)}, last_updated_by_user_key = %s, "
