@@ -75,7 +75,7 @@ def test_setup_lists_formats_and_says_which_alerts_have_no_group(client, db_conn
     assert alerts["dispatch_godown"]["group_label"] == "VT Dispatch group" and alerts["dispatch_porter"]["group_label"] == "Porter group"
     assert alerts["deleg_done"]["group_from"] == "deleg_assigned" and alerts["reports_night"]["group_from"] == "reports_evening"
     assert alerts["deleg_assigned"]["web_bell"] and not alerts["dispatch_godown"]["web_bell"]
-    assert "Photo: {photo}" in alerts["dispatch_godown"]["template"] and "{cartage_line}" in alerts["dispatch_godown"]["template"]
+    assert "{photo}" not in alerts["dispatch_godown"]["template"] and "{cartage_line}" in alerts["dispatch_godown"]["template"]
     # a group typed on one alert is used by the alerts that fall back to it
     alert_row(client, admin, "deleg_assigned", group="DELEG@g.us")
     alerts = {a["key"]: a for a in client.get("/admin/whatsapp", headers=admin).json()["alerts"]}

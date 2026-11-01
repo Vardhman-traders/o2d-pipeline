@@ -7,14 +7,16 @@ The rules live in the data, not in code:
     'PENDING' typed into the code);
   - the old Cashier / Account / Admin logins are simply the pages a person holds (Setup > Access).
 """
+import logging
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg2 import errors as pgerr
 from pydantic import BaseModel, ConfigDict
 
-from . import access, auth, config, db, modcommon as mc, roles
+from . import access, auth, config, db, modcommon as mc, roles, whatsapp
 
+log = logging.getLogger("payments")
 router = APIRouter(prefix="/payments", tags=["payments"])
 PAGES = ("pay_cashier", "pay_account")
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -246,12 +248,12 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
         cur.execute(f"""
             SELECT
               COALESCE(SUM(CASE WHEN m.is_cash THEN {sign} * t.amount END), 0) AS cash_in_hand,
-              COALESCE(SUM(CASE WHEN NOT m.is_cash THEN {sign} * t.amount END), 0) AS bank_balance,
+              COALESCE(SUM(CASE WHEN NOT m.is_cash AND NOT from_o2d AND NOT from_decor THEN {sign} * t.amount END), 0) AS bank_balance,   -- only what was entered on this dashboard
               COALESCE(SUM(CASE WHEN tt.counts_as_received AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS received,
               COALESCE(SUM(CASE WHEN tt.counts_as_paid AND m.is_cash AND NOT from_o2d THEN t.amount END), 0) AS paid,
               COALESCE(SUM(CASE WHEN from_o2d AND m.is_cash THEN tt.sales_effect * t.amount END), 0) AS cash_sales,
               COALESCE(SUM(CASE WHEN from_o2d AND NOT m.is_cash THEN tt.sales_effect * t.amount END), 0) AS bank_sales
-            FROM (SELECT t.*, {FROM_O2D} AS from_o2d
+            FROM (SELECT t.*, {FROM_O2D} AS from_o2d, {FROM_DECOR} AS from_decor
                   FROM fact_payment_txn t) t
             JOIN dim_date d ON d.date_key = t.txn_date_key JOIN dim_txn_type tt ON tt.txn_type_key = t.txn_type_key
             JOIN dim_company c ON c.company_key = t.company_key JOIN dim_payment_mode m ON m.mode_key = t.mode_key
@@ -271,6 +273,9 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
             by_type.setdefault(r["type_name"], 0)
         cur.execute("SELECT count(*) AS n FROM fact_payment_txn")
         raw = cur.fetchone()["n"]
+        # entries merged from O2D / VT Decor whose source changed afterwards (the entry itself is left alone and carries a warning)
+        cur.execute("SELECT count(*) AS n FROM fact_payment_txn WHERE order_warning IS NOT NULL AND status <> 'Rejected'")
+        warnings = cur.fetchone()["n"]
     pending = sum(by_type.values())
     if role == "Cashier":
         label = "Today's Summary"
@@ -280,7 +285,7 @@ def dashboard(company: str = Query(default=""), date_from: str = Query(default="
         label = "Filtered Summary" if (df or dt) else "Overall Summary"
     return {"cashInHand": float(s["cash_in_hand"]), "bankBalance": float(s["bank_balance"]),
             "totalReceived": float(s["received"]), "totalPaid": float(s["paid"]), "cashSales": float(s["cash_sales"]), "bankSales": float(s["bank_sales"]),
-            "pendingEntries": pending, "pendingByType": {"all": pending, **by_type}, "scopeLabel": label, "rawCount": raw}
+            "pendingEntries": pending, "pendingByType": {"all": pending, **by_type}, "scopeLabel": label, "rawCount": raw, "changedAfterMerge": warnings}
 
 
 # ------------------------------------------------------------------ writing
@@ -298,6 +303,19 @@ class TxnIn(BaseModel):
 
 
 AMOUNT_DIVISOR = config.AMOUNT_RECEIVED_DIVISOR
+
+
+def tell_entry(user: dict, role: str, *, day, type_name: str, company: str, party: str, amount, mode: str, remarks) -> None:
+    """The Payments WhatsApp message for a new entry (Setup > WhatsApp > "Payments - new entry"): sent after the request has answered and
+    never able to fail the entry."""
+    try:
+        heading = {"payment received": "Payment - Received", "payment paid": "Payment - Paid"}.get((type_name or "").strip().lower(), f"Payment - {type_name}")
+        whatsapp.send_in_background("pay_entry", {
+            "heading": heading, "date": f"{day:%d/%m/%Y}", "type": type_name or "-", "company": company or "-", "party": party or "-",
+            "amount": f"{float(amount):,.2f}", "mode": mode or "-", "remarks": remarks or "-",
+            "punched_by": f"{user.get('display_name') or user.get('username')} ({role})"})
+    except Exception:
+        log.exception("Could not queue the Payments WhatsApp message")
 
 
 def _clean(body: TxnIn, cur) -> dict:
@@ -355,6 +373,8 @@ def save_transaction(body: TxnIn, user=Depends(ANY)):
         return {"success": False, "message": e.detail}
     except pgerr.ForeignKeyViolation as e:
         return {"success": False, "message": mc.date_fk_error(e).detail}
+    tell_entry(user, role, day=c["date"], type_name=body.type, company=body.company, party=c["party"], amount=c["amount"], mode=body.mode or "Cash",
+               remarks=c["remarks"])
     return {"success": True, "txnId": txn_no, "isBackdated": c["date"] < today, "autoApproved": auto}
 
 

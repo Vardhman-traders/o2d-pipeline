@@ -5,6 +5,7 @@ database only keeps the object key and who/when. Nothing is public: the API chec
 Switched on by four environment variables on the web service. Without them the screens simply hide the photo box:
     R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
 """
+import hashlib
 import logging
 import os
 import uuid
@@ -79,9 +80,9 @@ def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> d
         with db.cursor() as cur:
             cur.execute(
                 "INSERT INTO order_attachments (order_key, kind, object_key, content_type, size_bytes, "
-                "uploaded_by_key, uploaded_by) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
+                "uploaded_by_key, uploaded_by, sha256) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
                 (order["order_key"], kind, key, content_type, len(data), user["user_key"],
-                 user.get("display_name") or user["username"]))
+                 user.get("display_name") or user["username"], hashlib.sha256(data).hexdigest()))
             return {"id": cur.fetchone()["attachment_key"], "orderKey": order["order_key"]}
     except Exception:
         try:  # don't leave an orphan object behind

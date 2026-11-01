@@ -57,9 +57,10 @@ _GODOWN_RECEIVING = "ds.dispatch_route IS DISTINCT FROM 'shop'"
 _AWAITING_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No", "dc_inv_no", 21, "L"), ("Address", "shipping_location", 58, "L"),
                   ("Delivered on", "material_delivery_datetime", 30, "L"), ("Delivered by", "delivered_by_full", 50, "L"),
                   ("Payment status", "payment_status", 28, "L"), ("Cartage (Rs)", "cartage", 24, "R")]
-_RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No", "dc_inv_no", 21, "L"), ("Address", "shipping_location", 52, "L"),
-                  ("Delivered by", "delivered_by_full", 42, "L"), ("Date received", "date_of_receiving", 24, "L"),
-                  ("Payment mode / status", "payment_status", 32, "L"), ("Cartage (Rs)", "cartage", 22, "R"),
+_RECEIVED_COLS = [("Order date", "order_received_date", 21, "L"), ("DC / Inv No", "dc_inv_no", 21, "L"), ("Address", "shipping_location", 46, "L"),
+                  ("Delivery status", "delivery_status", 26, "L"),
+                  ("Delivered by", "delivered_by_full", 38, "L"), ("Date received", "date_of_receiving", 24, "L"),
+                  ("Payment mode / status", "payment_status", 30, "L"), ("Cartage (Rs)", "cartage", 22, "R"),
                   ("Amount received (Rs)", "amount_received", 30, "R")]
 _DISPATCH_COLS = ORDER_COLS + [("Ready by", "ready_by", 24, "L"), ("Delivery status", "delivery_status", 24, "L")]
 def _received_cash_report(side: str, label: str, color: str) -> dict:
@@ -258,9 +259,9 @@ def _cartage_sections(spec: dict, date_from: date | None, date_to: date | None, 
     return [{"heading": heading + tag, "columns": cols, "totals": totals, "rows": rows}], note, len(rows) >= o2d_cartage.MAX_ROWS
 
 
-def build_report(spec: dict, user, date_from: date | None, date_to: date | None, created_by: str, now: datetime) -> tuple[bytes, int]:
-    """One of the order-based reports (everything but the cartage ones) as (PDF bytes, number of orders). The From / To dates are the order date for the
-    pending reports and the date of receiving for the received & payments reports (the note under the title says which)."""
+def report_sections(spec: dict, user, date_from: date | None, date_to: date | None) -> tuple[list[dict], str]:
+    """One of the order-based reports (everything but the cartage ones) as ([section], note) - what both the PDF and the Excel file are made from.
+    The From / To dates are the order date for the pending reports and the date of receiving for the received & payments reports (the note says which)."""
     field = spec.get("date_field", _ORDERED_ON)
     sections = [{"heading": h, "columns": cols, "totals": totals, "rows": fetch_rows(user, where, date_from, date_to, spec.get("order", _NEWEST_ORDERED), field)}
                 for h, where, cols, totals in spec["sections"]]
@@ -268,13 +269,102 @@ def build_report(spec: dict, user, date_from: date | None, date_to: date | None,
     note = f"{what} " + (f"{date_from:%d-%m-%Y}" if date_from else "start") + " to " + (f"{date_to:%d-%m-%Y}" if date_to else "today")         if (date_from or date_to) else ("All orders still open" if field == _ORDERED_ON else "All received orders")
     if any(len(s["rows"]) >= MAX_ROWS for s in sections):
         note += f" · first {MAX_ROWS} rows only, narrow the dates"
+    return sections, note
+
+
+def build_report(spec: dict, user, date_from: date | None, date_to: date | None, created_by: str, now: datetime) -> tuple[bytes, int]:
+    """One of the order-based reports as (PDF bytes, number of orders)."""
+    sections, note = report_sections(spec, user, date_from, date_to)
     return build_pdf(spec["title"], sections, created_by, now, note, spec["color"]), sum(len(s["rows"]) for s in sections)
+
+
+def _cell_value(field: str, v):
+    """What goes in an Excel cell: real numbers and dates (so they can be summed and sorted), not the printed text."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, datetime):
+        return v.astimezone(IST).replace(tzinfo=None) if v.tzinfo else v
+    return v
+
+
+def build_xlsx(title: str, sections: list[dict], created_by: str, generated_at: datetime, note: str = "") -> bytes:
+    """The same sections as build_pdf, as one Excel sheet: a title block, then each section with its header row, rows and a totals row."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook()
+    ws = wb.active
+    ws.title = re.sub(r"[\\/*?:\[\]]", "-", title)[:31] or "Report"
+    ws.append([title])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([f"Prepared by {created_by} on {generated_at.astimezone(IST):%d-%m-%Y %H:%M} IST" + (f" · {note}" if note else "")])
+    ws.append([])
+    head_fill, widths = PatternFill("solid", fgColor="1F3A5F"), {}
+    for sec in sections:
+        cols, rows = sec["columns"], sec["rows"]
+        ws.append([f"{sec['heading']} ({len(rows)})"])
+        ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+        ws.append([c[0] for c in cols])
+        for j in range(1, len(cols) + 1):
+            cell = ws.cell(row=ws.max_row, column=j)
+            cell.font, cell.fill = Font(bold=True, color="FFFFFF"), head_fill
+            cell.alignment = Alignment(horizontal="right" if cols[j - 1][3] == "R" else "left", vertical="center")
+        first = ws.max_row + 1
+        for r in rows:
+            ws.append([_cell_value(c[1], r.get(c[1])) for c in cols])
+            for j, c in enumerate(cols, 1):
+                v = ws.cell(row=ws.max_row, column=j).value
+                if c[3] == "R" and isinstance(v, (int, float)):
+                    ws.cell(row=ws.max_row, column=j).number_format = "#,##0" if isinstance(v, int) else "#,##0.00"
+                if isinstance(v, datetime):
+                    ws.cell(row=ws.max_row, column=j).number_format = "dd-mm-yyyy hh:mm"
+                elif isinstance(v, date):
+                    ws.cell(row=ws.max_row, column=j).number_format = "dd-mm-yyyy"
+                widths[j] = max(widths.get(j, len(c[0])), min(len(str(v if v is not None else "")), 60))
+        if not rows:
+            ws.append(["Nothing here."])
+        if sec.get("totals") and rows:
+            tot = ["Total"] + [None] * (len(cols) - 1)
+            for j, c in enumerate(cols, 1):
+                if j > 1 and c[3] == "R" and len(c) < 5:
+                    letter = get_column_letter(j)
+                    tot[j - 1] = f"=SUM({letter}{first}:{letter}{ws.max_row})"
+            ws.append(tot)
+            for j in range(1, len(cols) + 1):
+                cell = ws.cell(row=ws.max_row, column=j)
+                cell.font = Font(bold=True)
+                if j > 1 and tot[j - 1] is not None:
+                    cell.number_format = "#,##0.00"
+        ws.append([])
+    for j, w in widths.items():
+        ws.column_dimensions[get_column_letter(j)].width = max(10, w + 2)
+    ws.freeze_panes = None
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @router.get("/{kind}.pdf")
 def report_pdf(kind: str, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None),
                delivered_by: str | None = Query(default=None, max_length=150),
                user=Depends(access.require_page("o2d_reports", "o2d_cartage"))):
+    return _download(kind, "pdf", date_from, date_to, delivered_by, user)
+
+
+@router.get("/{kind}.xlsx")
+def report_xlsx(kind: str, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None),
+                delivered_by: str | None = Query(default=None, max_length=150),
+                user=Depends(access.require_page("o2d_reports", "o2d_cartage"))):
+    """The same report as the PDF, as an Excel file (WhatsApp keeps sending PDFs)."""
+    return _download(kind, "xlsx", date_from, date_to, delivered_by, user)
+
+
+def _download(kind: str, ext: str, date_from, date_to, delivered_by, user):
     spec = REPORTS.get(kind)
     if not spec:
         raise HTTPException(404, "Unknown report.")
@@ -289,12 +379,12 @@ def report_pdf(kind: str, date_from: date | None = Query(default=None), date_to:
             raise HTTPException(422, "Choose a delivery person first.")   # the Archive report was always for one person
         sections, note, cut = _cartage_sections(spec, date_from, date_to, delivered_by or None)
         title = f"Cartage History - {delivered_by}" if spec["cartage"] == "detail" else spec["title"]
-        pdf = build_pdf(title, sections, user.get("display_name") or user["username"], datetime.now(IST),
-                        note + (f" · first {MAX_ROWS} deliveries only, narrow the dates" if cut else ""), spec["color"])
-        name = f"{spec['file']}_{datetime.now(IST):%Y%m%d_%H%M}.pdf"
-        return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
-                                                                     "Cache-Control": "no-store"})
-    pdf, _ = build_report(spec, user, date_from, date_to, user.get("display_name") or user["username"], datetime.now(IST))
-    name = f"{spec['file']}_{datetime.now(IST):%Y%m%d_%H%M}.pdf"
-    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
-                                                                 "Cache-Control": "no-store"})
+        note += f" · first {MAX_ROWS} deliveries only, narrow the dates" if cut else ""
+    else:
+        sections, note = report_sections(spec, user, date_from, date_to)
+        title = spec["title"]
+    who, now = user.get("display_name") or user["username"], datetime.now(IST)
+    body = (build_xlsx(title, sections, who, now, note) if ext == "xlsx" else build_pdf(title, sections, who, now, note, spec["color"]))
+    name = f"{spec['file']}_{now:%Y%m%d_%H%M}.{ext}"
+    return Response(body, media_type=XLSX if ext == "xlsx" else "application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})

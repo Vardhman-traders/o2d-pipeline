@@ -128,16 +128,17 @@
     },
     confirmCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/confirm', body: form }; }),
     correctCashier: write('PUT', function (sl, form) { return { path: '/o2d/cashier/' + sl + '/correct', body: form }; }),
-    downloadReport: function (token, kind, from, to, person) {
+    downloadReport: function (token, kind, from, to, person, fmt) {
+      fmt = fmt === 'xlsx' ? 'xlsx' : 'pdf';
       var qs = [];
       if (person) qs.push('delivered_by=' + encodeURIComponent(person));
       if (from) qs.push('date_from=' + encodeURIComponent(from));
       if (to) qs.push('date_to=' + encodeURIComponent(to));
-      return fetch('/o2d/reports/' + kind + '.pdf' + (qs.length ? '?' + qs.join('&') : ''), { headers: { 'Authorization': 'Bearer ' + token } })
+      return fetch('/o2d/reports/' + kind + '.' + fmt + (qs.length ? '?' + qs.join('&') : ''), { headers: { 'Authorization': 'Bearer ' + token } })
         .then(function (res) {
           if (!res.ok) return res.json().catch(function () { return null; }).then(function (d) { return { ok: false, error: detail({ data: d, status: res.status }) }; });
           var m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
-          return res.blob().then(function (b) { return { ok: true, blob: b, filename: m ? m[1] : kind + '.pdf' }; });
+          return res.blob().then(function (b) { return { ok: true, blob: b, filename: m ? m[1] : kind + '.' + fmt }; });
         });
     },
     searchOrders: function (token, date, dcNo) {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vardhman Traders — Owner Dashboard</title>
+<title>Code Blue — Owner Dashboard</title>
 <script>window.VT_MODULE = 'attendance_owner';</script>
 <script src="../modules/api.js"></script>
 <script src="../vendor/xlsx.full.min.js"></script>
@@ -162,6 +162,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 .sal-stat.orange{border-top-color:#f97316}.sal-stat.adv{border-top-color:#c2410c}
 .sal-stat-val{font-size:1.3rem;font-weight:900;line-height:1.1}
 .sal-stat-lbl{font-size:.62rem;color:#6b7280;font-weight:700;text-transform:uppercase;margin-top:.15rem}
+.sal-stat-pct{font-size:.78rem;font-weight:800;margin-top:.2rem}
+.sal-pct-note{font-size:.62rem;color:#6b7280;margin:-.5rem 0 1rem}
 
 .slip-table{width:100%;border-collapse:collapse;margin-bottom:1rem}
 .slip-table td{padding:.65rem .9rem;font-size:.85rem;border-bottom:1px solid #f1f5f9}
@@ -189,6 +191,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 .day.red{background:#fef2f2;border-color:#fecaca}.day.red .day-st{background:#fee2e2;color:#991b1b}
 .day.gray{background:#f8fafc;border-color:#e2e8f0;opacity:.7}.day.gray .day-st{background:#f1f5f9;color:#64748b}
 .day.orange{background:#fff7ed;border-color:#fed7aa}.day.orange .day-st{background:#ffedd5;color:#c2410c}
+.day.blue{background:#eff6ff;border-color:#bfdbfe}.day.blue .day-st{background:#dbeafe;color:#1e40af}
+.pill.blue{background:#dbeafe;color:#1e40af}
 .day.future{background:#fafbfc;border-color:#e5e7eb;opacity:.4}
 
 .empty-state{text-align:center;padding:2.5rem 1rem;color:#64748b}
@@ -261,6 +265,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
   #pdfArea,#salPrintArea{display:none!important}
   body.print-rep #pdfArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36}
   body.print-sal #salPrintArea{display:block!important;font-family:'Plus Jakarta Sans',sans-serif;padding:24px;color:#1a1f36;max-width:700px;margin:0 auto}
+  #salPrintArea,#salPrintArea *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #salPrintArea .month-grid{gap:.25rem}#salPrintArea .day{min-height:58px;break-inside:avoid}
+  @page{margin:10mm}
 }
 </style>
 </head>
@@ -271,7 +278,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
   <div class="login-card">
     <div class="login-logo">VT</div>
     <div class="login-title">Owner Dashboard</div>
-    <div class="login-sub">Vardhman Traders · Secure Access</div>
+    <div class="login-sub">Code Blue · Secure Access</div>
     <div class="master-hint">🔐 Owner password ya Master password dono kaam karenge</div>
     <input class="login-input" type="password" id="pwdInput" placeholder="Password daalo" onkeydown="if(event.key==='Enter')doLogin()">
     <div class="login-err" id="loginErr">❌ Galat password. Dobara try karein.</div>
@@ -285,7 +292,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     <div class="brand">
       <div class="brand-logo">VT</div>
       <div>
-        <div class="brand-name">Vardhman Traders <span id="masterBadgeTop" style="display:none" class="master-badge">⚡ Master</span></div>
+        <div class="brand-name">Code Blue <span id="masterBadgeTop" style="display:none" class="master-badge">⚡ Master</span></div>
         <div class="brand-sub">Owner Dashboard</div>
       </div>
     </div>
@@ -616,6 +623,16 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <button class="btn" onclick="doAddEmployee()">➕ Add</button>
       </div>
     </div>
+    <div class="card" id="holidayCard">
+      <div class="card-title">🎉 Holidays</div>
+      <div class="card-sub">Holiday ke din koi Absent nahi ginta aur salary nahi katti (jaise 26 Jan, 15 Aug, 2 Oct). Jo us din aaye uski attendance normal gini jati hai.</div>
+      <div class="form-grid">
+        <input class="input" type="date" id="holDate">
+        <input class="input" id="holName" placeholder="Holiday name (e.g. Diwali)" maxlength="80">
+        <button class="btn" onclick="doAddHoliday()">➕ Add holiday</button>
+      </div>
+      <div id="holList" style="margin-top:.8rem"></div>
+    </div>
     <div class="card">
       <div class="card-title">👥 All Employees</div>
       <div class="card-sub" id="empCountSub">Loading…</div>
@@ -725,6 +742,31 @@ function showTab(name){
   if(name==='salary'){ loadSalaryList(); loadPINList(); showSalarySub('salary'); }
   if(name==='advance') showAdvanceSub('history');
   if(name==='streak') renderStreakTiles();
+  if(name==='emps') loadHolidays();
+}
+
+/* ─── HOLIDAYS ─── */
+function loadHolidays(){
+  var box=document.getElementById('holList'); if(!box) return;
+  var y=new Date().getFullYear();
+  Promise.all([y,y+1].map(function(yr){ return new Promise(function(res){ VT.run.withSuccessHandler(res).withFailureHandler(function(){res(null);}).getHolidays(PWD,yr); }); })).then(function(rs){
+    var list=[]; rs.forEach(function(r){ if(r&&r.status==='ok') list=list.concat(r.holidays); });
+    if(!list.length){ box.innerHTML='<div style="color:#94a3b8;font-size:.82rem">Koi holiday nahi daali gayi.</div>'; return; }
+    box.innerHTML=list.map(function(h){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid #f1f5f9"><span><b>'+escH(h.name)+'</b> <span style="color:#6b7280;font-size:.8rem">'+escH(h.date.split('-').reverse().join('-'))+'</span></span>'
+      +'<button class="btn btn-sm btn-ghost" onclick="doDeleteHoliday(\''+escH(h.date)+'\')">🗑 Remove</button></div>'; }).join('');
+  });
+}
+function doAddHoliday(){
+  var d=document.getElementById('holDate').value, n=document.getElementById('holName').value;
+  if(!d||!n.trim()){ toast('Date aur naam dono daalo','err'); return; }
+  VT.run.withSuccessHandler(function(r){
+    if(r&&r.status==='ok'){ toast('Holiday add ho gayi','ok'); document.getElementById('holName').value=''; loadHolidays(); } else toast((r&&r.msg)||'Could not add','err');
+  }).withFailureHandler(function(e){ toast(e.message||'Could not add','err'); }).addHoliday(PWD,d,n);
+}
+function doDeleteHoliday(d){
+  if(!confirm('Is holiday ko hata dein?')) return;
+  VT.run.withSuccessHandler(function(r){ if(r&&r.status==='ok'){ loadHolidays(); } else toast((r&&r.msg)||'Could not remove','err'); })
+    .withFailureHandler(function(e){ toast(e.message||'Could not remove','err'); }).deleteHoliday(PWD,d);
 }
 
 /* ─── TODAY ─── */
@@ -817,7 +859,7 @@ function photoLinks(m){
   return h;
 }
 function statusPill(s){
-  var map={'Present':'green','Late':'amber','Half Day':'purple','Absent':'red','Incomplete':'orange','Weekly Off':'gray'};
+  var map={'Present':'green','Late':'amber','Half Day':'purple','Absent':'red','Incomplete':'orange','Weekly Off':'gray','Holiday':'blue'};
   return '<span class="pill '+(map[s]||'gray')+'">'+s+'</span>';
 }
 
@@ -916,6 +958,10 @@ function showAdvanceSub(w){
   document.getElementById('asub-history').className='subtab'+(w==='history'?' active':'');
   document.getElementById('asub-add').className='subtab'+(w==='add'?' active':'');
   if(w==='add') renderAdvTiles(); else loadAdvanceHistory();
+}
+function addAdvanceFor(name){
+  for(var i=0;i<ACT_EMPS.length;i++){ if(ACT_EMPS[i].name.toLowerCase().trim()===String(name).toLowerCase().trim()){ openAdvanceForm(i); return; } }
+  toast('Employee nahi mila','err');
 }
 function openAdvanceForm(idx){
   var e=ACT_EMPS[idx]; if(!e) return;
@@ -1095,7 +1141,7 @@ function renderSalaryReport(r){
   var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
   var role=''; for(var i=0;i<ACT_EMPS.length;i++){if(ACT_EMPS[i].name.toLowerCase()===r.employeeName.toLowerCase()){role=ACT_EMPS[i].role;break;}}
 
-  var html='';
+  var html='<div id="slipBody">';
   html+='<div class="slip-header"><div class="slip-logo">VT</div><div><div class="slip-company">VT</div><div class="slip-tagline">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
 
   html+='<div class="sal-emp-row" style="margin-bottom:1rem">'
@@ -1107,14 +1153,17 @@ function renderSalaryReport(r){
   if(r.totalAdvance>0)
     html+='<div class="advance-badge">💸 Advance liya: ₹'+fmt(r.totalAdvance)+' ('+r.advances.length+' entry) — deduct hoga</div><br>';
 
+  var pc=r.percent||{};
+  function pctLine(key,colour){ return '<div class="sal-stat-pct" style="color:'+colour+'">'+(pc[key]!=null?Number(pc[key]).toFixed(1):'0.0')+'%</div>'; }
   html+='<div class="sal-stat-grid">'
-    +'<div class="sal-stat green"><div class="sal-stat-val" style="color:#16a34a">'+s.present+'</div><div class="sal-stat-lbl">Present</div></div>'
-    +'<div class="sal-stat amber"><div class="sal-stat-val" style="color:#d97706">'+s.late+'</div><div class="sal-stat-lbl">Late</div></div>'
-    +'<div class="sal-stat purple"><div class="sal-stat-val" style="color:#7c3aed">'+s.halfDay+'</div><div class="sal-stat-lbl">Half Day</div></div>'
-    +'<div class="sal-stat red"><div class="sal-stat-val" style="color:#dc2626">'+s.absent+'</div><div class="sal-stat-lbl">Absent</div></div>'
-    +(s.sandwich>0?'<div class="sal-stat orange"><div class="sal-stat-val" style="color:#ea580c">'+s.sandwich+'</div><div class="sal-stat-lbl">🥪 Sandwich</div></div>':'')
-    +(r.totalAdvance>0?'<div class="sal-stat adv"><div class="sal-stat-val" style="color:#c2410c">₹'+fmt(r.totalAdvance)+'</div><div class="sal-stat-lbl">Advance</div></div>':'')
-    +'</div>';
+    +'<div class="sal-stat green"><div class="sal-stat-val" style="color:#16a34a">'+s.present+'</div><div class="sal-stat-lbl">Present</div>'+pctLine('present','#16a34a')+'</div>'
+    +'<div class="sal-stat amber"><div class="sal-stat-val" style="color:#d97706">'+s.late+'</div><div class="sal-stat-lbl">Late</div>'+pctLine('late','#d97706')+'</div>'
+    +'<div class="sal-stat purple"><div class="sal-stat-val" style="color:#7c3aed">'+s.halfDay+'</div><div class="sal-stat-lbl">Half Day</div>'+pctLine('halfDay','#7c3aed')+'</div>'
+    +'<div class="sal-stat red"><div class="sal-stat-val" style="color:#dc2626">'+s.absent+'</div><div class="sal-stat-lbl">Absent</div>'+pctLine('absent','#dc2626')+'</div>'
+    +(s.sandwich>0?'<div class="sal-stat orange"><div class="sal-stat-val" style="color:#ea580c">'+s.sandwich+'</div><div class="sal-stat-lbl">🥪 Sandwich</div>'+pctLine('sandwich','#ea580c')+'</div>':'')
+    +(r.totalAdvance>0?'<div class="sal-stat adv"><div class="sal-stat-val" style="color:#c2410c">₹'+fmt(r.totalAdvance)+'</div><div class="sal-stat-lbl">Advance</div>'+pctLine('advance','#c2410c')+'</div>':'')
+    +'</div>'
+    +'<div class="sal-pct-note">% = share of the '+(r.countedDays||0)+' days that count towards pay (weekly offs and days still to come are left out; Sandwich days are already part of Absent'+(r.totalAdvance>0?'; Advance = share of the gross salary':'')+')</div>';
 
   html+='<table class="slip-table">'
     +'<tr class="sep"><td colspan="2">Earnings</td></tr>'
@@ -1155,6 +1204,7 @@ function renderSalaryReport(r){
     else if(d.status==='Absent'||d.status==='Absent (Sandwich)'){cls='red';label='✗'+(d.sandwichApplied?' 🥪':'');}
     else if(d.status==='Incomplete'){cls='orange';label='?';}
     else if(d.status==='Weekly Off'){cls='gray';label='Off';}
+    else if(d.status==='Holiday'){cls='blue';label='🎉 Holiday';}
     else if(d.status==='Future'){cls='future';label='—';}
     var hrs=(d.hoursWorked&&d.hoursWorked!=='—')?'<div class="day-hrs">⏱ '+d.hoursWorked+'</div>':'';
     html+='<div class="day '+cls+'"><div class="day-num">'+d.day+'</div><div class="day-st">'+label+'</div>'+hrs+'</div>';
@@ -1166,9 +1216,12 @@ function renderSalaryReport(r){
     +'<div class="legend-item"><div class="legend-dot" style="background:#d8b4fe"></div>Half Day</div>'
     +'<div class="legend-item"><div class="legend-dot" style="background:#fecaca"></div>Absent</div>'
     +'<div class="legend-item"><div class="legend-dot" style="background:#e2e8f0"></div>Weekly Off</div>'
+    +'<div class="legend-item"><div class="legend-dot" style="background:#bfdbfe"></div>Holiday</div>'
     +'</div>';
+  html+='</div>';   // end of #slipBody: the buttons below are not printed
 
   html+='<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem;flex-wrap:wrap">'
+    +'<button class="btn btn-sm btn-amber" onclick="addAdvanceFor(window._lastSalary.employeeName)">💸 Add advance</button>'
     +'<button class="btn btn-sm btn-ghost" onclick="downloadSalCSV()">📥 Download CSV</button>'
     +'<button class="btn btn-sm btn-purple" onclick="printSalarySlip()">🖨️ Print Salary Slip</button>'
     +'</div>';
@@ -1246,6 +1299,7 @@ function renderReport(r,month,year){
     else if(d.status==='Absent'){cls='red';label='✗ Absent';}
     else if(d.status==='Incomplete'){cls='orange';label='? '+d.time;}
     else if(d.status==='Weekly Off'){cls='gray';label='🛌 Off';}
+    else if(d.status==='Holiday'){cls='blue';label='🎉 Holiday';}
     else if(d.status==='—'){cls='future';label='—';}
     var hrs=(d.hoursWorked&&d.hoursWorked!=='—')?'<div class="day-hrs">⏱ '+d.hoursWorked+'</div>':'';
     var fix=(IS_ADMIN&&d.status!=='—')?' fixable" title="Click to correct this day" onclick="openFixDay('+i+')':'';
@@ -1431,27 +1485,9 @@ function downloadPDF(){
 
 function printSalarySlip(){
   var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
-  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var mName=months[r.month-1]; var s=r.stats;
-  var html='<div style="font-family:sans-serif;padding:24px;max-width:700px;margin:0 auto">';
-  html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:3px solid #1a237e"><div style="width:50px;height:50px;background:#1a237e;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.2rem">VT</div><div><div style="font-size:1.3rem;font-weight:900;color:#1a237e">VT</div><div style="font-size:.75rem;color:#6b7280">Salary Slip · '+mName+' '+r.year+'</div></div></div>';
-  html+='<div style="margin-bottom:14px"><div style="font-size:1rem;font-weight:800">'+escH(r.employeeName)+'</div><div style="font-size:.78rem;color:#6b7280">Monthly Gross: ₹'+fmt(r.monthlySalary)+' | Per Day (÷'+r.baseDays+'): ₹'+fmt(r.perDaySalary)+'</div></div>';
-  if(r.totalAdvance>0) html+='<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 12px;font-size:.75rem;color:#dc2626;font-weight:700;margin-bottom:12px">💸 Advance deducted: ₹'+fmt(r.totalAdvance)+'</div>';
-  html+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
-  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Earnings</td></tr>';
-  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280;width:55%">Gross Salary</td><td style="text-align:right;font-weight:800;padding:7px 10px">₹'+fmt(r.monthlySalary)+'</td></tr>';
-  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Per Day (÷ '+r.baseDays+')</td><td style="text-align:right;font-weight:800;padding:7px 10px">₹'+fmt(r.perDaySalary)+'</td></tr>';
-  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Deductions</td></tr>';
-  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Absent ('+s.absent+' days)</td><td style="text-align:right;font-weight:800;color:#dc2626;padding:7px 10px">− ₹'+fmt(Math.round(s.absent*r.perDaySalary))+'</td></tr>';
-  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Half Day ('+s.halfDay+' × 0.5)</td><td style="text-align:right;font-weight:800;color:#dc2626;padding:7px 10px">− ₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</td></tr>';
-  if(r.totalAdvance>0) html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Advance ('+r.advances.length+' entry)</td><td style="text-align:right;font-weight:800;color:#c2410c;padding:7px 10px">− ₹'+fmt(r.totalAdvance)+'</td></tr>';
-  html+='<tr style="background:#f8faff"><td style="padding:8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#374151" colspan="2">Summary</td></tr>';
-  html+='<tr><td style="padding:7px 10px;font-size:.82rem;color:#6b7280">Paid Days</td><td style="text-align:right;font-weight:800;color:#16a34a;padding:7px 10px">'+r.totalPaidDays+' / '+r.baseDays+'</td></tr>';
-  html+='</table>';
-  html+='<div style="background:#1a237e;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:.85rem;font-weight:700;color:rgba(255,255,255,.8)">💰 Net Payable Salary</div><div style="font-size:1.5rem;font-weight:900;color:#fff">₹'+fmt(r.netSalary)+'</div></div>';
-  html+='<div style="font-size:.6rem;color:#9ca3af;text-align:center;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:10px">VT · Salary Slip · '+mName+' '+r.year+' · Confidential</div>';
-  html+='</div>';
-  document.getElementById('salPrintArea').innerHTML=html;
+  var slip=document.getElementById('slipBody'); if(!slip){toast('Pehle salary calculate karo','err');return;}
+  // the printed / saved PDF is the slip exactly as it is on the screen: header, cards with their %, table, net salary, calendar
+  document.getElementById('salPrintArea').innerHTML=slip.innerHTML;
   printArea('print-sal');
 }
 
@@ -1484,7 +1520,7 @@ function showMonthlySub(w){
 var MONTHS_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
 function needXlsx(){ if(typeof XLSX==='undefined'){ toast('Excel tool load nahi hua - page refresh karo','err'); return true; } return false; }
 function saveBook(wb,name){ XLSX.writeFile(wb,name.replace(/[^a-zA-Z0-9_.-]/g,'_')); }
-function dayCode(st){ return {'Present':'P','Late':'L','Half Day':'H','Absent':'A','Incomplete':'I','Weekly Off':'Off','—':'—'}[st]||st; }
+function dayCode(st){ return {'Present':'P','Late':'L','Half Day':'H','Absent':'A','Incomplete':'I','Weekly Off':'Off','Holiday':'Hol','—':'—'}[st]||st; }
 
 function exportMonthOne(){
   if(needXlsx()) return;

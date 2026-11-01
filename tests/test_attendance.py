@@ -184,9 +184,20 @@ def test_salary_sandwich_advances_and_pins(client, db_conn, seed):
     with db_conn.cursor() as cur:
         cur.execute("SELECT pin_hash FROM dim_att_employee WHERE employee_name = %s", (name,))
         assert cur.fetchone()[0] not in (None, "4321")
-    # the employee page no longer has a salary section: the PIN endpoints it used are gone
-    assert client.post("/attendance/public/rpc", json={"action": "verifyEmployeePIN", "args": [name, "4321"]}).status_code == 404
-    assert client.post("/attendance/public/rpc", json={"action": "getEmployeeSalaryView", "args": [name, ""]}).status_code == 404
+    # the employee's own salary: only after their own PIN, and only their own
+    pub = lambda action, *args: client.post("/attendance/public/rpc", json={"action": action, "args": list(args)}).json()   # noqa: E731
+    assert pub("getEmployeeSalaryView", name, "")["status"] == "error"                                    # no pass, no salary
+    assert pub("verifyEmployeePIN", name, "0000")["status"] == "error" and pub("verifyEmployeePIN", "Nobody Here", "4321")["msg"] == pub("verifyEmployeePIN", name, "1111")["msg"]
+    ok = pub("verifyEmployeePIN", name, "4321")
+    assert ok["status"] == "ok" and ok["token"]
+    mine = pub("getEmployeeSalaryView", name, ok["token"], 2026, 6)
+    assert mine["status"] == "ok" and mine["employeeName"] == name and mine["monthlySalary"] == 30000 and "percent" in mine
+    assert pub("getEmployeeSalaryView", "Someone Else", ok["token"], 2026, 6)["status"] == "error"        # a pass never opens another person
+    assert pub("getEmployeeSalaryView", name, ok["token"][:-3] + "abc", 2026, 6)["status"] == "error"     # a changed pass
+    assert pub("getEmployeeSalaryView", name, ok["token"], 2020, 1)["status"] == "error"                  # only the last twelve months
+    for _ in range(5):                                                                                    # wrong PINs lock it (Setup: 5 tries)
+        pub("verifyEmployeePIN", name, "9999")
+    assert "locked" in pub("verifyEmployeePIN", name, "4321")["msg"].lower()
 
 
 def test_reports_streaks_and_employee_list(client, db_conn, seed):

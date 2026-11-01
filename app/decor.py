@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, db, module_admin, modcommon as mc, roles
+from . import access, attachments, auth, db, module_admin, modcommon as mc, roles, whatsapp
 
 router = APIRouter(prefix="/decor", tags=["decor"])
 ANY = auth.require_roles(*roles.ALL_ROLES)
@@ -37,7 +37,7 @@ READ_ACTIONS = {"getConfig", "getClients", "getClientDetail", "getItems", "getPa
 # stays read-only for everyone but the admin - see _lock).
 OWNER_ONLY = {"deletePayment", "deleteExpense", "deleteItem", "reviseAmount", "markCompleted",
               "markActive", "hideClient", "deleteClient", "deletePhoto"}
-ADMIN_ONLY = {"getAllBusinessLedger", "saveFixedExp", "getFixedExp", "saveStagePcts", "assignClients"}   # whole-business data: administrators only
+ADMIN_ONLY = {"getAllBusinessLedger", "saveFixedExp", "getFixedExp", "saveStagePcts", "assignClients", "getQuotationStats"}   # whole-business data: administrators only
 
 
 # ------------------------------------------------------------------ who is calling
@@ -349,6 +349,21 @@ def _items(cur, client_key: int) -> list[dict]:
              "notes": r["notes"] or "", "itemIndex": r["item_index"]} for r in cur.fetchall()]
 
 
+def _entry_photos(cur, client_key: int) -> dict:
+    """{("p", payment_key) or ("e", expense_key): [{id, url}]} - the photos / PDFs that belong to one entry."""
+    cur.execute("SELECT photo_key, payment_key, expense_key, attachment_key, legacy_url FROM fact_decor_photo "
+                "WHERE client_key = %s AND (payment_key IS NOT NULL OR expense_key IS NOT NULL) ORDER BY photo_key", (client_key,))
+    rows = cur.fetchall()
+    urls = _signed([r["attachment_key"] for r in rows if r["attachment_key"]])
+    out: dict = {}
+    for r in rows:
+        url = _photo_url(r, urls)
+        if url:
+            key = ("p", r["payment_key"]) if r["payment_key"] else ("e", r["expense_key"])
+            out.setdefault(key, []).append({"id": str(r["photo_key"]), "url": url})
+    return out
+
+
 def get_client_detail(user, who, p):
     code = str(p.get("clientId") or "").strip()
     if not code:
@@ -356,6 +371,11 @@ def get_client_detail(user, who, p):
     with db.cursor() as cur:
         c = _need_client(cur, who, code)
         pays, exps, items = _payments(cur, c["client_key"]), _expenses(cur, c["client_key"]), _items(cur, c["client_key"])
+        linked = _entry_photos(cur, c["client_key"])
+        for x in pays:
+            x["photos"] = linked.get(("p", x["rowIndex"]), [])
+        for x in exps:
+            x["photos"] = linked.get(("e", x["rowIndex"]), [])
         amount = _f(c["contract_amount"])
         stages = _stage_rows(cur, c, pays, amount)
         cur.execute("SELECT r.old_amount, r.new_amount, r.reason, r.created_at, u.display_name FROM fact_decor_revision r "
@@ -370,6 +390,21 @@ def get_client_detail(user, who, p):
 
 
 # ------------------------------------------------------------------ payments / expenses / items
+def _tell_entry(user, c: dict, *, kind: str, day, amount: float, mode: str, remarks, expense_type: str = "") -> None:
+    """The VT Decor WhatsApp message for a new payment / expense (Setup > WhatsApp > "VT Decor - new payment / expense"). Never fails the entry."""
+    try:
+        with db.cursor() as cur:
+            cur.execute("SELECT type_name FROM dim_decor_product_type WHERE type_key = %s", (c["product_type_key"],))
+            row = cur.fetchone()
+        whatsapp.send_in_background("decor_entry", {
+            "date": f"{day:%d/%m/%Y}", "type": kind, "product_type": row["type_name"] if row else "-",
+            "party": f"{c['client_name']} {c['mobile']}".strip(), "amount": f"{amount:,.2f}", "mode": mode or "-",
+            "expense_line": f"Expense Type: {expense_type}\n" if expense_type else "", "remarks": remarks or "-",
+            "punched_by": user.get("display_name") or user.get("username") or "-"})
+    except Exception:
+        log.exception("Could not queue the VT Decor WhatsApp message")
+
+
 def add_payment(user, who, p):
     amount = _f(p.get("amount"))
     if not p.get("clientId") or not amount:
@@ -377,10 +412,21 @@ def add_payment(user, who, p):
     with db.cursor() as cur:
         c = _need_open_client(cur, who, p["clientId"])
         sk = _stage_key(cur, c["product_type_key"], p.get("stage"))
+        day = _day(p.get("date"))
         cur.execute("INSERT INTO fact_decor_payment (client_key, stage_key, stage_text, amount, mode_key, pay_date, ref_no, remarks, created_by_user_key) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING payment_key",
                     (c["client_key"], sk, None if sk else (p.get("stage") or None), round(amount, 2), _mode_key(cur, p.get("mode")),
-                     _day(p.get("date")), p.get("pnum") or None, p.get("remarks") or None, user["user_key"]))
+                     day, p.get("pnum") or None, p.get("remarks") or None, user["user_key"]))
+        payment_key = cur.fetchone()["payment_key"]
+    _tell_entry(user, c, kind="Payment", day=day, amount=round(amount, 2), mode=str(p.get("mode") or "Cash"), remarks=p.get("remarks") or None)
+    if p.get("base64") and p.get("mimeType"):      # a photo / PDF taken with the payment stays with it
+        if not attachments.configured():
+            return {"ok": True, "photoSkipped": True, "msg": "Payment saved. Photo skipped: photo storage is not set up yet."}
+        try:
+            _store_photo(user, c["client_key"], p.get("stage") or "Payment", "[Payment] " + (p.get("pnum") or ""), "photo", p["base64"], p["mimeType"],
+                         payment_key=payment_key)
+        except HTTPException as e:
+            return {"ok": True, "photoSkipped": True, "msg": f"Payment saved. Photo upload failed: {e.detail}"}
     return {"ok": True}
 
 
@@ -447,10 +493,14 @@ def add_expense(user, who, p):
 def _save_expense(user, who, p, amount) -> dict:
     with db.cursor() as cur:
         c = _need_open_client(cur, who, p["clientId"])
+        day = _day(p.get("date"))
         cur.execute("INSERT INTO fact_decor_expense (client_key, expense_type, amount, exp_date, notes, created_by_user_key) "
                     "VALUES (%s,%s,%s,%s,%s,%s) RETURNING expense_key",
-                    (c["client_key"], str(p.get("type") or "")[:100], round(amount, 2), _day(p.get("date")), p.get("notes") or None, user["user_key"]))
-    return {"ok": True, "clientKey": c["client_key"]}
+                    (c["client_key"], str(p.get("type") or "")[:100], round(amount, 2), day, p.get("notes") or None, user["user_key"]))
+        expense_key = cur.fetchone()["expense_key"]
+    _tell_entry(user, c, kind="Expense", day=day, amount=round(amount, 2), mode=str(p.get("mode") or "Cash"), remarks=p.get("notes") or None,
+                expense_type=str(p.get("type") or "")[:100])
+    return {"ok": True, "clientKey": c["client_key"], "expenseKey": expense_key}
 
 
 def add_expense_with_photo(user, who, p):
@@ -468,17 +518,19 @@ def add_expense_with_photo(user, who, p):
         return {"ok": True, "photoSkipped": True, "msg": "Expense saved. Photo skipped: photo storage is not set up yet."}
     try:
         caption = "[Challan] " + p["type"] + (" - " + p["notes"] if p.get("notes") else "")
-        _store_photo(user, res["clientKey"], "Expense Challan", caption, "challan", p["base64"], p["mimeType"])
+        _store_photo(user, res["clientKey"], "Expense Challan", caption, "challan", p["base64"], p["mimeType"], expense_key=res["expenseKey"])
     except HTTPException as e:
         return {"ok": True, "photoSkipped": True, "msg": f"Expense saved. Photo upload failed: {e.detail}"}
     return {"ok": True}
 
 
-def _store_photo(user, client_key, stage, caption, kind, b64, mime) -> int:
+def _store_photo(user, client_key, stage, caption, kind, b64, mime, payment_key=None, expense_key=None) -> int:
+    """Save a photo / PDF for a client; payment_key / expense_key tie it to one entry so it shows next to that entry."""
     aid = attachments.put_data_url("decor", client_key, kind, user, f"data:{mime};base64,{b64}")
     with db.cursor() as cur:
-        cur.execute("INSERT INTO fact_decor_photo (client_key, stage_text, caption, kind, attachment_key, created_by_user_key) "
-                    "VALUES (%s,%s,%s,%s,%s,%s) RETURNING photo_key", (client_key, stage or None, caption or None, kind, aid, user["user_key"]))
+        cur.execute("INSERT INTO fact_decor_photo (client_key, stage_text, caption, kind, attachment_key, created_by_user_key, payment_key, expense_key) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING photo_key",
+                    (client_key, stage or None, caption or None, kind, aid, user["user_key"], payment_key, expense_key))
         return cur.fetchone()["photo_key"]
 
 
@@ -845,6 +897,8 @@ def update_quotation(user, who, p):
 
 
 def delete_quotation(user, who, p):
+    if not who["admin"]:
+        return {"ok": False, "msg": "Only the administrator can delete a quotation."}
     with db.cursor() as cur:
         r = _quotation_row(cur, who, p.get("performaNo"))
         cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target, details) VALUES (%s, %s, 'decor.quotation_delete', %s, %s)",
@@ -853,14 +907,76 @@ def delete_quotation(user, who, p):
     return {"ok": True}
 
 
+QUOTATION_STATUSES = ("Lead", "Approved", "Lost")
+
+
+def set_quotation_status(user, who, p):
+    """Mark a quotation Approved (a client is created from it, with the quotation's total as the contract amount) or Lost. A Lost one can go back
+    to Lead; an Approved one stays approved - its client exists."""
+    status = str(p.get("status") or "").strip().title()
+    if status not in QUOTATION_STATUSES:
+        return {"ok": False, "msg": "Choose Lead, Approved or Lost."}
+    with db.cursor() as cur:
+        r = _quotation_row(cur, who, p.get("performaNo"))
+        if r["status"] == "Approved":
+            return {"ok": False, "msg": "This quotation is already approved" + (" - its client is " + _client_code(cur, r["client_key"]) if r["client_key"] else "") + "."}
+        client_code = ""
+        if status == "Approved":
+            cur.execute("SELECT type_key FROM dim_decor_product_type WHERE lower(btrim(type_name)) = lower(btrim(%s))", (p.get("productType") or "",))
+            t = cur.fetchone()
+            if not t:
+                cur.execute("SELECT type_key FROM dim_decor_product_type ORDER BY sort_order, type_key LIMIT 1")
+                t = cur.fetchone()
+            if not t:
+                return {"ok": False, "msg": "No product types are set up yet. Ask the administrator (Setup > Dropdown values)."}
+            maker = r["created_by"] or who["me"]
+            cur.execute("""INSERT INTO dim_decor_client (client_name, mobile, address, contract_amount, start_date, notes, assigned_to, added_by, product_type_key)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING client_key, client_code""",
+                        ((r["client_name"] or "Client")[:150], (r["mobile"] or "-")[:30], r["address"], r["grand_total"], mc.today_ist(),
+                         "From quotation " + r["performa_no"], maker, maker, t["type_key"]))
+            made = cur.fetchone()
+            client_code = made["client_code"]
+            cur.execute("UPDATE fact_decor_quotation SET status = 'Approved', client_key = %s, decided_at = now(), decided_by = %s WHERE quotation_key = %s",
+                        (made["client_key"], who["me"], r["quotation_key"]))
+        else:
+            cur.execute("UPDATE fact_decor_quotation SET status = %s, decided_at = CASE WHEN %s = 'Lead' THEN NULL ELSE now() END, decided_by = %s "
+                        "WHERE quotation_key = %s", (status, status, who["me"], r["quotation_key"]))
+        _audit(cur, user, "decor.quotation_" + status.lower(), r["performa_no"], {"client": r["client_name"], "grand_total": _f(r["grand_total"]), "client_code": client_code})
+    return {"ok": True, "performaNo": r["performa_no"], "status": status, "clientId": client_code}
+
+
+def _client_code(cur, client_key) -> str:
+    cur.execute("SELECT client_code FROM dim_decor_client WHERE client_key = %s", (client_key,))
+    row = cur.fetchone()
+    return row["client_code"] if row else ""
+
+
+def get_quotation_stats(user, who, p):
+    """Administrator: how many quotations are still leads, how many were approved and how many were lost - overall and per person."""
+    with db.cursor() as cur:
+        cur.execute("SELECT COALESCE(created_by, '-') AS by, status, count(*) AS n, COALESCE(sum(grand_total), 0) AS total FROM fact_decor_quotation GROUP BY 1, 2")
+        rows = cur.fetchall()
+    out = {s: {"count": 0, "total": 0.0} for s in QUOTATION_STATUSES}
+    people: dict = {}
+    for r in rows:
+        out[r["status"]]["count"] += r["n"]
+        out[r["status"]]["total"] += _f(r["total"])
+        mine = people.setdefault(r["by"], {"by": r["by"], "Lead": 0, "Approved": 0, "Lost": 0})
+        mine[r["status"]] += r["n"]
+    total = sum(v["count"] for v in out.values())
+    return {"ok": True, "total": total, "leads": out["Lead"], "approved": out["Approved"], "lost": out["Lost"],
+            "approvedPct": round(out["Approved"]["count"] * 100 / total, 1) if total else 0.0, "people": sorted(people.values(), key=lambda x: -sum(x[s] for s in QUOTATION_STATUSES))}
+
+
 def get_quotations(user, who, p):
     with db.cursor() as cur:
-        cur.execute("SELECT * FROM fact_decor_quotation ORDER BY quotation_key")
+        cur.execute("SELECT q.*, c.client_code FROM fact_decor_quotation q LEFT JOIN dim_decor_client c ON c.client_key = q.client_key ORDER BY q.quotation_key")
         rows = cur.fetchall()
     return {"ok": True, "list": [{"timestamp": _d(r["created_at"].astimezone(mc.IST)), "performaNo": r["performa_no"], "createdBy": r["created_by"] or "",
                                   "client": r["client_name"] or "", "mobile": r["mobile"] or "", "addr": r["address"] or "", "gstin": r["gstin"] or "",
                                   "date": r["quote_date"] or "", "subtotal": _f(r["subtotal"]), "cgstPct": _f(r["cgst_pct"]),
-                                  "sgstPct": _f(r["sgst_pct"]), "grand": _f(r["grand_total"]), "rowIndex": r["quotation_key"]}
+                                  "sgstPct": _f(r["sgst_pct"]), "grand": _f(r["grand_total"]), "rowIndex": r["quotation_key"],
+                                  "status": r["status"], "clientId": r["client_code"] or ""}
                                  for r in rows if who["admin"] or (r["created_by"] or "") == who["me"]]}
 
 
@@ -873,7 +989,8 @@ ACTIONS = {
     "getAgingReport": get_aging_report, "getMonthlyCollection": get_monthly_collection, "getGPData": get_gp_data,
     "saveFixedExp": save_fixed_exp, "getFixedExp": get_fixed_exp, "getStagePcts": get_stage_pcts, "saveStagePcts": save_stage_pcts,
     "saveQuotation": save_quotation, "getQuotations": get_quotations, "getQuotation": get_quotation,
-    "updateQuotation": update_quotation, "deleteQuotation": delete_quotation, "assignClients": assign_clients, "getNextPerformaNo": get_next_performa_no,
+    "updateQuotation": update_quotation, "deleteQuotation": delete_quotation, "setQuotationStatus": set_quotation_status,
+    "getQuotationStats": get_quotation_stats, "assignClients": assign_clients, "getNextPerformaNo": get_next_performa_no,
     "markCompleted": _set_status("Completed"), "markActive": _set_status("Active"), "hideClient": _set_status("Hidden"),
     "deleteClient": delete_client, "savePhotoLink": save_photo_link, "uploadPhoto": upload_photo, "getPhotos": get_photos,
     "getAllPhotos": get_all_photos, "deletePhoto": delete_photo, "getAllBusinessLedger": get_business_ledger,

@@ -97,6 +97,8 @@
     expSummary: function (account, from, to) { return ask('GET', '/payments/expenses/summary' + qs({ account: account, date_from: from, date_to: to })); },
     expEntries: function (account, from, to, category, kind) { return ask('GET', '/payments/expenses/entries' + qs({ account: account, date_from: from, date_to: to, category: category, kind: kind })); },
     expAdd: function (body) { return ask('POST', '/payments/expenses/entries', body); },
+    expEdit: function (key, body) { return ask('PUT', '/payments/expenses/entries/' + key, body); },
+    expDelete: function (key) { return ask('DELETE', '/payments/expenses/entries/' + key); },
     expVoid: function (key, reason) { return ask('POST', '/payments/expenses/entries/' + key + '/void', { reason: reason }); },
 
     // ---------------------------------------------------------------- Upload challan (a tab of the Payments screen)
@@ -133,11 +135,11 @@
       return r;
     });
   };
-  fns.getEmployeeSalaryView = function (name) { return attPublic('getEmployeeSalaryView', [name, salaryPass[String(name).toLowerCase().trim()] || '']); };
+  fns.getEmployeeSalaryView = function (name, year, month) { return attPublic('getEmployeeSalaryView', [name, salaryPass[String(name).toLowerCase().trim()] || '', year, month]); };
   ['verifyOwnerPassword', 'getTodayAttendance', 'manualCheckout', 'getAllSalaries', 'setEmployeeSalary', 'getAllAdvances', 'addAdvancePayment',
    'deleteAdvance', 'getSalaryReport', 'getMonthlyReport', 'getAbsentStreak', 'getEmployeeStreak', 'getAllEmployees', 'addEmployee',
    'deleteEmployee', 'getAllPINs', 'setEmployeePIN', 'getWorkPlaces', 'setEmployeePlaces', 'getMonthlyAll', 'getSalaryAll', 'correctAttendance',
-   'deleteAttendance'].forEach(function (n) {
+   'deleteAttendance', 'getHolidays', 'addHoliday', 'deleteHoliday'].forEach(function (n) {
     fns[n] = function () { return attOwner(n, Array.prototype.slice.call(arguments)); };
   });
 

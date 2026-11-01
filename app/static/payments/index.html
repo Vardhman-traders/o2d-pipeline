@@ -581,7 +581,7 @@
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-logo">VT</div>
-    <h1>Vardhman Traders</h1>
+    <h1>Code Blue</h1>
     <p class="sub">Business Payment Dashboard</p>
     <div id="loginError"></div>
     <div class="field">
@@ -733,6 +733,9 @@
 
     <!-- SCOPE LABEL -->
     <p class="scope-label" id="scopeLabel">Summary</p>
+
+    <!-- merged entries whose O2D / VT Decor source changed afterwards -->
+    <div id="changedNotice"></div>
 
     <!-- SUMMARY CARDS -->
     <div class="cards" id="cardsRow"></div>
@@ -1608,6 +1611,12 @@ function loadDashboard_(){
 
       const pendingByType = d.pendingByType || { all: d.pendingEntries || 0 };
 
+      // entries merged from O2D / VT Decor whose source was changed afterwards: a red notice up here until someone has looked at them
+      const changed = d.changedAfterMerge || 0;
+      document.getElementById('changedNotice').innerHTML = changed
+        ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">` +
+          `<b>⚠ ${changed} merged ${changed === 1 ? 'entry was' : 'entries were'} changed in O2D / VT Decor after the merge - please review.</b>` +
+          `<button class="btn" type="button" onclick="filterCard('changedAfterMerge')">Show ${changed === 1 ? 'it' : 'them'}</button></div>` : '';
       document.getElementById('cardsRow').innerHTML = `
         <div class="card card-cyan ${activeCardKey==='cashInHand'?'active-card':''}" onclick="filterCard('cashInHand')">
           <div class="label">💵 Cash in Hand</div><div class="value">${rupee(d.cashInHand)}</div>
@@ -1630,7 +1639,7 @@ function loadDashboard_(){
         </div>
         <div class="card card-blue ${activeCardKey==='bankBalance'?'active-card':''}" onclick="filterCard('bankBalance')">
           <div class="label">🏦 Total Bank All Transactions</div><div class="value">${rupee(d.bankBalance)}</div>
-          <div class="card-sub">Bank / UPI / Cheque / Card</div>
+          <div class="card-sub">Bank / UPI / Cheque / Card - entered here (not O2D / VT Decor)</div>
         </div>
 `;
     })
@@ -1872,11 +1881,13 @@ const typeIs = (t, f) => !!(TYPE_META[t] && TYPE_META[t][f]);
 const modeIsCash = (m) => !!(MODE_META[m] && MODE_META[m].isCash);
 
 const CARD_FILTERS = {
+  changedAfterMerge: { label: 'Changed in O2D / VT Decor after the merge', test: r => !!r.Warning },
+
   // CHANGE 2: Bank Balance — only entries where Mode is a bank-type mode (not Cash)
   // Excludes Cash Deposit / Cash Withdrawn (those are internal cash transfers)
   bankBalance: {
     label: 'Total Bank All Transactions',
-    test: r => !modeIsCash(r.Mode) && r.Status === 'Approved'
+    test: r => !modeIsCash(r.Mode) && r.Status === 'Approved' && r.Source === 'Direct'   // only what was punched on this dashboard
   },
 
   // CHANGE 3: Total Received — only "Payment Received" type entries
@@ -2314,7 +2325,7 @@ function clearForm(){
 // ============================================================
 // REGULAR EXPENSES (a float of money: opening + money added - expenses)
 // ============================================================
-let EXP = null, expLast = null, expVoidKey = null, expKind = 'Expense';
+let EXP = null, expLast = null, expVoidKey = null, expKind = 'Expense', expEditKey = null;
 
 function payTab(which){
   document.getElementById('payArea').style.display = which === 'txn' ? '' : 'none';
@@ -2426,12 +2437,16 @@ function expRedraw(){
       (e.voided ? `<div style="font-size:11px;color:var(--red)">Cancelled by ${esc(e.voidedBy)}: ${esc(e.voidReason)}</div>` : '') + '</td>' +
       `<td class="num" style="text-align:right;font-weight:600;color:${topup ? 'var(--green)' : 'var(--ink)'}">${sign} ${rupee(e.amount)}</td>` +
       `<td class="num" style="text-align:right">${e.balanceAfter === null ? '—' : rupee(e.balanceAfter)}</td><td>${esc(e.enteredBy)}</td>` +
-      `<td>${e.canVoid && EXP.canWrite ? `<span class="action-link danger" onclick="expOpenVoid(${e.key}, '${esc(e.no)}')">Cancel</span>` : ''}</td></tr>`;
+      `<td style="white-space:nowrap">${e.canEdit && EXP.canWrite ? `<span class="action-link" onclick="expOpenEdit(${e.key})">Edit</span> ` : ''}` +
+      `${e.canVoid && EXP.canWrite ? `<span class="action-link danger" onclick="expOpenVoid(${e.key}, '${esc(e.no)}')">Cancel</span> ` : ''}` +
+      `${e.canDelete && EXP.canWrite ? `<span class="action-link danger" onclick="expDelete(${e.key}, '${esc(e.no)}')">Delete</span>` : ''}</td></tr>`;
   }).join('');
   paintSort('exp');
 }
 
 function expOpenAdd(kind){
+  expEditKey = null;
+  document.getElementById('xSave').textContent = 'Save';
   expKind = kind;
   const topup = kind === 'Topup';
   document.getElementById('expModalTitle').textContent = topup ? 'Add money to the account' : 'Add expense';
@@ -2450,6 +2465,25 @@ function expOpenAdd(kind){
   document.getElementById('xAmount').focus();
 }
 function expCloseAdd(){ document.getElementById('expModal').classList.remove('open'); }
+// Edit: the same form, filled with what the entry holds; the kind (money added / expense) stays as it was
+function expOpenEdit(key){
+  const e = expLast && expLast.ledger.entries.find(x => x.key === key);
+  if (!e) return;
+  expOpenAdd(e.kind);
+  expEditKey = key;
+  document.getElementById('expModalTitle').textContent = 'Edit ' + e.no;
+  document.getElementById('xSave').textContent = 'Save changes';
+  document.getElementById('xDate').value = e.date;
+  document.getElementById('xAmount').value = e.amount;
+  document.getElementById('xCategory').value = e.category || '';
+  document.getElementById('xWho').value = e.spentById || EXP.me;
+  document.getElementById('xPaidTo').value = e.paidTo || '';
+  document.getElementById('xDesc').value = e.description || '';
+}
+function expDelete(key, no){
+  if (!confirm('Delete ' + no + ' for good? Unlike Cancel, it disappears from the statement. A record of it is kept in the audit log.')) return;
+  VT.run.withSuccessHandler(function(){ expReload(); }).withFailureHandler(function(e){ alert(e.message); }).expDelete(key);
+}
 function expSave(){
   const msg = document.getElementById('xMsg'), amount = parseFloat(document.getElementById('xAmount').value);
   if (!(amount > 0)) { msg.textContent = 'Enter the amount.'; return; }
@@ -2460,12 +2494,15 @@ function expSave(){
   if (!topup && !body.category) { msg.textContent = 'Choose what the money was spent on.'; return; }
   if (!topup && !body.paidTo.trim() && !body.description.trim()) { msg.textContent = 'Say who it was paid to, or what it was for.'; return; }
   document.getElementById('xSave').disabled = true;
-  VT.run.withSuccessHandler(function(r){
+  const done = function(r){
     document.getElementById('xSave').disabled = false;
     expCloseAdd();
     expReload();
     if (r.overdrawn) alert('Saved. Note: the account balance is now ' + rupee(r.balance) + ' - money needs to be added to the account.');
-  }).withFailureHandler(function(e){ document.getElementById('xSave').disabled = false; msg.textContent = e.message; }).expAdd(body);
+  };
+  const fail = function(e){ document.getElementById('xSave').disabled = false; msg.textContent = e.message; };
+  if (expEditKey) { delete body.kind; delete body.account; VT.run.withSuccessHandler(done).withFailureHandler(fail).expEdit(expEditKey, body); }
+  else VT.run.withSuccessHandler(done).withFailureHandler(fail).expAdd(body);
 }
 function expOpenVoid(key, no){
   expVoidKey = key;

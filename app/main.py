@@ -1,4 +1,4 @@
-"""Vardhman Traders API. Run: uvicorn app.main:app"""
+"""Code Blue API. Run: uvicorn app.main:app"""
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -33,7 +33,7 @@ async def lifespan(app):
 
 # API docs are a map of the system: only expose them when explicitly asked (ENABLE_DOCS=1).
 _docs = os.environ.get("ENABLE_DOCS") == "1"
-app = FastAPI(title="Vardhman Traders API", lifespan=lifespan,
+app = FastAPI(title="Code Blue API", lifespan=lifespan,
               docs_url="/docs" if _docs else None, redoc_url=None,
               openapi_url="/openapi.json" if _docs else None)
 # The screens' JSON (lists of orders / payments) and the large page + vendor scripts shrink 5-10x compressed, which is most of the wait on

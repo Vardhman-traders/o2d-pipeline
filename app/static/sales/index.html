@@ -3,7 +3,7 @@
 <head>
 <base target="_top">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vardhman Traders - Sales Portal</title>
+<title>Code Blue - Sales Portal</title>
 <script src="api.js"></script>
 <style>
   :root {
@@ -346,7 +346,7 @@
 <!-- Sign-in happens only on the portal ("/"); this page always has a session already, or sends you there.
      This placeholder is only ever visible for the instant it takes autologin.js to check and redirect. -->
 <div id="loginScreen">
-  <div class="topbar"><h1><span class="badge">VT</span> Vardhman Traders - Sales Portal</h1></div>
+  <div class="topbar"><h1><span class="badge">VT</span> Code Blue - Sales Portal</h1></div>
   <div class="wrap" style="max-width:400px;">
     <div class="card" style="margin-top:50px;text-align:center;">
       <p style="color:var(--muted);">Redirecting to sign in…</p>
@@ -649,6 +649,18 @@
           </table>
         </div>
       </div>
+
+      <div class="card accent-godown">
+        <h2>📤 Sent to Dispatch - not dispatched yet <span class="count" id="godown_sentCount">0</span></h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Sent on by mistake? Edit the order here and choose the right Delivery Status. It stays here until it has been dispatched.</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Order Date</th><th>DC No</th><th>Address</th><th>Ready By</th><th>Delivery Status</th><th>Remarks</th><th></th></tr></thead>
+            <tbody id="godown_sentBody"></tbody>
+          </table>
+          <div class="empty" id="godown_sentEmpty" style="display:none;">Nothing waiting for dispatch.</div>
+        </div>
+      </div>
     </div>
 
     <!-- ================= DISPATCH SECTION ================= -->
@@ -758,7 +770,9 @@
           <button type="button" class="ov-btn" onclick="document.getElementById('cartage_from').value='';document.getElementById('cartage_to').value='';initCartage()">Clear dates</button>
           <span style="flex:1"></span>
           <button type="button" class="ov-btn" onclick="cartageDetailPdf_(this)">⬇ Generate PDF (chosen delivery boy)</button>
+          <button type="button" class="ov-btn" onclick="cartageDetailPdf_(this, 'xlsx')">⬇ Excel (chosen delivery boy)</button>
           <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this, CARTAGE_IDS)">⬇ Paid to each person (PDF)</button>
+          <button type="button" class="ov-btn" onclick="downloadReport_('cartage-by-employee', this, CARTAGE_IDS, 'xlsx')">⬇ Paid to each person (Excel)</button>
           <span id="cartage_msg" class="status-msg"></span>
         </div>
         <div id="cartage_summary" class="ov-summary"></div>
@@ -1639,6 +1653,9 @@
     var panel = el_('div', { class: 'ms-panel', style: 'min-width:320px;' });
     var list = el_('div', { class: 'ms-list', style: 'max-height:320px;' });
     panel.appendChild(list); wrap.appendChild(btn); wrap.appendChild(panel);
+    var fmtSel = el_('select', { id: 'rep_format', 'aria-label': 'File type', style: 'width:auto;' });
+    fmtSel.appendChild(el_('option', { value: 'pdf' }, 'PDF'));
+    fmtSel.appendChild(el_('option', { value: 'xlsx' }, 'Excel'));
     var go = el_('button', { type: 'button', class: 'ov-btn', id: 'rep_downloadBtn' }, '⬇ Download');
     function refresh() {
       var n = REPORT_SEL.size;
@@ -1673,18 +1690,19 @@
     panel.onclick = function (e) { e.stopPropagation(); };
     document.addEventListener('click', function () { wrap.classList.remove('open'); });
     go.onclick = function () { downloadSelectedReports_(go); };
-    host.appendChild(wrap); host.appendChild(go);
+    host.appendChild(wrap); host.appendChild(fmtSel); host.appendChild(go);
     refresh();
   }
 
   // One PDF report for the Cartage page (and any single report): ids = the element ids of its From / To / person / message boxes
-  function downloadReport_(kind, btn, ids) {
+  function downloadReport_(kind, btn, ids, fmt) {
     ids = ids || { from: 'rep_from', to: 'rep_to', msg: 'rep_msg' };
+    fmt = fmt === 'xlsx' ? 'xlsx' : 'pdf';
     var msg = document.getElementById(ids.msg);
     var from = document.getElementById(ids.from).value, to = document.getElementById(ids.to).value;
     var person = ids.person ? document.getElementById(ids.person).value : '';
     if (from && to && from > to) { msg.className = 'status-msg error'; msg.textContent = '"From" must be on or before "To".'; return; }
-    msg.className = 'status-msg'; msg.textContent = 'Preparing PDF...'; btn.disabled = true;
+    msg.className = 'status-msg'; msg.textContent = fmt === 'xlsx' ? 'Preparing Excel...' : 'Preparing PDF...'; btn.disabled = true;
     VT.run.withSuccessHandler(function (r) {
       btn.disabled = false;
       if (!r || !r.ok) { msg.className = 'status-msg error'; msg.textContent = (r && r.error) || 'Could not create the report.'; return; }
@@ -1693,10 +1711,11 @@
       setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
       msg.textContent = 'Downloaded ' + r.filename;
     }).withFailureHandler(function (err) { btn.disabled = false; msg.className = 'status-msg error'; msg.textContent = 'Error: ' + err.message; })
-      .downloadReport(CURRENT_TOKEN, kind, from, to, person);
+      .downloadReport(CURRENT_TOKEN, kind, from, to, person, fmt);
   }
 
   function downloadSelectedReports_(goBtn) {
+    var fmt = document.getElementById('rep_format') ? document.getElementById('rep_format').value : 'pdf';
     var msg = document.getElementById('rep_msg');
     var from = document.getElementById('rep_from').value, to = document.getElementById('rep_to').value;
     var kinds = REPORT_CHOICES.filter(function (c) { return REPORT_SEL.has(c[0]); }).map(function (c) { return c[0]; });
@@ -1713,7 +1732,7 @@
         return;
       }
       var kind = kinds.shift();
-      msg.textContent = 'Preparing PDF ' + (done + problems.length + 1) + '...';
+      msg.textContent = 'Preparing ' + (fmt === 'xlsx' ? 'Excel ' : 'PDF ') + (done + problems.length + 1) + '...';
       VT.run.withSuccessHandler(function (r) {
         if (!r || !r.ok) problems.push(kind + ' (' + ((r && r.error) || 'failed') + ')');
         else {
@@ -1724,7 +1743,7 @@
         }
         setTimeout(next, 400);   // a short pause so the browser accepts several downloads in a row
       }).withFailureHandler(function (err) { problems.push(kind + ' (' + err.message + ')'); setTimeout(next, 400); })
-        .downloadReport(CURRENT_TOKEN, kind, from, to, '');
+        .downloadReport(CURRENT_TOKEN, kind, from, to, '', fmt);
     })();
   }
 
@@ -2020,6 +2039,7 @@
         var noteEl = document.getElementById('godown_dateWindowNote');
         if (noteEl) noteEl.textContent = '📅 Pending Orders mein har order dikhta hai jab tak Godown update na kare.';
         godownRenderCompleted(data.completed);
+        godownRenderSent(data.sent || []);
       })
       .withFailureHandler(function(err) { banner.textContent = 'Call failed: ' + err.message; banner.style.display = 'block'; })
       .getGodownData(CURRENT_TOKEN);
@@ -2052,6 +2072,23 @@
       var tr = document.createElement('tr');
       tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
         '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td>' + (o.typeOfSubmission||'') + '</td>' +
+        '<td>' + (o.readyByWhom||'') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
+        '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
+        '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function godownRenderSent(orders) {
+    document.getElementById('godown_sentCount').textContent = orders.length;
+    document.getElementById('godown_sentEmpty').style.display = orders.length ? 'none' : 'block';
+    var body = document.getElementById('godown_sentBody');
+    body.innerHTML = '';
+    orders.forEach(function(o) {
+      GODOWN_ORDERS[o.slNo] = o;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + formatDateDisplay(o.orderRcvdDate) + '</td>' +
+        '<td>' + (o.dcNo||'') + photoBadge_(o) + '</td><td><div class="wrap-cell">' + (o.shippingLocation||'') + '</div></td>' +
         '<td>' + (o.readyByWhom||'') + '</td><td>' + statusPill(o.deliveryStatus) + '</td>' +
         '<td><div class="wrap-cell">' + (o.detailedRemarks||'') + '</div></td>' +
         '<td><button class="small" onclick="godownOpenEdit(' + o.slNo + ')">Edit</button></td>';
@@ -2536,11 +2573,11 @@
   }
 
   // Like the Archive portal: the history PDF is for one delivery boy, so one must be chosen first.
-  function cartageDetailPdf_(btn) {
+  function cartageDetailPdf_(btn, fmt) {
     if (!document.getElementById(CARTAGE_IDS.person).value) {
       var m = document.getElementById(CARTAGE_IDS.msg); m.className = 'status-msg error'; m.textContent = 'Choose a delivery person first.'; return;
     }
-    downloadReport_('cartage-detail', btn, CARTAGE_IDS);
+    downloadReport_('cartage-detail', btn, CARTAGE_IDS, fmt);
   }
 
   function cartageOpenEdit(slNo) {

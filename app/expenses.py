@@ -5,9 +5,10 @@
 How it works:
   - the accounts (opening balance) and the expense categories are master lists (Setup > Dropdown values); the list of people
     a spend can be recorded against is the portal's own people (dim_user), dates are dim_date;
-  - an entry is never edited or deleted: a wrong one is voided with a reason (who and when are kept), so the balance can
-    always be explained. The person who entered it can void it the same day; a manager can void any, and so can anyone given the
-    page "Payments - Regular expenses: cancel anyone's entry" (Setup > Access) - which does not allow adding money to the account;
+  - a wrong entry is cancelled with a reason (who and when are kept) or corrected with Edit, and every edit keeps the old and new values in
+    the audit log, so the balance can always be explained. The person who entered it can cancel or edit it the same day; a manager can
+    cancel or edit any, and so can anyone given the page "Payments - Regular expenses: cancel anyone's entry" (Setup > Access) - which does
+    not allow adding money to the account. Only an administrator can delete an entry for good;
   - recording an expense needs the page "Payments - Regular expenses"; adding money to the account and voiding other
     people's entries need "... manager" - so the balance cannot be topped up by the person spending from it;
   - an expense that takes the balance below zero is saved (the money was spent) and the screen says the account is
@@ -101,11 +102,13 @@ def _account(cur, name: str | None) -> int:
 
 def _entry(r: dict, today: date, user, level: str, running: float | None = None, void_any: bool = False) -> dict:
     mine_today = r["created_by_key"] == user["user_key"] and r["created_at"].astimezone(mc.IST).date() == today
+    allowed = r["voided_at"] is None and (level == "manage" or void_any or mine_today)
     return {"key": r["entry_key"], "no": r["entry_no"], "date": r["entry_date"].isoformat(), "account": r["account_name"], "kind": r["kind"],
+            "spentById": r["spent_by_id"] or "", "canEdit": allowed, "canDelete": user["role"] == "admin",
             "amount": float(r["amount"]), "category": r["category_name"] or "", "spentBy": r["spent_by"] or "", "paidTo": r["paid_to"] or "",
             "description": r["description"] or "", "enteredBy": r["created_by"] or "", "enteredAt": mc.iso(r["created_at"]),
             "voided": r["voided_at"] is not None, "voidReason": r["void_reason"] or "", "voidedBy": r["voided_by"] or "",
-            "canVoid": r["voided_at"] is None and (level == "manage" or void_any or mine_today), "balanceAfter": running}
+            "canVoid": allowed, "balanceAfter": running}
 
 
 @router.get("/bootstrap")
@@ -257,6 +260,92 @@ def add_entry(body: EntryIn, user=Depends(ANY)):
     except Exception as exc:
         raise mc.date_fk_error(exc)
     return {"key": row["entry_key"], "no": row["entry_no"], "balance": bal["balance"], "overdrawn": bal["balance"] < 0}
+
+
+class EditIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: str = ""
+    amount: float
+    category: str = ""
+    spentBy: str = ""
+    paidTo: str = ""
+    description: str = ""
+
+
+@router.put("/entries/{entry_key}")
+def edit_entry(entry_key: int, body: EditIn, user=Depends(ANY)):
+    """Correct an entry that is not cancelled (what kind it is - money added or an expense - cannot change). Who may: the person who made it,
+    on the day they made it; a manager or anyone with "cancel anyone's entry"; an administrator."""
+    level = _level(user)
+    _can_write(user)
+    amount = round(body.amount, 2)
+    if not 0 < amount <= MAX_AMOUNT:
+        raise HTTPException(422, "Amount must be above 0 and below 100 crore.")
+    today = mc.today_ist()
+    day = mc.parse_date(body.date, "Date") or today
+    if day > today:
+        raise HTTPException(422, "The date cannot be in the future.")
+    paid_to = " ".join(body.paidTo.split())[:150] or None
+    description = body.description.strip()[:500] or None
+    try:
+        with db.cursor() as cur:
+            cur.execute(ENTRY_SQL + " WHERE e.entry_key = %s FOR UPDATE OF e", (entry_key,))
+            e = cur.fetchone()
+            if not e:
+                raise HTTPException(404, "Entry not found.")
+            if e["voided_at"] is not None:
+                raise HTTPException(409, "A cancelled entry cannot be edited.")
+            own_today = e["created_by_key"] == user["user_key"] and e["created_at"].astimezone(mc.IST).date() == today
+            if not (_may_void_any(user, level) or own_today):
+                raise HTTPException(403, "You can edit your own entry on the day you made it. Ask the manager for anything older.")
+            cat_key, paid = None, None
+            if e["kind"] == "Expense":
+                cat_key = mc.lookup_key(cur, "dim_expense_category", "category_key", "category_name", body.category)
+                if cat_key is None:
+                    raise HTTPException(422, "Choose what the money was spent on (the category).")
+                if not (paid_to or description):
+                    raise HTTPException(422, "Say who it was paid to or what it was for.")
+                paid = paid_to
+            who = None
+            if body.spentBy and body.spentBy.strip():
+                cur.execute("SELECT user_key FROM dim_user WHERE lower(username) = lower(%s) AND password_hash <> %s",
+                            (body.spentBy.strip(), auth.DISABLED_HASH))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(422, "Person not found.")
+                who = row["user_key"]
+            cur.execute("""UPDATE fact_expense_entry SET entry_date_key = %s, amount = %s, category_key = %s, spent_by_user_key = COALESCE(%s, spent_by_user_key),
+                                  paid_to = %s, description = %s WHERE entry_key = %s""",
+                        (mc.date_key(day), amount, cat_key, who, paid, description, entry_key))
+            bal = balances(cur, e["account_key"])[e["account_key"]]
+            audit(cur, user, "expense.edit", e["entry_no"], {
+                "before": {"date": e["entry_date"].isoformat(), "amount": float(e["amount"]), "category": e["category_name"], "spent_by": e["spent_by"],
+                           "paid_to": e["paid_to"], "description": e["description"]},
+                "after": {"date": day.isoformat(), "amount": amount, "category": body.category or None, "spent_by": body.spentBy or None,
+                          "paid_to": paid, "description": description}, "balance": bal["balance"]})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise mc.date_fk_error(exc)
+    return {"ok": True, "balance": bal["balance"], "overdrawn": bal["balance"] < 0}
+
+
+@router.delete("/entries/{entry_key}")
+def delete_entry(entry_key: int, user=Depends(ANY)):
+    """Administrator only: remove an entry for good (cancelling keeps it on the statement; this does not). What it held is kept in the audit log."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Only an administrator can delete an entry. Cancel it instead.")
+    with db.cursor() as cur:
+        cur.execute(ENTRY_SQL + " WHERE e.entry_key = %s FOR UPDATE OF e", (entry_key,))
+        e = cur.fetchone()
+        if not e:
+            raise HTTPException(404, "Entry not found.")
+        audit(cur, user, "expense.delete", e["entry_no"], {
+            "kind": e["kind"], "date": e["entry_date"].isoformat(), "amount": float(e["amount"]), "category": e["category_name"], "spent_by": e["spent_by"],
+            "paid_to": e["paid_to"], "description": e["description"], "voided": e["voided_at"] is not None, "void_reason": e["void_reason"]})
+        cur.execute("DELETE FROM fact_expense_entry WHERE entry_key = %s", (entry_key,))
+        bal = balances(cur, e["account_key"])[e["account_key"]]
+    return {"ok": True, "balance": bal["balance"], "overdrawn": bal["balance"] < 0}
 
 
 class VoidIn(BaseModel):

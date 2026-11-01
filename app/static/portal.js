@@ -1,5 +1,5 @@
 'use strict';
-/* Vardhman Traders portal. No frameworks, no inline HTML from data: every value goes in via textContent. */
+/* Code Blue portal. No frameworks, no inline HTML from data: every value goes in via textContent. */
 
 // ------------------------------------------------------------------ helpers
 function h(tag, props, ...kids) {
@@ -258,7 +258,7 @@ function showLogin(message) {
     } catch (ex) { err.textContent = ex.message; btn.disabled = false; pass.value = ''; }
   });
   mount(h('div', { class: 'login-screen' }, h('div', { class: 'card center-card' }, h('div', { class: 'logo', text: 'VT' }),
-    h('h1', { text: 'Vardhman Traders' }),
+    h('h1', { text: 'Code Blue' }),
     // Staff mark attendance without signing in: the employee check-in page is open (the owner dashboard is not part of this).
     // It sits above the sign-in form, big, so nobody has to look for it.
     h('a', { class: 'mark-attendance-cta', id: 'markAttendanceBtn', href: '/attendance/' },
@@ -315,7 +315,7 @@ function openAppLink(url) {
 
 function topbar(onHome) {
   const brand = h('div', { class: 'brand' }, h('div', { class: 'brand-mark', text: 'VT' }),
-    h('div', { class: 'brand-text' }, h('span', { class: 'name', text: 'Vardhman Traders' }), h('span', { class: 'tag', text: 'Sales & Operations Portal' })));
+    h('div', { class: 'brand-text' }, h('span', { class: 'name', text: 'Code Blue' }), h('span', { class: 'tag', text: 'Sales & Operations Portal' })));
   return h('header', { class: 'topbar' },
     onHome ? h('button', { class: 'brand brand-btn', title: 'Back to home', 'aria-label': 'Back to home', onclick: onHome }, ...brand.childNodes) : brand,
     onHome ? h('button', { class: 'btn', id: 'homeBtn', text: '⌂ Home', onclick: onHome }) : null,

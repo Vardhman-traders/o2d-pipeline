@@ -101,12 +101,15 @@ SELECT p.push_key, p.order_key, p.company_key, p.cash_txn_key, p.bank_txn_key, p
        p.party_name, p.cash_amount, p.bank_amount, p.remarks, p.order_amount, p.pushed_at, p.merged_at,
        p.edited_after_merge, p.merged_kind, p.merged_cash, p.merged_bank,
        c.company_name, o.sl_no, COALESCE(o.dc_inv_no, p.decor_label) AS dc_inv_no, COALESCE(o.shipping_location, p.decor_info) AS shipping_location,
-       COALESCE(ps.status_name, CASE WHEN p.kind IN ('decor_in', 'decor_out') THEN 'VT Decor' END) AS payment_status,
+       CASE WHEN p.kind = 'decor_in' THEN 'VT Decor - ' || COALESCE(dmode.mode_name, 'Cash') || ' (' || CASE WHEN p.decor_split = 'bank' THEN 'Bank' ELSE 'Cash' END || ')'
+            WHEN p.kind = 'decor_out' THEN 'VT Decor expense' ELSE ps.status_name END AS payment_status,
        COALESCE(p.decor_split, ps.payments_split) AS payments_split, pu.display_name AS pushed_by, mu.display_name AS merged_by,
        ct.txn_no AS cash_txn_no, bt.txn_no AS bank_txn_no
 FROM payment_push p
 LEFT JOIN fact_orders o ON o.order_key = p.order_key
 LEFT JOIN dim_payment_status ps ON ps.payment_status_key = o.payment_status_key
+LEFT JOIN fact_decor_payment dpay ON dpay.payment_key = p.decor_payment_key
+LEFT JOIN dim_payment_mode dmode ON dmode.mode_key = dpay.mode_key
 LEFT JOIN dim_company c ON c.company_key = p.company_key
 LEFT JOIN dim_user pu ON pu.user_key = p.pushed_by_user_key
 LEFT JOIN dim_user mu ON mu.user_key = p.merged_by_user_key
@@ -302,4 +305,12 @@ def merge_row(push_key: int, body: MergeIn, user=Depends(ANY)):
         return {"ok": True, "success": False, "message": e.detail}
     except pgerr.ForeignKeyViolation as e:
         return {"ok": True, "success": False, "message": mc.date_fk_error(e).detail}
+    # the Payments message goes out for each entry this merge CREATED (a re-merge that only updates one is not announced again)
+    role = payments._user_gate(user)
+    type_name = _text(KINDS[row["kind"]], TYPE_DEFAULTS[row["kind"]])
+    for existing, amount, mode_setting, mode_default in ((row["cash_txn_key"], cash, "pay_merge_cash_mode", "Cash"),
+                                                         (row["bank_txn_key"], bank, "pay_merge_bank_mode", "Bank")):
+        if existing is None and amount > 0:
+            payments.tell_entry(user, role, day=day, type_name=type_name, company=body.company, party=body.party.strip(), amount=amount,
+                                mode=_text(mode_setting, mode_default), remarks=body.remarks.strip() or None)
     return {"ok": True, "success": True, "txnIds": nos}

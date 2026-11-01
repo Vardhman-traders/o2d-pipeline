@@ -400,8 +400,10 @@ def godown_screen(request: Request, user=Depends(access.require_page("o2d_godown
     def build():
         orders = _screen_orders(user, "godown")
         pending, completed = [o for o in orders if awaiting_godown(o)], [o for o in orders if under_processing(o)]
-        _with_photos(pending, completed)
-        return {"ok": True, "dropdowns": _dropdowns("godown"), "pending": pending, "completed": completed, "dateWindow": dashboard_window()}
+        # sent on to a dispatch screen (or cancelled) but not dispatched yet: the godown can still put a wrong status right (it may be sent back)
+        sent = [o for o in orders if _side(o) in ("shop", "godown") and not _delivered(o)]
+        _with_photos(pending, completed, sent)
+        return {"ok": True, "dropdowns": _dropdowns("godown"), "pending": pending, "completed": completed, "sent": sent, "dateWindow": dashboard_window()}
     return screen_response(request, user, build)
 
 
@@ -602,7 +604,7 @@ def ack_reminder(reminder_key: int, user=Depends(ANY_VIEWER)):
 
 
 @router.get("/admin/form-options")
-def admin_form_options(user=Depends(ADMIN_ONLY)):
+def admin_form_options(user=Depends(access.require_page("o2d_overview"))):     # the Overview's "Filter by" lists: whoever may open the Overview, not only an admin
     return {"ok": True, "dropdowns": {
         "orderVia": _names(_lookup_rows("channels")),
         "typeOfSubmission": _names(_lookup_rows("submission-types")), "eitherTypes": _either_types(),
@@ -911,21 +913,16 @@ def _in_background(fn, *args, **kwargs) -> None:
 
 
 def _tell_dispatch_groups(user, updated: dict, screen: str, resend: bool = False) -> str:
-    """Send the dispatch message to the groups of this screen and note on the order's timeline how it went. Returns the outcome."""
-    outcome = "skipped"
-    if screen == "godown_dispatch":
-        outcome = "failed"
-        try:
-            outcome = alert_outcome(send_dispatch_alert(updated, resend=True) if resend else send_dispatch_alert(updated))
-        except Exception:  # the order is saved; a failed alert must never undo or fail that
-            log.exception("WhatsApp dispatch alert failed (order %s saved fine)", updated.get("slNo"))
-        _tell_receiving(updated, resend=resend)
-    else:               # Shop Dispatch & Receiving: the Receiving group is the only one told
-        outcome = "failed"
-        try:
-            outcome = alert_outcome(send_receiving_alert(updated, resend=resend))
-        except Exception:
-            log.exception("WhatsApp receiving-group alert failed (order %s saved fine)", updated.get("slNo"))
+    """Send the dispatch message to the group(s) of Godown Dispatch and note on the order's timeline how it went. Returns the outcome.
+    The Receiving group is NOT told here: it hears when the receiving entry is made (_alert_if_first_receiving). Shop Dispatch & Receiving
+    sends no dispatch message at all - its receiving message goes out when the receiving details are saved."""
+    if screen != "godown_dispatch":
+        return "skipped"
+    outcome = "failed"
+    try:
+        outcome = alert_outcome(send_dispatch_alert(updated, resend=True) if resend else send_dispatch_alert(updated))
+    except Exception:  # the order is saved; a failed alert must never undo or fail that
+        log.exception("WhatsApp dispatch alert failed (order %s saved fine)", updated.get("slNo"))
     _record_alert(updated["orderKey"], outcome, user, resend=resend)
     return outcome
 
@@ -1003,14 +1000,12 @@ def bulk_dispatch(body: BulkIn, user=Depends(ANY_VIEWER)):
     out = _bulk_save(user, work)
     if "error" in out:
         return {"ok": True, "success": False, "message": out["error"]}
-    pending = []
     for sl, before, after in out["done"]:
         b, a = map_order(before), map_order(after)
-        if photos_follow[sl] and screens[sl] in ("godown_dispatch", "shop_dispatch") and _first_dispatch(b, a):
-            pending.append(sl)                  # its photos go up next; the page asks for the message afterwards
-        else:
-            _alert_if_first_dispatch(user, sl, b, a, screens[sl])
-    return {"ok": True, "success": True, "count": len(out["done"]), "alertPending": pending}
+        _alert_if_first_dispatch(user, sl, b, a, screens[sl])
+        if screens[sl] == "shop_dispatch":
+            _alert_if_first_receiving(user, b, a)
+    return {"ok": True, "success": True, "count": len(out["done"]), "alertPending": []}
 
 
 @router.put("/bulk/receiving")
@@ -1027,6 +1022,8 @@ def bulk_receiving(body: BulkIn, user=Depends(ANY_VIEWER)):
     out = _bulk_save(user, work)
     if "error" in out:
         return {"ok": True, "success": False, "message": out["error"]}
+    for _, before, after in out["done"]:
+        _alert_if_first_receiving(user, map_order(before), map_order(after))
     return {"ok": True, "success": True, "count": len(out["done"])}
 
 
@@ -1056,10 +1053,9 @@ def update_dispatch(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
         p.update(_receiving_fields(form, _lookup_rows("payment-statuses")))
     result = _write(user, sl_no, p)
     if result["success"] and screen in ("godown_dispatch", "shop_dispatch") and _first_dispatch(before, result["order"]):
-        if form.photosFollow:
-            result["alertPending"] = True       # the photos go up next; the page then asks for the message so it can carry them
-        else:
-            _in_background(_tell_dispatch_groups, user, result["order"], screen)
+        _in_background(_tell_dispatch_groups, user, result["order"], screen)
+    if result["success"] and screen == "shop_dispatch":
+        _alert_if_first_receiving(user, before, result["order"])     # the shop screen takes the receiving details too
     result.pop("order", None)
     return result
 
@@ -1106,7 +1102,14 @@ def resend_dispatch_alert(sl_no: int, user=Depends(ANY_VIEWER)):
 @router.put("/orders/{sl_no}/receiving")
 def update_receiving(sl_no: int, form: Form, user=Depends(ANY_VIEWER)):
     _need_edit(user, "o2d_receiving")
+    from . import main
+    try:
+        before = map_order(main.get_order(sl_no, archived=None, user=user))
+    except HTTPException:
+        before = None
     result = _write(user, sl_no, _receiving_fields(form, _lookup_rows("payment-statuses")))
+    if result["success"]:
+        _alert_if_first_receiving(user, before, result["order"])
     result.pop("order", None)
     return result
 
@@ -1264,24 +1267,18 @@ def _money_text(v) -> str:
 
 def _dispatch_values(o: dict) -> dict:
     """What the dispatch message needs, as in the WhatsApp template document: Cartage is shown for a delivery person and for By Porter (not for
-    By Company / By Transport), Delivered By carries a delivery person's phone, By Porter / Company / Transport carry their extra text, and the
-    photo is a link to the dispatch photo(s)."""
+    By Company / By Transport), Delivered By carries a delivery person's phone, By Porter / Company / Transport carry their extra text."""
     who = o["deliveredByWhom"] or "-"
     kind = delivery_kind(o["deliveredByWhom"])
     phone = _person_phone(o["deliveredByWhom"]) if kind == "person" and o["deliveredByWhom"] else ""
     detail = (o.get("deliveredByDetail") or "").strip()
     cartage = _money_text(o.get("cartage"))
-    try:
-        photos = attachments.photo_links(o["orderKey"], "dispatch") if o.get("orderKey") else []
-    except Exception:
-        log.exception("Could not make the photo links for order %s", o.get("slNo"))
-        photos = []
     return {"order_date": _fmt_date(o["orderRcvdDate"]), "dc_no": o["dcNo"] or "-", "ready_by": o["readyByWhom"] or "-",
             "delivery_status": o["deliveryStatus"] or "-", "address": o["shippingLocation"] or "-", "remarks": o["detailedRemarks"] or "-",
             "delivered_by": (f"{who} {phone}" if phone else who), "cartage": cartage,
             "cartage_line": f"Cartage: {cartage}\n" if kind in ("person", "porter") else "",
             "details": detail or "-", "details_line": f"Details: {detail}\n" if detail else "",
-            "photo": "\n".join(photos) if photos else "-"}
+            "photo": ""}       # photos are no longer part of WhatsApp messages (the placeholder stays so an old saved wording still fills in)
 
 
 def _dispatch_alert_key(o: dict) -> str:
@@ -1300,35 +1297,72 @@ ALERT_TITLES = {"sent": "WhatsApp dispatch alert sent to the group", "failed": "
                 "off": "WhatsApp dispatch alert not sent - switched off in Setup"}
 
 
-def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False):
-    """Note on the order's timeline when the dispatch alert went out (or why it did not). Never blocks the save."""
+def _record_alert(order_key: int, outcome: str, user: dict, resend: bool = False, what: str = "dispatch"):
+    """Note on the order's timeline when the dispatch (or receiving) alert went out (or why it did not). Never blocks the save."""
     try:
         with db.cursor() as cur:
             cur.execute("INSERT INTO order_event (order_key, event_type, title, by_user_key, by_name, by_role, by_ip) "
                         "VALUES (%s, 'whatsapp', %s, %s, %s, %s, %s)",
-                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome], user["user_key"], user["display_name"], user["role"], timeline.client_ip()))
+                        (order_key, ("Sent again - " if resend else "") + ALERT_TITLES[outcome].replace("dispatch", what), user["user_key"], user["display_name"], user["role"], timeline.client_ip()))
     except Exception:
         log.exception("Could not note the WhatsApp alert on order %s", order_key)
 
 
+def _is_sent_to_company(o: dict) -> bool:
+    return (o.get("deliveryStatusRaw") or "").strip().lower() == "sent to the company"
+
+
 def send_dispatch_alert(o: dict, post=None, resend: bool = False) -> dict:
     """Post the dispatch alert to its WhatsApp group: the VT Dispatch group, or the Porter group for By Porter (settings: Setup > WhatsApp;
-    login: WHATSAPP_API_KEY). Nothing is sent, and the reason is returned, when the alert is off or WhatsApp is not set up."""
-    return whatsapp.send_alert(_dispatch_alert_key(o), _dispatch_values(o), prefix="(Sent again)\n" if resend else "", post=post)
+    login: WHATSAPP_API_KEY). A 'Sent to the Company' dispatch is also posted to the Porter group. Nothing is sent, and the reason is
+    returned, when the alert is off or WhatsApp is not set up."""
+    prefix, values, key = "(Sent again)\n" if resend else "", _dispatch_values(o), _dispatch_alert_key(o)
+    out = whatsapp.send_alert(key, values, prefix=prefix, post=post)
+    if _is_sent_to_company(o) and key != "dispatch_porter":
+        try:
+            extra = whatsapp.send_alert("dispatch_porter", values, prefix=prefix, post=post)
+            if not extra.get("skipped") and not whatsapp.reply_ok(extra.get("code"), extra.get("body", "")):
+                log.warning("The Porter group did not accept the 'Sent to the Company' message for order %s", o.get("slNo"))
+        except Exception:   # the main message is already out: this copy must never fail the save
+            log.exception("WhatsApp Porter-group copy failed (order %s)", o.get("slNo"))
+    return out
 
 
-def send_receiving_alert(o: dict, post=None, resend: bool = False) -> dict:
-    """The same dispatch message to the Receiving group (the people on the Shop Dispatch & Receiving / Godown Receiving dashboards)."""
-    return whatsapp.send_alert("dispatch_receiving", _dispatch_values(o), prefix="(Sent again)\n" if resend else "", post=post)
+def _receiving_values(o: dict, user: dict) -> dict:
+    """The receiving message: the dispatch facts plus what was received. The amount is shown the way the dashboards show it."""
+    amount = o.get("amountReceived")
+    amount_text = "" if amount in ("", None) else f"{float(amount):,.0f}" if float(amount) == int(float(amount)) else f"{float(amount):,.2f}"
+    return {**_dispatch_values(o), "received_date": _fmt_date(o["dateOfReceiving"]), "payment_status": o["paymentStatus"] or "-",
+            "amount": amount_text or "-", "amount_line": f"Amount: {amount_text}\n" if amount_text else "",
+            "entered_by": user.get("display_name") or user.get("username") or "-"}
 
 
-def _tell_receiving(o: dict, resend: bool = False) -> None:
+def send_receiving_alert(o: dict, user: dict, post=None) -> dict:
+    """Post the receiving message to the Receiving group: sent when the receiving entry is made, never at dispatch."""
+    return whatsapp.send_alert("dispatch_receiving", _receiving_values(o, user), post=post)
+
+
+def _is_received(o: dict | None) -> bool:
+    return bool(o and o.get("dateOfReceiving") and o.get("paymentStatus"))
+
+
+def _first_receiving(before: dict | None, updated: dict) -> bool:
+    """True when this save is the one that completed the receiving entry (date of receiving and payment status) for the first time."""
+    return before is not None and not _is_received(before) and _is_received(updated)
+
+
+def _tell_receiving_group(user: dict, updated: dict) -> None:
+    outcome = "failed"
     try:
-        out = send_receiving_alert(o, resend=resend)
-        if not out.get("skipped") and not whatsapp.reply_ok(out.get("code"), out.get("body", "")):
-            log.warning("The Receiving group did not accept the dispatch message for order %s: %s", o.get("slNo"), whatsapp._snippet(out.get("body")))
-    except Exception:   # the order is saved and the main alert is handled separately: never let this one fail anything
-        log.exception("WhatsApp receiving-group alert failed (order %s)", o.get("slNo"))
+        outcome = alert_outcome(send_receiving_alert(updated, user))
+    except Exception:  # the order is saved; a failed alert must never undo or fail that
+        log.exception("WhatsApp receiving-group alert failed (order %s saved fine)", updated.get("slNo"))
+    _record_alert(updated["orderKey"], outcome, user, what="receiving")
+
+
+def _alert_if_first_receiving(user: dict, before: dict | None, updated: dict) -> None:
+    if _first_receiving(before, updated):
+        _in_background(_tell_receiving_group, user, updated)
 
 
 def alert_outcome(result: dict | None) -> str:
