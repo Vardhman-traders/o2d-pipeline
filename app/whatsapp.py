@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,17 +34,28 @@ RULE = "━━━━━━━━━━━━━━━━━━━━"
 # {cartage_line} / {details_line} placeholders are the whole line, or nothing), and Delivered By carries the delivery person's phone.
 DISPATCH_TEMPLATE = ("New Dispatch - Godown\n\nOrder Date: {order_date}\nDC No: {dc_no}\nReady By: {ready_by}\n"
                      "Delivery Status: {delivery_status}\nAddress: {address}\nRemarks: {remarks}\n{cartage_line}Delivered By: {delivered_by}\n"
-                     "{details_line}Photo: {photo}")
+                     "{details_line}")
 OLD_DISPATCH_TEMPLATE = ("New Dispatch - Godown\n\nOrder Date: {order_date}\nDC No: {dc_no}\nReady By: {ready_by}\n"
                          "Delivery Status: {delivery_status}\nAddress: {address}\nRemarks: {remarks}\nDelivered By: {delivered_by}")
 DISPATCH_PLACEHOLDERS = {"order_date": "Order date (dd/mm/yyyy)", "dc_no": "DC / Invoice no", "ready_by": "Ready by", "delivery_status": "Delivery status",
                          "address": "Address", "remarks": "Remarks", "delivered_by": "Delivered by - with the person's phone number",
                          "cartage": "Cartage amount (or a dash)", "cartage_line": "The whole 'Cartage: 50' line - empty for By Company / By Transport",
                          "details": "The extra text for By Porter / By Company / By Transport (or a dash)",
-                         "details_line": "The whole 'Details: ...' line - empty when there is no extra text", "photo": "Link to the dispatch photo(s), or a dash"}
+                         "details_line": "The whole 'Details: ...' line - empty when there is no extra text",
+                         "photo": "Not sent any more (photos are no longer part of WhatsApp messages) - always empty"}
 DISPATCH_SAMPLE = {"order_date": "10/10/2026", "dc_no": "94", "ready_by": "Jairam", "delivery_status": "Sent", "address": "Home: H-2/84,85 Sec-16 Rohini",
                    "remarks": "-", "delivered_by": "Ranjeet(E-R) 8796637988", "cartage": "50", "cartage_line": "Cartage: 50\n", "details": "-", "details_line": "",
-                   "photo": "https://example.com/dispatch-photo-94.jpg"}
+                   "photo": ""}
+
+# The receiving message: the dispatch facts plus what was received (date, payment mode, amount).
+RECEIVING_TEMPLATE = ("Order Received\n\nOrder Date: {order_date}\nDC No: {dc_no}\nAddress: {address}\nDelivered By: {delivered_by}\n"
+                      "Received On: {received_date}\nPayment Mode: {payment_status}\n{amount_line}Entered By: {entered_by}")
+RECEIVING_PLACEHOLDERS = {**{k: v for k, v in DISPATCH_PLACEHOLDERS.items() if k != "photo"},
+                          "received_date": "Date of receiving (dd/mm/yyyy)", "payment_status": "Payment mode / status",
+                          "amount": "Amount received (as the dashboards show it)", "amount_line": "The whole 'Amount: ...' line - empty when there is no amount",
+                          "entered_by": "Who saved the receiving"}
+RECEIVING_SAMPLE = {**DISPATCH_SAMPLE, "received_date": "11/10/2026", "payment_status": "Cash", "amount": "1,250", "amount_line": "Amount: 1,250\n",
+                    "entered_by": "Receiving User"}
 
 # key -> label, when it is sent, the group it is for, the {placeholders} its template may use, sample values, default template.
 # group_from: when this alert's own group is empty it uses that alert's group.  app_title: the web (bell) notification, where there is one.
@@ -51,26 +63,47 @@ ALERTS: dict[str, dict] = {
     "dispatch_godown": {
         "label": "Godown dispatch alert", "group_label": "VT Dispatch group",
         "when": "When Godown Dispatch first fills in the delivery date/time and Delivered by on an order (and on 'Resend'). For a normal delivery person, By Company and By Transport. "
-                "By Porter goes to the Porter group instead. Photos are added when they were taken in the same save.",
+                "By Porter goes to the Porter group instead. 'Sent to the Company' orders are also posted to the Porter group.",
         "placeholders": DISPATCH_PLACEHOLDERS, "sample": DISPATCH_SAMPLE, "template": DISPATCH_TEMPLATE},
     "dispatch_porter": {
         "label": "Porter dispatch alert", "group_label": "Porter group", "group_from": "dispatch_godown",
-        "when": "The same dispatch message, when Delivered by is By Porter (it goes to the Porter group, with the cartage and the porter's details). "
+        "when": "The same dispatch message, when Delivered by is By Porter (it goes to the Porter group, with the cartage and the porter's details), "
+                "and also for every 'Sent to the Company' dispatch (which still goes to the VT Dispatch group too). "
                 "If this group is empty, it goes to the VT Dispatch group.",
         "placeholders": DISPATCH_PLACEHOLDERS,
         "sample": {**DISPATCH_SAMPLE, "delivered_by": "By Porter", "details": "Ramesh, 9811122233", "details_line": "Details: Ramesh, 9811122233\n"},
         "template": DISPATCH_TEMPLATE},
     "dispatch_receiving": {
-        "label": "Receiving group dispatch alert", "group_label": "VT Receiving group",
-        "when": "The same dispatch message, also sent to the Receiving group so the people on the Shop Dispatch & Receiving / Godown Receiving dashboards know what is coming.",
-        "placeholders": DISPATCH_PLACEHOLDERS, "sample": DISPATCH_SAMPLE, "template": DISPATCH_TEMPLATE},
+        "label": "Receiving group alert", "group_label": "VT Receiving group",
+        "when": "When the receiving entry is made (date of receiving and payment status saved) on Shop Dispatch & Receiving or Godown Receiving - "
+                "not when the order is dispatched.",
+        "placeholders": RECEIVING_PLACEHOLDERS, "sample": RECEIVING_SAMPLE, "template": RECEIVING_TEMPLATE},
+    "pay_entry": {
+        "label": "Payments - new entry", "group_label": "Payments group",
+        "when": "Every time an entry is punched on the Payments dashboard (Payment Received / Paid, Expense, Cash Deposit, Cash Withdrawn), "
+                "including entries that arrive from the Cashier dashboard or VT Decor when they are merged.",
+        "placeholders": {"heading": "'Payment - Received', 'Payment - Paid' or the entry type", "date": "Entry date (dd/mm/yyyy)", "type": "Type of entry",
+                         "company": "Company", "party": "Party", "amount": "Amount", "mode": "Mode (Cash / Bank / UPI / Cheque / Card)",
+                         "remarks": "Remarks", "punched_by": "Who punched it, with the role (Cashier / Accounts / Admin)"},
+        "sample": {"heading": "Payment - Received", "date": "10/10/2026", "type": "Payment Received", "company": "VT", "party": "Sharma Traders",
+                   "amount": "25,000", "mode": "Bank", "remarks": "Advance for wallpaper", "punched_by": "Meera (Cashier)"},
+        "template": "{heading}\n\nDate: {date}\nType: {type}\nCompany: {company}\nParty: {party}\nAmount: {amount}\nMode: {mode}\nRemarks: {remarks}\n\nEntry Punch By: {punched_by}"},
+    "decor_entry": {
+        "label": "VT Decor - new payment / expense", "group_label": "VT Decor group", "group_from": "pay_entry",
+        "when": "Every time a payment or an expense is entered on VT Decor. Empty group = the Payments group.",
+        "placeholders": {"date": "Entry date (dd/mm/yyyy)", "type": "Payment / Expense", "product_type": "Wallpaper / Texture / Paint Work", "party": "Client name and mobile",
+                         "amount": "Amount", "mode": "Mode (Cash / Bank / UPI / Cheque / Card)", "expense_line": "The whole 'Expense Type: ...' line - only for an expense",
+                         "remarks": "Remarks", "punched_by": "The user who entered it"},
+        "sample": {"date": "10/10/2026", "type": "Expense", "product_type": "Wallpaper", "party": "Asha Gupta 9811122233", "amount": "4,200", "mode": "Cash",
+                   "expense_line": "Expense Type: Materials\n", "remarks": "-", "punched_by": "Asha"},
+        "template": "Payment - {type}\n\nDate: {date}\nType: {type}\nProduct Type: {product_type}\nParty: {party}\nAmount: {amount}\nMode: {mode}\n{expense_line}Remarks: {remarks}\n\nEntry Punch By: {punched_by}"},
     "att_checkin": {
         "label": "Attendance - check-in message", "group_label": "Attendance group",
         "when": "When an employee checks in (the attendance page), unless the employee is set to 'no WhatsApp' in Setup > Dropdown values > Attendance employees.",
         "placeholders": {"icon": "Status colour dot", "name": "Employee", "time": "Check-in time (12-hour)", "status": "Present / Late / Half Day",
                          "site_icon": "Place icon", "site": "Godown / Shop", "dist": "Distance, like ' (12m)'", "date": "Date (dd Mon yyyy)"},
         "sample": {"icon": "🟢", "name": "Ramesh Kumar", "time": "09:12 AM", "status": "Present", "site_icon": "🏭", "site": "Godown", "dist": " (12m)", "date": "19 Oct 2026"},
-        "template": ("{icon} *CHECK-IN* — Vardhman Traders\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *Time:* {time}\n📊 *Status:* {status}\n"
+        "template": ("{icon} *CHECK-IN* — Code Blue\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *Time:* {time}\n📊 *Status:* {status}\n"
                      "{site_icon} *Location:* {site}{dist}\n📅 *Date:* {date}\n" + RULE)},
     "att_checkout": {
         "label": "Attendance - check-out message", "group_label": "Attendance group", "group_from": "att_checkin",
@@ -79,14 +112,14 @@ ALERTS: dict[str, dict] = {
                          "final_status": "Present / Late / Half Day / Absent", "by_line": "'Checkout by: Owner (Manual)' line, empty otherwise",
                          "date": "Date (dd Mon yyyy)"},
         "sample": {"name": "Ramesh Kumar", "check_in": "09:12 AM", "check_out": "07:05 PM", "hours": "9h 53m", "final_status": "Present", "by_line": "", "date": "19 Oct 2026"},
-        "template": ("🔴 *CHECK-OUT* — Vardhman Traders\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *Check-in:* {check_in}\n"
+        "template": ("🔴 *CHECK-OUT* — Code Blue\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *Check-in:* {check_in}\n"
                      "🏁 *Check-out:* {check_out}\n⏱️ *Hours:* {hours}\n📊 *Final Status:* {final_status}\n{by_line}📅 *Date:* {date}\n" + RULE)},
     "att_auto_summary": {
         "label": "Attendance - auto check-out summary", "group_label": "Attendance group", "group_from": "att_checkin",
         "when": "Once a day after the auto check-out runs: one message listing everyone who forgot to check out. Empty group = the check-in group.",
         "placeholders": {"auto_time": "The auto check-out time (12-hour)", "list": "Numbered list: name, check-in time, status", "date": "Date (dd Mon yyyy)"},
         "sample": {"auto_time": "8:00 PM", "list": "1. Ramesh Kumar - in 09:12 AM (Present)\n2. Sunita - in 10:45 AM (Late)", "date": "19 Oct 2026"},
-        "template": ("🌙 *AUTO CHECK-OUT* — Vardhman Traders\n" + RULE + "\nInhone checkout nahi kiya tha — system ne {auto_time} pe kar diya:\n\n"
+        "template": ("🌙 *AUTO CHECK-OUT* — Code Blue\n" + RULE + "\nInhone checkout nahi kiya tha — system ne {auto_time} pe kar diya:\n\n"
                      "{list}\n\n📅 {date}\n" + RULE)},
     "delivery_day_summary": {
         "label": "Daily delivery summary (7:30 PM)", "group_label": "Reports group", "group_from": "reports_evening",
@@ -100,20 +133,20 @@ ALERTS: dict[str, dict] = {
                 "One message with a download link for each PDF (links work without a login and expire after 3 days).",
         "placeholders": {"date": "The day (dd-mm-yyyy)", "time": "The time of this batch", "list": "One line per report with its link"},
         "sample": {"date": "19-10-2026", "time": "7:30 PM", "list": "1. Delivery - Ranjeet(E-R) (4 orders)\nhttps://example.com/r/1\n2. Godown received & payments - cash (6 orders)\nhttps://example.com/r/2"},
-        "template": "*Reports - {time}* - Vardhman Traders\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
+        "template": "*Reports - {time}* - Code Blue\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
     "reports_night": {
         "label": "Daily reports - 9:00 PM", "group_label": "Reports group", "group_from": "reports_evening",
         "when": "Every day at 9:00 PM IST: Awaiting receiving, Godown pending orders, Shop Dispatch pending orders and Godown Dispatch pending orders, as download links. "
                 "Empty group = the 7:30 PM reports group.",
         "placeholders": {"date": "The day (dd-mm-yyyy)", "time": "The time of this batch", "list": "One line per report with its link"},
         "sample": {"date": "19-10-2026", "time": "9:00 PM", "list": "1. Awaiting receiving (25 orders)\nhttps://example.com/r/3\n2. Godown - pending orders (38 orders)\nhttps://example.com/r/4"},
-        "template": "*Reports - {time}* - Vardhman Traders\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
+        "template": "*Reports - {time}* - Code Blue\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
     "deleg_assigned": {
         "setup": False, "label": "Delegation - task given", "group_label": "Delegation group", "app_title": "New task: {task}",
         "when": "As soon as a task is given (or handed to someone else). The person it is for and every admin also get it on the web bell.",
         "placeholders": {"name": "Who the task is for", "task": "The task", "due": "Deadline (dd-mm-yyyy)", "assigned_by": "Who gave it", "task_id": "Task number"},
         "sample": {"name": "Asha Verma", "task": "Count and tag the new stock in rack B", "due": "25-10-2026", "assigned_by": "Meera Manager", "task_id": "T-00123"},
-        "template": ("*New task* - Vardhman Traders\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due}\n🙋 Given by: {assigned_by}\n"
+        "template": ("*New task* - Code Blue\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due}\n🙋 Given by: {assigned_by}\n"
                      "🔖 {task_id}\n" + RULE)},
     "deleg_done": {
         "setup": False, "label": "Delegation - task completed", "group_label": "Delegation group", "group_from": "deleg_assigned", "app_title": "Task completed by {name}: {task}",
@@ -122,21 +155,21 @@ ALERTS: dict[str, dict] = {
                          "score": "Points earned", "notes": "The note they wrote (or a dash)", "task_id": "Task number"},
         "sample": {"name": "Asha Verma", "task": "Count and tag the new stock in rack B", "due": "25-10-2026", "timing": "on time", "score": "10",
                    "notes": "Counted 142 rolls", "task_id": "T-00123"},
-        "template": ("*Task completed* - Vardhman Traders\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due} ({timing})\n"
+        "template": ("*Task completed* - Code Blue\n" + RULE + "\n👤 {name}\n📝 {task}\n📅 Deadline: {due} ({timing})\n"
                      "⭐ Points: {score}\n🗒️ {notes}\n🔖 {task_id}\n" + RULE)},
     "chk_assigned": {
         "setup": False, "label": "Checklist - checklist given", "group_label": "Checklist group", "app_title": "New checklist: {title}",
         "when": "When a checklist is created for someone (or handed to someone else). The person and every admin also get it on the web bell.",
         "placeholders": {"name": "Who the checklist is for", "title": "The checklist", "when": "How often, like 'Every Saturday'", "assigned_by": "Who set it"},
         "sample": {"name": "Sunil Yadav", "title": "Close the cash register and lock the godown", "when": "Every day (except the weekly off)", "assigned_by": "Meera Manager"},
-        "template": ("*New checklist* - Vardhman Traders\n" + RULE + "\n👤 {name}\n✅ {title}\n🔁 {when}\n🙋 Set by: {assigned_by}\n" + RULE)},
+        "template": ("*New checklist* - Code Blue\n" + RULE + "\n👤 {name}\n✅ {title}\n🔁 {when}\n🙋 Set by: {assigned_by}\n" + RULE)},
     "chk_done": {
         "setup": False, "label": "Checklist - item marked", "group_label": "Checklist group", "group_from": "chk_assigned", "app_title": "Checklist {status}: {title} ({name})",
         "when": "Each time a checklist item is marked Done or Not Done. Off to start with - a daily checklist sends one message per item. Empty group = the 'checklist given' group.",
         "placeholders": {"name": "Who the item belongs to", "title": "The checklist", "due": "Due date (dd-mm-yyyy)", "status": "Done / Not Done",
                          "remark": "The reason (or a dash)", "marked_by": "Who marked it"},
         "sample": {"name": "Sunil Yadav", "title": "Close the cash register and lock the godown", "due": "19-10-2026", "status": "Done", "remark": "-", "marked_by": "Sunil Yadav"},
-        "template": ("*Checklist item {status}* - Vardhman Traders\n" + RULE + "\n👤 {name}\n✅ {title}\n📅 Due: {due}\n🗒️ {remark}\n" + RULE)},
+        "template": ("*Checklist item {status}* - Code Blue\n" + RULE + "\n👤 {name}\n✅ {title}\n📅 Due: {due}\n🗒️ {remark}\n" + RULE)},
 }
 
 
@@ -179,7 +212,7 @@ def get_alert(key: str) -> dict:
 
 def render(template: str, values: dict) -> str:
     """Fill {placeholders}. Unknown names are left as written; no other formatting is interpreted."""
-    return PLACEHOLDER.sub(lambda m: str(values.get(m.group(1), m.group(0))), template)
+    return PLACEHOLDER.sub(lambda m: str(values.get(m.group(1), m.group(0))), template).rstrip()   # a line that is empty for this order leaves no blank tail
 
 
 def sample_message(key: str, template: str | None = None) -> str:
@@ -251,6 +284,23 @@ def send_text(key: str, text: str, post=None, ignore_switch: bool = False) -> di
 
 def send_alert(key: str, values: dict, prefix: str = "", post=None) -> dict:
     return send_text(key, prefix + render(get_alert(key)["template"], values), post=post)
+
+
+# A message must never slow down or fail the entry that caused it: these go out after the request has answered (two at a time, so the
+# provider is not flooded). VT_ALERTS_INLINE=1 sends right away - the tests look at the messages as soon as the save returns.
+_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wa-bg")
+
+
+def send_in_background(key: str, values: dict) -> None:
+    def run():
+        try:
+            send_alert(key, values)
+        except Exception:
+            log.exception("WhatsApp alert %s failed", key)
+    if os.environ.get("VT_ALERTS_INLINE") == "1":
+        run()
+    else:
+        _pool.submit(run)
 
 
 # ------------------------------------------------------------------ Setup > WhatsApp (admin)

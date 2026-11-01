@@ -319,11 +319,44 @@ async function renderOrders(panel) {
     filtersBox,
     kpis,
     h('div', { class: 'note', id: 'archiveNote', text: 'Archived orders (closed or cancelled, 7+ days old) are hidden by default. Click the Archived or Total orders card to see them.' }),
+    photoCheckPanel(inputs),
     results);
   trackSticky(filtersBox, '--filters-h');
   loadKpis();
   if (panel.isConnected) slot.replaceChildren(exportBtn);
   run();
+}
+
+// Orders whose photos need a second look: no dispatch photo, no receiving photo, or the same picture on different orders (a wrong photo).
+// Uses the same From / To dates as the list above (the order date).
+function photoCheckPanel(inputs) {
+  const body = h('div', { id: 'photoCheckBody' });
+  const load = async () => {
+    body.replaceChildren(h('p', { class: 'note', text: 'Checking…' }));
+    try {
+      const qs = new URLSearchParams();
+      if (inputs.date_from.value) qs.set('date_from', inputs.date_from.value);
+      if (inputs.date_to.value) qs.set('date_to', inputs.date_to.value);
+      const d = await api('/admin/orders/photo-check?' + qs.toString());
+      const order = (r) => h('tr', { class: 'clickable-row', tabindex: '0', onclick: () => openOrderDetail(r.slNo) },
+        h('td', { text: r.slNo }), h('td', { text: r.dcNo }), h('td', { text: fmtDate(r.orderDate) }), h('td', { text: r.deliveredBy }), h('td', { text: r.address }));
+      const table = (rows, empty) => rows.length
+        ? h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Sl', 'DC / Inv', 'Order date', 'Delivered by', 'Address'].map((t) => h('th', { text: t })))), h('tbody', {}, rows.map(order))))
+        : h('p', { class: 'note', text: empty });
+      const block = (title, count, node) => h('div', { style: 'margin-bottom:14px' }, h('h3', { class: 'tl-title', text: `${title} (${count}${count >= d.limit ? '+' : ''})` }), node);
+      body.replaceChildren(
+        h('p', { class: 'note', text: `Orders dated ${fmtDate(d.from)} ${String(d.from).slice(0, 4)} to ${fmtDate(d.to)} ${String(d.to).slice(0, 4)} (cancelled and archived orders are left out). Click a row to open the order.` }),
+        d.enabled ? null : h('div', { class: 'msg error', text: 'Photo storage is not set up on this server, so every order shows as having no photo.' }),
+        block('Dispatched with no dispatch photo', d.noDispatchPhoto.length, table(d.noDispatchPhoto, 'Every dispatched order has a dispatch photo.')),
+        block('Received with no receiving photo', d.noReceivingPhoto.length, table(d.noReceivingPhoto, 'Every received order has a receiving photo.')),
+        block('Same photo on different orders', d.samePhotoOnManyOrders.length, d.samePhotoOnManyOrders.length
+          ? h('ul', {}, d.samePhotoOnManyOrders.map((g) => h('li', {}, 'One picture is on: ', ...g.flatMap((x, i) => [i ? ', ' : '',
+              h('button', { class: 'linklike', type: 'button', text: `${x.dcNo || 'Sl ' + x.slNo} (${x.kind}, by ${x.uploadedBy || '?'})`, onclick: () => openOrderDetail(x.slNo) })]))))
+          : h('p', { class: 'note', text: 'No picture has been used on two different orders. (Only photos taken from now on can be compared.)' })),
+        h('button', { class: 'btn', type: 'button', text: 'Check again', onclick: load }));
+    } catch (ex) { body.replaceChildren(h('div', { class: 'msg error', text: ex.message })); }
+  };
+  return collapsible('photoCheck', 'Photo check', 'Orders with a missing photo, or the same photo used on different orders.', body, { onOpen: load });
 }
 
 // ------------------------------------------------------------------ order details + timeline

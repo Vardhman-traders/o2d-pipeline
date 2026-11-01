@@ -306,7 +306,9 @@ tr:hover td{background:#F5F6FF}
       <div class="toolbar">
         <button class="btn btn-primary" onclick="openQuotationPage()">+ New Quotation</button>
         <button class="btn btn-outline" onclick="loadQuotations()">Refresh</button>
+        <input type="search" id="quoSearch" placeholder="Search party, mobile, quotation no., status..." oninput="renderQuotations()" style="min-width:260px;padding:8px 12px;border:1.5px solid #C5CAE9;border-radius:8px">
       </div>
+      <div id="quoStats" style="margin-bottom:12px"></div>
       <div class="tbl-wrap"><div id="quotationsTable" class="loader">Loading...</div></div>
     </div>
 
@@ -499,7 +501,9 @@ tr:hover td{background:#F5F6FF}
       </div>
       <div class="form-group" style="margin-bottom:13px"><label>Date</label><input type="date" id="pm_date"></div>
       <div class="form-group" style="margin-bottom:13px"><label>Reference No.</label><input type="text" id="pm_pnum" placeholder="Optional"></div>
-      <div class="form-group"><label>Remarks</label><textarea id="pm_remarks" rows="2"></textarea></div>
+      <div class="form-group" style="margin-bottom:13px"><label>Remarks</label><textarea id="pm_remarks" rows="2"></textarea></div>
+      <div class="form-group"><label>Photo / PDF (optional - stays with this payment)</label>
+        <input type="file" id="pm_file" accept="image/*,application/pdf"></div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal('addPaymentModal')">Cancel</button>
@@ -1184,13 +1188,14 @@ function renderClientDetail(r){
   html+='</div>';
   html+='<div class="section-title">Payment History</div>';
   if(r.payments&&r.payments.length){
-    html+='<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Stage</th><th>Amount</th><th>Mode</th><th>Ref</th><th>Remarks</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
+    html+='<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Stage</th><th>Amount</th><th>Mode</th><th>Ref</th><th>Remarks</th><th>Photo</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
     r.payments.forEach(function(p){
       html+='<tr><td>'+esc(p.date)+'</td><td style="font-size:.79rem">'+esc(p.stage)+'</td>'
         +'<td class="num" style="color:var(--gr)">'+R(p.amount)+'</td>'
         +'<td><span class="badge badge-bl">'+esc(p.mode)+'</span></td>'
         +'<td style="font-size:.77rem">'+esc(p.pnum)+'</td>'
         +'<td style="font-size:.77rem">'+esc(p.remarks)+'</td>'
+        +'<td>'+entryPhotos(p.photos)+'</td>'
         +((canEdit||isOwner)?'<td style="white-space:nowrap">'+(canEdit?'<button class="btn btn-outline btn-sm" onclick="openEditPayment(\''+esc(c.clientId)+'\','+p.rowIndex+')">Edit</button> ':'')+(isOwner?'<button class="btn btn-danger btn-sm" onclick="deletePayment(\''+esc(c.clientId)+'\','+p.rowIndex+')">Del</button>':'')+'</td>':'')
         +'</tr>';
     });
@@ -1198,11 +1203,12 @@ function renderClientDetail(r){
   } else { html+='<div class="empty" style="padding:10px">No payments yet</div>'; }
   html+='<div class="section-title">Expenses</div>';
   if(r.expenses&&r.expenses.length){
-    html+='<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
+    html+='<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th><th>Photo</th>'+((canEdit||isOwner)?'<th></th>':'')+'</tr></thead><tbody>';
     r.expenses.forEach(function(e){
       html+='<tr><td>'+esc(e.date)+'</td><td>'+esc(e.type)+'</td>'
         +'<td class="num" style="color:var(--am)">'+R(e.amount)+'</td>'
         +'<td style="font-size:.77rem">'+esc(e.notes)+'</td>'
+        +'<td>'+entryPhotos(e.photos)+'</td>'
         +((canEdit||isOwner)?'<td style="white-space:nowrap">'+(canEdit?'<button class="btn btn-outline btn-sm" onclick="openEditExpense(\''+esc(c.clientId)+'\','+e.rowIndex+')">Edit</button> ':'')+(isOwner?'<button class="btn btn-danger btn-sm" onclick="deleteExpense(\''+esc(c.clientId)+'\','+e.rowIndex+')">Del</button>':'')+'</td>':'')
         +'</tr>';
     });
@@ -1217,6 +1223,21 @@ function renderClientDetail(r){
 }
 
 // ── Payment / Delete ──────────────────────────────────────
+// The photos / PDFs saved with one payment or expense, shown on its own row
+function entryPhotos(list){
+  if(!list||!list.length)return '<span style="color:var(--t3)">-</span>';
+  return list.map(function(x,i){return '<a href="'+esc(x.url)+'" target="_blank" rel="noopener" title="Open photo / document '+(i+1)+'" style="text-decoration:none;font-size:1.05rem">&#128247;</a>';}).join(' ');
+}
+// Read a chosen file as {base64, mimeType} (photos are shrunk first; a PDF goes as it is)
+function readEntryFile(file){
+  return new Promise(function(resolve,reject){
+    if(!file){resolve(null);return;}
+    if(['image/jpeg','image/png','image/webp','application/pdf'].indexOf(file.type)<0){reject(new Error('Only photos and PDFs can be attached'));return;}
+    if(file.size>10*1024*1024){reject(new Error('File too large (max 10 MB)'));return;}
+    if(file.type==='application/pdf'){var rd=new FileReader();rd.onload=function(e){resolve({base64:String(e.target.result).split(',')[1],mimeType:file.type});};rd.onerror=function(){reject(new Error('Could not read the file'));};rd.readAsDataURL(file);return;}
+    VT.shrinkImage(file,1600).then(function(d){resolve({base64:d.split(',')[1],mimeType:(d.match(/^data:([^;]+);/)||[])[1]||file.type});}).catch(function(){reject(new Error('Could not read the file'));});
+  });
+}
 function openPaymentModal(clientId,name,productType){
   var stages=stagesFor(productType);
   document.getElementById('pm_stage').innerHTML=stages.map(function(s){return'<option>'+s+'</option>';}).join('');
@@ -1230,8 +1251,12 @@ function submitPayment(){
   var m=document.getElementById('addPaymentModal');
   var amt=document.getElementById('pm_amount').value;
   if(!amt){toast('Amount required');return;}
-  gas('addPayment',{clientId:m._clientId,clientName:m._clientName,stage:document.getElementById('pm_stage').value,amount:parseFloat(amt)/100,mode:document.getElementById('pm_mode').value,date:document.getElementById('pm_date').value,pnum:document.getElementById('pm_pnum').value,remarks:document.getElementById('pm_remarks').value}).then(function(r){
-    if(r.ok){toast('Payment saved');closeModal('addPaymentModal');loadAll();openClientDetail(m._clientId);}else toast('Error: '+(r.msg||''));
+  var file=document.getElementById('pm_file').files[0];
+  readEntryFile(file).catch(function(e){toast(String(e.message||e));throw e;}).then(function(f){
+  var payload={clientId:m._clientId,clientName:m._clientName,stage:document.getElementById('pm_stage').value,amount:parseFloat(amt)/100,mode:document.getElementById('pm_mode').value,date:document.getElementById('pm_date').value,pnum:document.getElementById('pm_pnum').value,remarks:document.getElementById('pm_remarks').value};
+  if(f){payload.base64=f.base64;payload.mimeType=f.mimeType;}
+  return gas('addPayment',payload);}).then(function(r){
+    if(r.ok){toast(r.photoSkipped?r.msg:'Payment saved');document.getElementById('pm_file').value='';closeModal('addPaymentModal');loadAll();openClientDetail(m._clientId);}else toast('Error: '+(r.msg||''));
   });
 }
 function _isoFromDmy(d){var m=/^(\d{2})-(\d{2})-(\d{4})$/.exec(d||'');return m?m[3]+'-'+m[2]+'-'+m[1]:today();}
@@ -1408,20 +1433,60 @@ function deleteQuotation(no){
     toast('Quotation '+no+' deleted');loadQuotations();
   }).catch(function(e){toast('Not deleted: '+String(e));});
 }
+var QUO_LIST=[];
 function loadQuotations(){
   document.getElementById('quotationsTable').innerHTML='<div class="loader">Loading...</div>';
   gas('getQuotations',{role:ROLE}).then(function(r){
-    if(!r.ok||!r.list.length){document.getElementById('quotationsTable').innerHTML='<div class="empty">No quotations yet</div>';return;}
-    var html='<table><thead><tr><th>Performa No.</th><th>Date</th><th>Party</th><th>Mobile</th><th>Grand Total</th><th>By</th><th>Actions</th></tr></thead><tbody>';
-    r.list.slice().reverse().forEach(function(q){
-      var no=esc(q.performaNo);
-      html+='<tr><td><b>'+no+'</b></td><td>'+esc(q.timestamp)+'</td><td>'+esc(q.client)+'</td><td>'+esc(q.mobile)+'</td><td class="num">'+R(q.grand)+'</td><td>'+esc(q.createdBy)+'</td>'
-        +'<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="openQuotationPage(\''+no+'\',\'view\')">View</button> '
-        +'<button class="btn btn-sm" style="background:var(--bl);color:#fff" onclick="openQuotationPage(\''+no+'\',\'edit\')">Edit</button> '
-        +'<button class="btn btn-sm" style="background:var(--re);color:#fff" onclick="deleteQuotation(\''+no+'\')">Delete</button></td></tr>';
-    });
-    document.getElementById('quotationsTable').innerHTML=html+'</tbody></table>';
+    QUO_LIST=(r&&r.ok&&r.list)?r.list.slice().reverse():[];
+    renderQuotations();
   });
+  if(IS_ADMIN){
+    gas('getQuotationStats',{}).then(function(r){
+      var box=document.getElementById('quoStats');
+      if(!r||!r.ok){box.innerHTML='';return;}
+      function card(label,n,total,colour){return '<div style="flex:1;min-width:130px;background:#fff;border:1px solid #E3E7F5;border-top:3px solid '+colour+';border-radius:10px;padding:10px 14px"><div style="font-size:.7rem;color:var(--t3);font-weight:700;text-transform:uppercase">'+label+'</div><div style="font-size:1.4rem;font-weight:800;color:'+colour+'">'+n+'</div><div style="font-size:.72rem;color:var(--t3)">'+R(total)+'</div></div>';}
+      box.innerHTML='<div style="display:flex;gap:10px;flex-wrap:wrap">'
+        +card('Leads (open)',r.leads.count,r.leads.total,'#F59E0B')+card('Approved',r.approved.count,r.approved.total,'#16A34A')+card('Lost',r.lost.count,r.lost.total,'#DC2626')
+        +card('All quotations',r.total,r.leads.total+r.approved.total+r.lost.total,'#3949AB')+'</div>'
+        +'<div style="font-size:.72rem;color:var(--t3);margin-top:6px">'+r.approvedPct+'% of quotations approved. By person: '
+        +r.people.map(function(x){return esc(x.by)+' - '+x.Lead+' lead, '+x.Approved+' approved, '+x.Lost+' lost';}).join(' · ')+'</div>';
+    });
+  }
+}
+function renderQuotations(){
+  var host=document.getElementById('quotationsTable');
+  var q=(document.getElementById('quoSearch').value||'').trim().toLowerCase();
+  var list=QUO_LIST.filter(function(x){return !q||[x.performaNo,x.client,x.mobile,x.createdBy,x.status,x.clientId,x.timestamp].join(' ').toLowerCase().indexOf(q)>=0;});
+  if(!QUO_LIST.length){host.innerHTML='<div class="empty">No quotations yet</div>';return;}
+  if(!list.length){host.innerHTML='<div class="empty">No quotation matches "'+esc(q)+'"</div>';return;}
+  var badge={Lead:'badge-am',Approved:'badge-gr',Lost:'badge-re'};
+  var html='<table><thead><tr><th>Performa No.</th><th>Date</th><th>Party</th><th>Mobile</th><th>Grand Total</th><th>By</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+  list.forEach(function(x){
+    var no=esc(x.performaNo);
+    html+='<tr><td><b>'+no+'</b></td><td>'+esc(x.timestamp)+'</td><td>'+esc(x.client)+'</td><td>'+esc(x.mobile)+'</td><td class="num">'+R(x.grand)+'</td><td>'+esc(x.createdBy)+'</td>'
+      +'<td><span class="badge '+(badge[x.status]||'badge-bl')+'">'+esc(x.status)+'</span>'+(x.clientId?' <span style="font-size:.72rem;color:var(--t3)">client '+esc(x.clientId)+'</span>':'')+'</td>'
+      +'<td style="white-space:nowrap"><button class="btn btn-outline btn-sm" onclick="openQuotationPage(\''+no+'\',\'view\')">View</button> '
+      +'<button class="btn btn-sm" style="background:var(--bl);color:#fff" onclick="openQuotationPage(\''+no+'\',\'edit\')">Edit</button> '
+      +(x.status!=='Approved'?'<button class="btn btn-sm" style="background:var(--gr);color:#fff" onclick="setQuotationStatus(\''+no+'\',\'Approved\')">Approved</button> ':'')
+      +(x.status==='Lead'?'<button class="btn btn-sm" style="background:var(--am);color:#fff" onclick="setQuotationStatus(\''+no+'\',\'Lost\')">Lost</button> ':'')
+      +(x.status==='Lost'?'<button class="btn btn-outline btn-sm" onclick="setQuotationStatus(\''+no+'\',\'Lead\')">Back to lead</button> ':'')
+      +(IS_ADMIN?'<button class="btn btn-sm" style="background:var(--re);color:#fff" onclick="deleteQuotation(\''+no+'\')">Delete</button>':'')+'</td></tr>';
+  });
+  host.innerHTML=html+'</tbody></table>';
+}
+function setQuotationStatus(no,status){
+  var payload={performaNo:no,status:status};
+  if(status==='Approved'){
+    var names=(CFG.productTypes||[]).map(function(t){return t.name;});
+    var pt=names.length>1?prompt('Approve '+no+' and create the client.\nProduct type ('+names.join(' / ')+'):',names[0]):names[0];
+    if(pt===null)return;
+    payload.productType=pt;
+  } else if(!confirm('Mark quotation '+no+' as '+status+'?'))return;
+  gas('setQuotationStatus',payload).then(function(r){
+    if(!r||!r.ok){toast('Not changed: '+((r&&r.msg)||''));return;}
+    toast(status==='Approved'?('Approved - client '+r.clientId+' created'):('Quotation '+no+' marked '+status));
+    loadQuotations();if(status==='Approved')loadAll();
+  }).catch(function(e){toast('Not changed: '+String(e));});
 }
 
 // ── GP Report ─────────────────────────────────────────────

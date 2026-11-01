@@ -44,6 +44,7 @@ STATUS_FILL = {
     "Absent (Sandwich)": "#fef2f2",
     "Incomplete": "#fff7ed",
     "Weekly Off": "#f1f5f9",
+    "Holiday": "#eff6ff",
 }
 _styles = getSampleStyleSheet()
 H1 = ParagraphStyle("h1", parent=_styles["Heading1"], fontSize=15, textColor=NAVY, spaceAfter=2)
@@ -87,7 +88,7 @@ def _footer(canvas, doc):
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(colors.HexColor("#64748b"))
     canvas.drawString(
-        15 * mm, 8 * mm, "Vardhman Traders - generated " + datetime.now(mc.IST).strftime("%d-%m-%Y %H:%M")
+        15 * mm, 8 * mm, "Code Blue - generated " + datetime.now(mc.IST).strftime("%d-%m-%Y %H:%M")
     )
     canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"Page {doc.page}")
     canvas.restoreState()
@@ -126,52 +127,210 @@ def attendance_page(emp: dict, year: int, month: int) -> list:
     return out
 
 
-def salary_page(name: str, role: str, year: int, month: int, r: dict) -> list:
-    """r = attendance.get_salary_report() for the employee (or its error answer)."""
-    out = [
-        Paragraph(escape(name), H1),
-        Paragraph(escape(f"{role or '-'}  |  Salary slip  |  {attendance.MONTHS[month - 1]} {year}"), SUB),
-    ]
-    if r.get("status") != "ok":
-        out.append(Paragraph(escape("Salary could not be calculated: " + str(r.get("msg") or "unknown reason")), NOTE))
-        return out
-    s = r["stats"]
-    figures = [
-        ["Item", "Value"],
-        ["Monthly salary (Rs)", _money(r["monthlySalary"])],
-        [f"Per day (salary / {r['baseDays']})", _money(r["perDaySalary"])],
-        ["Deduction days", f"{r['totalDeductionDays']:g}"],
-        ["Deduction amount (Rs)", _money(r["deductionAmount"])],
-        ["Advance deducted (Rs)", _money(r["totalAdvance"])],
-        ["Paid days", f"{r['totalPaidDays']:g}"],
-        ["NET PAYABLE (Rs)", _money(r["netSalary"])],
-    ]
-    t = _table(figures, [70, 45], right_cols=(1,))
-    t.setStyle(
-        TableStyle(
-            [
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e0e7ff")),
-            ]
-        )
-    )
-    out += [t, Spacer(1, 6)]
-    counts = [
-        ["Present", "Late", "Half day", "Absent", "Sandwich", "Weekly off", "Incomplete"],
-        [s["present"], s["late"], s["halfDay"], s["absent"], s["sandwich"], s["weeklyOff"], s["incomplete"]],
-    ]
-    out += [_table(counts, [25] * 7), Spacer(1, 6)]
-    if r["advances"]:
-        adv = [["Advance date", "Amount (Rs)", "Note"]] + [
-            [a.get("date", ""), _money(a["amount"]), _p(a.get("note", ""))] for a in r["advances"]
-        ]
-        out += [_table(adv, [35, 35, 100], right_cols=(1,)), Spacer(1, 6)]
-    rows = [["Day", "Status", "Check-in", "Check-out", "Hours"]]
-    fills: list[str | None] = [None]
+# The salary slip is drawn like the one on the owner dashboard: header band, employee row, one card per count with its % underneath, the
+# earnings / deductions table, the net-payable band, then the month's calendar. Rs (not the rupee sign) because the PDF fonts have no
+# rupee glyph.
+SLIP_W = 180          # mm, the printable width of an A4 page with 15 mm margins
+INK = colors.HexColor("#1a1f36")
+MUTED = colors.HexColor("#6b7280")
+LINE = colors.HexColor("#e2e8f0")
+BAND = colors.HexColor("#f8faff")
+CARD_COLOURS = {          # card key -> (label, number colour, top border)
+    "present": ("PRESENT", "#16a34a", "#22c55e"),
+    "late": ("LATE", "#d97706", "#f59e0b"),
+    "halfDay": ("HALF DAY", "#7c3aed", "#8b5cf6"),
+    "absent": ("ABSENT", "#dc2626", "#ef4444"),
+    "sandwich": ("SANDWICH", "#ea580c", "#f97316"),
+    "advance": ("ADVANCE", "#c2410c", "#c2410c"),
+}
+# calendar cell: status -> (fill, border, label colour)
+DAY_LOOK = {
+    "Present": ("#f0fdf4", "#86efac", "#166534"),
+    "Late": ("#fffbeb", "#fde68a", "#92400e"),
+    "Half Day": ("#faf5ff", "#d8b4fe", "#5b21b6"),
+    "Absent": ("#fef2f2", "#fecaca", "#991b1b"),
+    "Absent (Sandwich)": ("#fef2f2", "#fecaca", "#991b1b"),
+    "Incomplete": ("#fff7ed", "#fed7aa", "#c2410c"),
+    "Weekly Off": ("#f8fafc", "#e2e8f0", "#64748b"),
+    "Holiday": ("#eff6ff", "#bfdbfe", "#1e40af"),
+    "Future": ("#fafbfc", "#e5e7eb", "#9ca3af"),
+}
+
+
+def _ps(name: str, size: float, colour=INK, bold: bool = False, align: int = 0, leading: float | None = None) -> ParagraphStyle:
+    return ParagraphStyle(name, parent=_styles["Normal"], fontSize=size, textColor=colour, alignment=align, leading=leading or size * 1.25,
+                          fontName="Helvetica-Bold" if bold else "Helvetica")
+
+
+def _rs(v) -> str:
+    return f"Rs {float(v):,.0f}"
+
+
+def _initials(name: str) -> str:
+    words = name.split()
+    return ((words[0][0] + (words[1][0] if len(words) > 1 else "")) if words else "?").upper()
+
+
+def _slip_header(month_name: str, year: int) -> Table:
+    logo = Paragraph("VT", _ps("logo", 15, colors.white, True, 1))
+    text = [Paragraph("VT", _ps("co", 15, colors.white, True)),
+            Paragraph(escape(f"Salary Slip - {month_name} {year}"), _ps("tag", 8, colors.HexColor("#c7d2fe")))]
+    t = Table([[logo, text]], colWidths=[16 * mm, (SLIP_W - 16) * mm], rowHeights=[17 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), NAVY), ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#3949ab")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (1, 0), (1, 0), 8), ("ROUNDEDCORNERS", [6, 6, 6, 6])]))
+    return t
+
+
+def _slip_employee(name: str, role: str, monthly: float) -> Table:
+    badge = Paragraph(escape(_initials(name)), _ps("ini", 10, colors.HexColor("#3949ab"), True, 1))
+    who = [Paragraph(escape(name), _ps("nm", 10, INK, True)), Paragraph(escape(role or "-"), _ps("rl", 7.5, MUTED))]
+    pay = [Paragraph(escape(_rs(monthly)), _ps("gs", 11, NAVY, True, 2)), Paragraph("gross/month", _ps("gl", 6.5, MUTED, False, 2))]
+    t = Table([[badge, who, pay]], colWidths=[12 * mm, (SLIP_W - 12 - 45) * mm, 45 * mm], rowHeights=[13 * mm])
+    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), BAND), ("BOX", (0, 0), (-1, -1), 0.5, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                           ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#e0e7ff")), ("ROUNDEDCORNERS", [6, 6, 6, 6])]))
+    return t
+
+
+def _slip_cards(r: dict) -> list:
+    """One card per count with its % of the counted days underneath (Advance: % of the gross salary)."""
+    s, pc = r["stats"], r["percent"]
+    keys = ["present", "late", "halfDay", "absent"] + (["sandwich"] if s["sandwich"] > 0 else []) + (["advance"] if r["totalAdvance"] > 0 else [])
+    cells, tops = [], []
+    for k in keys:
+        label, num_colour, top = CARD_COLOURS[k]
+        value = _rs(r["totalAdvance"]) if k == "advance" else str(s[k])
+        cells.append([Paragraph(escape(value), _ps("cv" + k, 14 if k != "advance" else 11, colors.HexColor(num_colour), True, 1)),
+                      Paragraph(label, _ps("cl" + k, 6.5, MUTED, True, 1)),
+                      Paragraph(f"{pc[k]:.1f}%", _ps("cp" + k, 8.5, colors.HexColor(num_colour), True, 1))])
+        tops.append(colors.HexColor(top))
+    gap, n = 2, len(keys)
+    row: list = []                                     # a thin empty column between the cards
+    for i, c in enumerate(cells):
+        row += [c] + ([""] if i < n - 1 else [])
+    card_w = (SLIP_W - gap * (n - 1)) / n
+    col_widths = [w * mm for i in range(n) for w in ([card_w] + ([gap] if i < n - 1 else []))]
+    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]
+    for i, colour in enumerate(tops):
+        j = i * 2
+        style += [("BOX", (j, 0), (j, 0), 0.5, LINE), ("LINEABOVE", (j, 0), (j, 0), 2.2, colour)]
+    t = Table([row], colWidths=col_widths)
+    t.setStyle(TableStyle(style))
+    return [t, Spacer(1, 2),
+            Paragraph(escape(f"% = share of the {r['countedDays']} days that count towards pay (weekly offs and days still to come are left out; "
+                             f"Sandwich days are already part of Absent" + ("; Advance = share of the gross salary)" if r["totalAdvance"] > 0 else ")")),
+                      _ps("pcnote", 6.5, MUTED))]
+
+
+def _slip_table(r: dict) -> Table:
+    s, per = r["stats"], r["perDaySalary"]
+    rows: list[list] = [["Earnings", ""], ["Monthly gross salary", _rs(r["monthlySalary"])], [f"Per day rate (/ {r['baseDays']} days)", _rs(per)],
+                        ["Deductions", ""],
+                        [f"Absent ({s['absent']} days x {_rs(per)})", "- " + _rs(round(s["absent"] * per))],
+                        [f"Half Day ({s['halfDay']} x 0.5 x {_rs(per)})", "- " + _rs(round(s["halfDay"] * 0.5 * per))]]
+    seps, reds, ambers = [0, 3], [4, 5], []
+    if s["incomplete"]:
+        rows.append([f"Incomplete ({s['incomplete']} days x {_rs(per)})", "- " + _rs(round(s["incomplete"] * per))])
+        reds.append(len(rows) - 1)
+    for a in r["advances"]:
+        rows.append([f"Advance - {str(a.get('date', ''))[:10]}" + (f" ({a['note']})" if a.get("note") else ""), "- " + _rs(a["amount"])])
+        ambers.append(len(rows) - 1)
+    if s["sandwich"]:
+        rows.append([f"Sandwich ({s['sandwich']} day - included in absent)", "Counted above"])
+        reds.append(len(rows) - 1)
+    rows.append(["Summary", ""])
+    seps.append(len(rows) - 1)
+    rows.append([f"Total deduction ({r['totalDeductionDays']:g} days)", "- " + _rs(r["deductionAmount"])])
+    reds.append(len(rows) - 1)
+    if r["totalAdvance"] > 0:
+        rows.append(["Total advance", "- " + _rs(r["totalAdvance"])])
+        ambers.append(len(rows) - 1)
+    rows.append(["Paid days", f"{r['totalPaidDays']:g} / {r['baseDays']} days"])
+    green = len(rows) - 1
+    body = [[Paragraph(escape(a), _ps("tl", 8, MUTED, False)), Paragraph(escape(b), _ps("tv", 8, INK, True, 2))] for a, b in rows]
+    t = Table(body, colWidths=[(SLIP_W - 55) * mm, 55 * mm])
+    style = [("BOX", (0, 0), (-1, -1), 0.5, LINE), ("LINEBELOW", (0, 0), (-1, -2), 0.25, colors.HexColor("#f1f5f9")),
+             ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]
+    for i in seps:
+        style += [("BACKGROUND", (0, i), (-1, i), BAND), ("SPAN", (0, i), (-1, i))]
+        body[i] = [Paragraph(escape(rows[i][0].upper()), _ps("sp", 6.8, colors.HexColor("#374151"), True)), ""]
+    for i in reds:
+        body[i][1] = Paragraph(escape(rows[i][1]), _ps("tvr", 8, colors.HexColor("#dc2626"), True, 2))
+    for i in ambers:
+        body[i][1] = Paragraph(escape(rows[i][1]), _ps("tva", 8, colors.HexColor("#c2410c"), True, 2))
+    body[green][1] = Paragraph(escape(rows[green][1]), _ps("tvg", 8, colors.HexColor("#16a34a"), True, 2))
+    t = Table(body, colWidths=[(SLIP_W - 55) * mm, 55 * mm])
+    t.setStyle(TableStyle(style))
+    return t
+
+
+def _slip_net(net: float) -> Table:
+    t = Table([[Paragraph("Net Payable Salary", _ps("nl", 9, colors.HexColor("#c7d2fe"), True)),
+                Paragraph(escape(_rs(net)), _ps("nv", 15, colors.white, True, 2))]], colWidths=[(SLIP_W - 70) * mm, 70 * mm], rowHeights=[14 * mm])
+    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NAVY), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (0, 0), 10),
+                           ("RIGHTPADDING", (1, 0), (1, 0), 10), ("ROUNDEDCORNERS", [6, 6, 6, 6])]))
+    return t
+
+
+def _day_cell(d: dict) -> tuple[list, str, str]:
+    st = d["status"]
+    fill, border, ink = DAY_LOOK.get(st, DAY_LOOK["Weekly Off"])
+    label = {"Absent (Sandwich)": "Absent*", "Weekly Off": "OFF", "Future": "-"}.get(st, st)
+    sub = ""
+    if st in ("Present", "Late", "Half Day") and d.get("time"):
+        sub = d["time"] + (" - " + d["checkoutTime"] if d.get("checkoutTime") and d["checkoutTime"] != "—" else "")
+    hrs = d.get("hoursWorked") if d.get("hoursWorked") not in (None, "", "—") else ""
+    flow = [Paragraph(str(d["day"]), _ps("dn", 8.5, INK, True, 1)), Paragraph(escape(label.upper()), _ps("ds" + st, 5.6, colors.HexColor(ink), True, 1))]
+    if sub:
+        flow.append(Paragraph(escape(sub), _ps("dt", 5.4, MUTED, False, 1)))
+    if hrs:
+        flow.append(Paragraph(escape(str(hrs)), _ps("dh", 5.4, MUTED, False, 1)))
+    return flow, fill, border
+
+
+def _slip_calendar(r: dict, month_name: str, year: int) -> list:
+    out: list = [Paragraph(escape(f"Attendance Calendar - {month_name} {year}"), _ps("ct", 9, colors.HexColor("#374151"), True)), Spacer(1, 3)]
+    head = [Paragraph(x.upper(), _ps("dh2", 6, colors.HexColor("#64748b"), True, 1)) for x in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")]
+    first = (datetime(year, month_number(month_name), 1).weekday() + 1) % 7      # Sunday = 0, as on the screen
+    cells: list = [""] * first
+    looks: list = [None] * first
     for d in r["days"]:
-        rows.append([d["day"], d["status"], d["time"] or "", d["checkoutTime"] or "", d["hoursWorked"] or ""])
-        fills.append(STATUS_FILL.get(d["status"]))
-    out.append(_table(rows, [15, 45, 30, 30, 30], fills))
+        flow, fill, border = _day_cell(d)
+        cells.append(flow)
+        looks.append((fill, border))
+    while len(cells) % 7:
+        cells.append("")
+        looks.append(None)
+    rows = [cells[i:i + 7] for i in range(0, len(cells), 7)]
+    w = SLIP_W / 7
+    t = Table([head] + rows, colWidths=[w * mm] * 7, rowHeights=[6 * mm] + [13.5 * mm] * len(rows))
+    style = [("VALIGN", (0, 1), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 1), (-1, -1), 1), ("BOTTOMPADDING", (0, 1), (-1, -1), 1),
+             ("LEFTPADDING", (0, 0), (-1, -1), 1), ("RIGHTPADDING", (0, 0), (-1, -1), 1)]
+    for i, look in enumerate(looks):
+        if look:
+            row, col = i // 7 + 1, i % 7
+            style += [("BACKGROUND", (col, row), (col, row), colors.HexColor(look[0])), ("BOX", (col, row), (col, row), 0.8, colors.HexColor(look[1]))]
+    t.setStyle(TableStyle(style))
+    legend = Paragraph(
+        '<font color="#16a34a">&#9632;</font> Present &nbsp; <font color="#d97706">&#9632;</font> Late &nbsp; <font color="#7c3aed">&#9632;</font> Half Day &nbsp; '
+        '<font color="#dc2626">&#9632;</font> Absent (* sandwich) &nbsp; <font color="#94a3b8">&#9632;</font> Weekly Off &nbsp; <font color="#3b82f6">&#9632;</font> Holiday', _ps("lg", 6.8, MUTED))
+    return out + [t, Spacer(1, 4), legend]
+
+
+def month_number(month_name: str) -> int:
+    return attendance.MONTHS.index(month_name) + 1
+
+
+def salary_page(name: str, role: str, year: int, month: int, r: dict) -> list:
+    """r = attendance.get_salary_report() for the employee (or its error answer). Drawn like the salary slip on the owner dashboard."""
+    mname = attendance.MONTHS[month - 1]
+    out: list = [_slip_header(mname, year), Spacer(1, 5)]
+    if r.get("status") != "ok":
+        out += [_slip_employee(name, role, 0), Paragraph(escape("Salary could not be calculated: " + str(r.get("msg") or "unknown reason")), NOTE)]
+        return out
+    out += [_slip_employee(name, role, r["monthlySalary"]), Spacer(1, 5)]
+    out += _slip_cards(r) + [Spacer(1, 6), _slip_table(r), Spacer(1, 6), _slip_net(r["netSalary"]), Spacer(1, 8)]
+    out += _slip_calendar(r, mname, year)
     return out
 
 
@@ -186,8 +345,8 @@ def _pdf(pages: list[list]) -> bytes:
         rightMargin=15 * mm,
         topMargin=12 * mm,
         bottomMargin=14 * mm,
-        title="Vardhman Traders - attendance",
-        author="Vardhman Traders",
+        title="Code Blue - attendance",
+        author="Code Blue",
     )
     story: list = []
     for i, flow in enumerate(pages):

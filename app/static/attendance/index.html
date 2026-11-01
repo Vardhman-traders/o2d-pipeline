@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Vardhman Traders — Attendance</title>
+<title>Code Blue — Attendance</title>
 <script>window.VT_MODULE = 'attendance'; window.VT_PUBLIC_PAGE = true;</script>
 <script src="../modules/api.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -146,7 +146,7 @@ select:disabled{opacity:.6;cursor:wait}
 <div class="card">
   <div class="hdr">
     <div class="logo-wrap"><div class="logo-fallback">VT</div></div>
-    <div class="hdr-company">Vardhman Traders</div>
+    <div class="hdr-company">Code Blue</div>
     <div class="hdr-tagline">Employee Attendance Portal</div>
     <div class="hdr-date">📅 <span id="dateChip"></span></div>
   </div>
@@ -225,11 +225,12 @@ select:disabled{opacity:.6;cursor:wait}
         <div class="name-avatar" id="nameAvatar"></div>
         <div>
           <div class="name-text" id="nameText"></div>
-          <div class="name-sub" id="nameSub">Vardhman Traders Employee</div>
+          <div class="name-sub" id="nameSub">Code Blue Employee</div>
         </div>
       </div>
 
       <button class="btn-main checkin-btn" id="nextBtn" onclick="goStep2()" disabled>Continue →</button>
+      <button type="button" id="salaryBtn" onclick="openSalary()" style="display:none;width:100%;margin-top:.7rem;padding:.8rem;border:1.5px solid #c7d2fe;border-radius:14px;background:#fff;color:#1a237e;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:.9rem;cursor:pointer">💰 My Salary (needs your PIN)</button>
 
 
     </div>
@@ -253,7 +254,7 @@ select:disabled{opacity:.6;cursor:wait}
 
       <div class="preview-wrap" id="previewWrap">
         <img id="photoPreview" alt="selfie">
-        <div class="preview-badge">📸 Vardhman Traders — <span id="stampText"></span></div>
+        <div class="preview-badge">📸 Code Blue — <span id="stampText"></span></div>
       </div>
       <div class="retake-row" id="retakeRow">
         <button class="retake-link" onclick="retakePhoto()" title="Retake photo" aria-label="Retake photo"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
@@ -282,7 +283,7 @@ select:disabled{opacity:.6;cursor:wait}
   </div>
 
   <div class="footer">
-    Vardhman Traders &nbsp;·&nbsp; Attendance System &nbsp;·&nbsp; Godown & Shop
+    Code Blue &nbsp;·&nbsp; Attendance System &nbsp;·&nbsp; Godown & Shop
     <br>
     <span onclick="ownerLogin()" style="cursor:pointer;color:#6b7280;font-size:.62rem;font-weight:600;opacity:.45;padding:.4rem .7rem;display:inline-block;margin-top:.4rem;border:1px solid #e2e8f0;border-radius:8px">🔐 Owner Login</span>
     <span id="homeLink" onclick="VT.home()" style="display:none;cursor:pointer;color:#1a237e;font-size:.7rem;font-weight:700;padding:.4rem .7rem;margin-top:.4rem;border:1px solid #c7d2fe;border-radius:8px;margin-left:.4rem">⌂ Home</span>
@@ -442,8 +443,9 @@ function onNameSelect(){
     document.getElementById('nameText').textContent=name;
     var role='';
     for(var i=0;i<EMPLOYEES.length;i++){ if(EMPLOYEES[i].name===name){role=EMPLOYEES[i].role;break;} }
-    document.getElementById('nameSub').textContent=role||'Vardhman Traders Employee';
+    document.getElementById('nameSub').textContent=role||'Code Blue Employee';
     card.classList.add('show');
+    document.getElementById('salaryBtn').style.display='block';
 
     VT.run
       .withSuccessHandler(function(status){
@@ -459,6 +461,7 @@ function onNameSelect(){
   } else {
     selectedName='';
     card.classList.remove('show');
+    document.getElementById('salaryBtn').style.display='none';
     resetToCheckinMode();
     checkNext();
   }
@@ -765,6 +768,90 @@ function showAlreadyCheckedOut2(name,time){
   document.getElementById('alreadyHeading').textContent='Already Checked Out!';
   document.getElementById('alreadyMsg').innerHTML='Hi <strong>'+name+'</strong>, you already checked out today at <strong>'+time+'</strong>.';
 }
+
+/* ---------------- My salary: only your own, only after your own PIN ---------------- */
+var SAL_MONTH=null;
+function salEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function salRs(v){ return '₹'+Math.round(Number(v)||0).toLocaleString('en-IN'); }
+function openSalary(){
+  if(!selectedName) return;
+  document.getElementById('salModal').style.display='flex';
+  document.getElementById('salName').textContent=selectedName;
+  document.getElementById('salPinBox').style.display='block';
+  document.getElementById('salResult').style.display='none';
+  document.getElementById('salPin').value='';
+  document.getElementById('salMsg').textContent='';
+  setTimeout(function(){ document.getElementById('salPin').focus(); },80);
+}
+function closeSalary(){
+  document.getElementById('salModal').style.display='none';
+  document.getElementById('salPin').value='';
+  document.getElementById('salResult').innerHTML='';
+}
+function submitPin(){
+  var pin=document.getElementById('salPin').value.trim(), msg=document.getElementById('salMsg'), btn=document.getElementById('salGo');
+  if(pin.length<4){ msg.textContent='Enter your PIN (4 or more digits).'; return; }
+  btn.disabled=true; msg.textContent='Checking…';
+  VT.run
+    .withSuccessHandler(function(r){
+      btn.disabled=false;
+      document.getElementById('salPin').value='';     // the PIN is not kept on the page
+      if(!r||r.status!=='ok'){ msg.textContent=(r&&r.msg)||'Could not check the PIN.'; return; }
+      msg.textContent='';
+      document.getElementById('salPinBox').style.display='none';
+      loadSalary(null);
+    })
+    .withFailureHandler(function(e){ btn.disabled=false; msg.textContent=e.message||'Could not reach the server.'; })
+    .verifyEmployeePIN(selectedName,pin);
+}
+function loadSalary(ym){
+  var box=document.getElementById('salResult'); box.style.display='block'; box.innerHTML='<p style="text-align:center;color:#6b7280">Loading…</p>';
+  var now=new Date(), y=ym?ym[0]:now.getFullYear(), m=ym?ym[1]:now.getMonth()+1;
+  SAL_MONTH=[y,m];
+  VT.run
+    .withSuccessHandler(function(r){
+      if(!r||r.status!=='ok'){
+        box.innerHTML='<p style="color:#b91c1c;text-align:center">'+salEsc((r&&r.msg)||'Could not load your salary.')+'</p>';
+        if(r&&r.needPin){ document.getElementById('salPinBox').style.display='block'; box.style.display='none'; }
+        return;
+      }
+      renderSalary(r);
+    })
+    .withFailureHandler(function(e){ box.innerHTML='<p style="color:#b91c1c;text-align:center">'+salEsc(e.message)+'</p>'; })
+    .getEmployeeSalaryView(selectedName,y,m);
+}
+function renderSalary(r){
+  var s=r.stats, pc=r.percent||{}, months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var opts='', now=new Date();
+  for(var i=0;i<12;i++){ var d=new Date(now.getFullYear(),now.getMonth()-i,1); var v=d.getFullYear()+'-'+(d.getMonth()+1);
+    opts+='<option value="'+v+'"'+((d.getFullYear()===r.year&&d.getMonth()+1===r.month)?' selected':'')+'>'+months[d.getMonth()]+' '+d.getFullYear()+'</option>'; }
+  function card(label,val,key,colour){ return '<div style="flex:1;min-width:64px;background:#fff;border:1px solid #e5e7eb;border-top:3px solid '+colour+';border-radius:10px;padding:.5rem .3rem;text-align:center">'
+    +'<div style="font-size:1.15rem;font-weight:900;color:'+colour+'">'+val+'</div><div style="font-size:.58rem;font-weight:800;color:#6b7280;text-transform:uppercase">'+label+'</div>'
+    +'<div style="font-size:.72rem;font-weight:800;color:'+colour+'">'+Number(pc[key]||0).toFixed(1)+'%</div></div>'; }
+  function row(l,v,c){ return '<tr><td style="padding:.45rem .2rem;color:#6b7280;font-size:.8rem">'+l+'</td><td style="padding:.45rem .2rem;text-align:right;font-weight:800;font-size:.85rem;color:'+(c||'#1a1f36')+'">'+v+'</td></tr>'; }
+  var html='<select id="salMonthSel" onchange="var p=this.value.split(\'-\');loadSalary([+p[0],+p[1]])" style="width:100%;padding:.55rem;border:1.5px solid #c7d2fe;border-radius:10px;margin-bottom:.7rem;font-weight:700">'+opts+'</select>'
+   +'<div style="display:flex;gap:.4rem;margin-bottom:.4rem">'+card('Present',s.present,'present','#16a34a')+card('Late',s.late,'late','#d97706')+card('Half day',s.halfDay,'halfDay','#7c3aed')+card('Absent',s.absent,'absent','#dc2626')+'</div>'
+   +'<div style="font-size:.6rem;color:#6b7280;margin-bottom:.7rem">% = share of the '+(r.countedDays||0)+' days that count towards pay (weekly offs and days still to come are left out)'+(s.sandwich?'. '+s.sandwich+' sandwich day(s) are included in Absent.':'')+'</div>'
+   +'<table style="width:100%;border-collapse:collapse">'
+   +row('Monthly salary',salRs(r.monthlySalary))+row('Per day (÷ '+r.baseDays+')',salRs(r.perDaySalary))
+   +row('Absent ('+s.absent+' days)','− '+salRs(Math.round(s.absent*r.perDaySalary)),'#dc2626')+row('Half day ('+s.halfDay+' × 0.5)','− '+salRs(Math.round(s.halfDay*0.5*r.perDaySalary)),'#dc2626')
+   +(r.totalAdvance>0?row('Advance taken','− '+salRs(r.totalAdvance),'#c2410c'):'')+row('Paid days',r.totalPaidDays+' / '+r.baseDays,'#16a34a')+'</table>'
+   +'<div style="margin-top:.7rem;background:#1a237e;border-radius:12px;padding:.8rem 1rem;display:flex;justify-content:space-between;align-items:center;color:#fff"><span style="font-weight:700;font-size:.85rem">Net payable</span><span style="font-size:1.35rem;font-weight:900">'+salRs(r.netSalary)+'</span></div>';
+  document.getElementById('salResult').innerHTML=html;
+}
 </script>
+<div id="salModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:50;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeSalary()">
+  <div style="background:#fff;border-radius:18px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:1.2rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem"><b style="font-size:1rem">💰 My Salary — <span id="salName"></span></b><button type="button" onclick="closeSalary()" aria-label="Close" style="border:none;background:none;font-size:1.3rem;cursor:pointer">✕</button></div>
+    <div id="salPinBox">
+      <label style="font-size:.78rem;font-weight:700;color:#374151">Your salary PIN</label>
+      <input id="salPin" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="PIN" onkeydown="if(event.key==='Enter')submitPin()" style="width:100%;padding:.8rem;border:1.5px solid #c7d2fe;border-radius:12px;font-size:1.1rem;letter-spacing:.3em;margin:.35rem 0 .6rem">
+      <button type="button" id="salGo" class="btn-main checkin-btn" onclick="submitPin()" style="margin-top:0">Show my salary</button>
+      <p id="salMsg" style="color:#b91c1c;font-size:.8rem;min-height:1.1rem;margin:.5rem 0 0"></p>
+      <p style="font-size:.68rem;color:#9ca3af;margin:.4rem 0 0">Only you can see your salary. Ask the owner if you do not have a PIN or forgot it.</p>
+    </div>
+    <div id="salResult" style="display:none"></div>
+  </div>
+</div>
 </body>
 </html>

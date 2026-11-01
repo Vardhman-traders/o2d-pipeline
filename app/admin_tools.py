@@ -1,7 +1,7 @@
 """Admin portal tools for the order tracker: custom order filters (with saved filters and Excel export) and bulk upload
 (orders and members) with template, validation, inline fixes, one-transaction import and undo. Admin only."""
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import access, bulk, bulk_entities, bulk_modules, db, timeline
+from . import access, bulk, bulk_entities, bulk_modules, db, modcommon as mc, timeline
 from .admin import ADMIN, EXPORT_COLUMNS, IST_COLS, audit
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
@@ -205,6 +205,46 @@ def orders_summary(request: Request, viewer=Depends(access.require_page("dashboa
                     "count(*) FILTER (WHERE v.is_cancelled) AS cancelled "
                     f"{ORDERS_FROM} WHERE {where}", params)
         return cur.fetchone()
+
+
+PHOTO_CHECK_LIMIT = 200
+
+
+@router.get("/orders/photo-check")
+def photo_check(date_from: date | None = None, date_to: date | None = None, viewer=Depends(access.require_page(*access.DASHBOARD_PAGES))):
+    """Which orders need a second look at their photos (order dates date_from..date_to, the last 30 days when empty):
+    dispatched with no dispatch photo, received with no receiving photo, and the same picture attached to different orders (a wrong photo)."""
+    from . import attachments
+    today = mc.today_ist()
+    date_to = date_to or today
+    date_from = date_from or (date_to - timedelta(days=29))
+    cols = "o.sl_no, o.dc_inv_no, d.full_date AS order_date, dp.full_name AS delivered_by, o.shipping_location"
+    base = ("FROM fact_orders o JOIN dim_date d ON d.date_key = o.order_received_date_key LEFT JOIN dim_person dp ON dp.person_key = o.delivered_by_person_key "
+            "WHERE o.archived_at IS NULL AND NOT o.is_cancelled AND d.full_date BETWEEN %s AND %s")
+    with db.cursor() as cur:
+        cur.execute(f"SELECT {cols}, o.material_delivery_datetime AS at {base} AND o.material_delivery_datetime IS NOT NULL "
+                    "AND NOT EXISTS (SELECT 1 FROM order_attachments a WHERE a.order_key = o.order_key AND a.kind = 'dispatch') "
+                    "ORDER BY d.full_date DESC, o.sl_no DESC LIMIT %s", (date_from, date_to, PHOTO_CHECK_LIMIT))
+        no_dispatch = cur.fetchall()
+        cur.execute(f"SELECT {cols}, rd.full_date AS at {base.replace('WHERE', 'JOIN dim_date rd ON rd.date_key = o.date_of_receiving_key WHERE')} "
+                    "AND NOT EXISTS (SELECT 1 FROM order_attachments a WHERE a.order_key = o.order_key AND a.kind = 'receiving') "
+                    "ORDER BY d.full_date DESC, o.sl_no DESC LIMIT %s", (date_from, date_to, PHOTO_CHECK_LIMIT))
+        no_receiving = cur.fetchall()
+        cur.execute("""SELECT a.sha256, a.attachment_key, a.kind, a.uploaded_by, a.uploaded_at, o.sl_no, o.dc_inv_no
+                       FROM order_attachments a JOIN fact_orders o ON o.order_key = a.order_key
+                       JOIN dim_date d ON d.date_key = o.order_received_date_key
+                       WHERE a.sha256 IN (SELECT sha256 FROM order_attachments WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(DISTINCT order_key) > 1)
+                         AND d.full_date BETWEEN %s AND %s ORDER BY a.sha256, o.sl_no LIMIT %s""", (date_from, date_to, PHOTO_CHECK_LIMIT * 4))
+        same = cur.fetchall()
+    groups: dict = {}
+    for r in same:
+        groups.setdefault(r["sha256"], []).append({"slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "kind": r["kind"], "uploadedBy": r["uploaded_by"] or "",
+                                                    "uploadedAt": r["uploaded_at"].isoformat()})
+    rows = lambda lst: [{"slNo": r["sl_no"], "dcNo": r["dc_inv_no"] or "", "orderDate": r["order_date"].isoformat(), "deliveredBy": r["delivered_by"] or "",
+                         "address": r["shipping_location"] or "", "at": r["at"].isoformat() if r["at"] else ""} for r in lst]   # noqa: E731
+    return {"ok": True, "enabled": attachments.configured(), "from": date_from.isoformat(), "to": date_to.isoformat(),
+            "noDispatchPhoto": rows(no_dispatch), "noReceivingPhoto": rows(no_receiving), "samePhotoOnManyOrders": list(groups.values()),
+            "limit": PHOTO_CHECK_LIMIT}
 
 
 @router.get("/orders/{sl_no}/detail")

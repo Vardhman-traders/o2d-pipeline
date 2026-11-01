@@ -286,6 +286,24 @@ def test_assign_clients_and_edit_delete_quotations_and_decor_money_through_the_p
     assert rpc(client, owner, "getQuotation", performaNo=no)["client"] == "Mrs Rao Jr"
     assert rpc(client, owner, "updateQuotation", performa_no=no, **{**quote, "client": "Owner edit"})["ok"]
     assert rpc(client, asha, "updateQuotation", performa_no=no, **{**quote, "client": ""})["ok"] is False
-    assert rpc(client, ravi, "deleteQuotation", performaNo=no)["msg"] == "Access denied"
-    assert rpc(client, asha, "deleteQuotation", performaNo=no)["ok"]
+    # deleting is for the administrator only - not even the maker (it used to be allowed)
+    assert rpc(client, ravi, "deleteQuotation", performaNo=no)["ok"] is False
+    assert "administrator" in rpc(client, asha, "deleteQuotation", performaNo=no)["msg"]
+    # a quotation is a Lead until it is approved (a client is created from it) or lost; the administrator sees the counts
+    assert rpc(client, ravi, "setQuotationStatus", performaNo=no, status="Approved")["ok"] is False                    # not his quotation
+    assert rpc(client, asha, "setQuotationStatus", performaNo=no, status="Nonsense")["ok"] is False
+    lost = rpc(client, asha, "setQuotationStatus", performaNo=no, status="Lost")
+    assert lost["ok"] and lost["status"] == "Lost" and not lost["clientId"]
+    assert rpc(client, asha, "setQuotationStatus", performaNo=no, status="Lead")["ok"]
+    won = rpc(client, asha, "setQuotationStatus", performaNo=no, status="Approved")
+    assert won["ok"] and won["clientId"]
+    made = rpc(client, asha, "getClientDetail", clientId=won["clientId"])
+    assert made["ok"] and made["client"]["name"] == "Owner edit" and made["client"]["amount"] == 118                      # the quotation's name and total
+    assert rpc(client, asha, "setQuotationStatus", performaNo=no, status="Lost")["ok"] is False                          # approved stays approved
+    listed = next(q for q in rpc(client, asha, "getQuotations")["list"] if q["performaNo"] == no)
+    assert listed["status"] == "Approved" and listed["clientId"] == won["clientId"]
+    stats = rpc(client, owner, "getQuotationStats")
+    assert stats["ok"] and stats["approved"]["count"] >= 1 and stats["total"] >= 1 and stats["approvedPct"] > 0
+    assert rpc(client, asha, "getQuotationStats")["ok"] is False                                                         # administrators only
+    assert rpc(client, owner, "deleteQuotation", performaNo=no)["ok"]
     assert rpc(client, owner, "getQuotation", performaNo=no)["ok"] is False

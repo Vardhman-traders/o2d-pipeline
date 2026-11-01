@@ -16,6 +16,8 @@ How it works:
   - WhatsApp messages (check-in, check-out, 8 PM summary) are sent right after the check-in / check-out and retried every five
     minutes for today's entries that did not go out; a background job also does the auto check-out once a day after 9 PM.
 """
+import hashlib
+import hmac
 import logging
 import math
 import os
@@ -504,6 +506,13 @@ def notify_attendance(row_index, name):
     return process_wa_row(key)
 
 
+def holidays_in(cur, year: int, month: int) -> dict[int, str]:
+    """{day of month: holiday name} for a month."""
+    cur.execute("SELECT holiday_date, holiday_name FROM att_holiday WHERE extract(year FROM holiday_date) = %s AND extract(month FROM holiday_date) = %s",
+                (year, month))
+    return {r["holiday_date"].day: r["holiday_name"] for r in cur.fetchall()}
+
+
 def _month_records(cur, emp_key: int, year: int, month: int) -> dict[int, dict]:
     cur.execute("SELECT work_date, check_in_time, check_out_time, checkout_source, final_status, hours_worked_min, l.location_name, "
                 "a.corrected_at, a.correction_note FROM fact_attendance a LEFT JOIN dim_att_location l ON l.location_key = a.location_key "
@@ -518,8 +527,119 @@ def _advances_for(cur, emp_key: int, year: int, month: int) -> list[dict]:
             for r in cur.fetchall()]
 
 
+# ------------------------------------------------------------------ "My salary": an employee sees only their own, after their own PIN
+# The page never sends a name that decides whose salary comes back: a correct PIN gives a pass (signed by the server, valid ten minutes) that
+# names ONE employee, and the salary call reads the employee from the pass. Wrong PINs lock that employee after the number of tries set in
+# Setup > Module settings, and one device (address) that keeps failing is slowed down for everyone it tries.
+SALARY_PASS_SECONDS = 600
+SALARY_MONTHS_BACK = 12
+
+
+def _pass_sig(emp_key: int, exp: int) -> str:
+    return hmac.new(auth._secret().encode(), f"att-salary:{emp_key}:{exp}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def _make_pass(emp_key: int) -> str:
+    exp = int(_time.time()) + SALARY_PASS_SECONDS
+    return f"{emp_key}.{exp}.{_pass_sig(emp_key, exp)}"
+
+
+def _read_pass(token) -> int | None:
+    """The employee a pass was given to, or None when it is forged, changed or expired."""
+    try:
+        key, exp, sig = str(token or "").split(".")
+        key, exp = int(key), int(exp)
+    except ValueError:
+        return None
+    if exp < _time.time() or not hmac.compare_digest(sig, _pass_sig(key, exp)):
+        return None
+    return key
+
+
+_NO_PIN_HASH = "$2b$12$" + "." * 53
+_pin_ip_fails: dict[str, list[float]] = {}      # device address -> when its wrong PINs happened (kept apart from the portal sign-in's counter)
+_pin_ip_lock = threading.Lock()
+PIN_IP_MAX_FAILS, PIN_IP_WINDOW = 20, 15 * 60
+
+
+def _pin_ip_blocked(ip: str) -> bool:
+    now = _time.time()
+    with _pin_ip_lock:
+        recent = [t for t in _pin_ip_fails.get(ip, []) if now - t < PIN_IP_WINDOW]
+        _pin_ip_fails[ip] = recent
+        return len(recent) >= PIN_IP_MAX_FAILS
+
+
+def _pin_ip_failed(ip: str) -> None:
+    with _pin_ip_lock:
+        _pin_ip_fails.setdefault(ip, []).append(_time.time())
+        if len(_pin_ip_fails) > 5000:
+            now = _time.time()
+            for k in [k for k, v in _pin_ip_fails.items() if not v or now - v[-1] > PIN_IP_WINDOW]:
+                _pin_ip_fails.pop(k, None)
+
+
+def verify_employee_pin(name, pin, ip: str = ""):
+    """-> {status: ok, token} after the right PIN. The answer for a wrong name and a wrong PIN is the same, and a bcrypt check always runs,
+    so the reply does not tell which people exist or how long a PIN is."""
+    rules = Rules()
+    pin = str(pin or "").strip()
+    wrong = {"status": "error", "msg": "Name or PIN is not right."}
+    with db.cursor() as cur:
+        emp = _find_employee(cur, name, active_only=True)
+        if _pin_ip_blocked(ip):
+            return {"status": "error", "msg": "Too many wrong tries from this phone. Please wait a few minutes and try again."}
+        now = datetime.now(mc.IST)
+        if emp and emp["pin_locked_until"] and emp["pin_locked_until"] > now:
+            mins = max(1, math.ceil((emp["pin_locked_until"] - now).total_seconds() / 60))
+            return {"status": "error", "msg": f"Too many wrong tries. This PIN is locked for {mins} more minute(s)."}
+        if emp and not emp["pin_hash"]:
+            return {"status": "error", "msg": "Your PIN is not set yet. Please ask the owner to set it."}
+        ok = auth.verify_password(pin, emp["pin_hash"] if emp else _NO_PIN_HASH)
+        if not (emp and ok):
+            _pin_ip_failed(ip)
+            if emp:
+                failed = (emp["pin_failed_count"] or 0) + 1
+                if failed >= rules.pin_attempts:
+                    cur.execute("UPDATE dim_att_employee SET pin_failed_count = 0, pin_locked_until = now() + make_interval(mins => %s) WHERE employee_key = %s",
+                                (rules.pin_lock_minutes, emp["employee_key"]))
+                else:
+                    cur.execute("UPDATE dim_att_employee SET pin_failed_count = %s WHERE employee_key = %s", (failed, emp["employee_key"]))
+            return wrong
+        cur.execute("UPDATE dim_att_employee SET pin_failed_count = 0, pin_locked_until = NULL WHERE employee_key = %s", (emp["employee_key"],))
+        return {"status": "ok", "name": emp["employee_name"], "token": _make_pass(emp["employee_key"]), "validSeconds": SALARY_PASS_SECONDS}
+
+
+def get_employee_salary_view(name, token, year=None, month=None):
+    """The signed-in employee's own salary slip for a month (this month by default, up to a year back). Whose it is comes from the pass."""
+    emp_key = _read_pass(token)
+    if emp_key is None:
+        return {"status": "error", "msg": "Please enter your PIN again.", "needPin": True}
+    today = mc.today_ist()
+    try:
+        year, month = int(year or today.year), int(month or today.month)
+        asked = date(year, month, 1)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Month is not valid."}
+    first_this = date(today.year, today.month, 1)
+    oldest = date(first_this.year - 1, first_this.month, 1) if SALARY_MONTHS_BACK == 12 else first_this
+    if asked > first_this or asked < oldest:
+        return {"status": "error", "msg": "Pick this month or one of the last twelve."}
+    with db.cursor() as cur:
+        cur.execute("SELECT employee_name FROM dim_att_employee WHERE employee_key = %s AND is_active", (emp_key,))
+        row = cur.fetchone()
+    if not row or (name and str(name).strip().lower() != row["employee_name"].strip().lower()):
+        return {"status": "error", "msg": "Please enter your PIN again.", "needPin": True}
+    return get_salary_report(None, row["employee_name"], year, month)
+
+
+PUBLIC_IP = {      # the calls that also need the caller's address
+    "verifyEmployeePIN": lambda a, ip: verify_employee_pin(a[0], a[1], ip),
+}
+
 PUBLIC = {
     "getEmployees": lambda a: get_employees(),
+    "getEmployeeSalaryView": lambda a: get_employee_salary_view(a[0], a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else None, a[3] if len(a) > 3 else None),
     "getTodayStatus": lambda a: get_today_status(a[0]),
     "checkLocation": lambda a: check_location_rpc(a[0], a[1], a[2] if len(a) > 2 else None),
     "saveAttendance": lambda a: save_attendance(a[0]),
@@ -535,8 +655,12 @@ _hits_lock = threading.Lock()
 RATE_PER_MINUTE = 90
 
 
+def _client_ip(request: Request) -> str:
+    return (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+
+
 def _throttle(request: Request):
-    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+    ip = _client_ip(request)
     now = _time.time()
     with _hits_lock:
         recent = [t for t in _hits.get(ip, []) if now - t < 60]
@@ -560,6 +684,8 @@ def public_rpc(body: RpcIn, request: Request):
     _throttle(request)
     if not Rules().link_on:
         raise HTTPException(403, "The employee check-in page is switched off. Ask the administrator.")
+    if body.action in PUBLIC_IP:
+        return PUBLIC_IP[body.action](body.args, _client_ip(request))
     fn = PUBLIC.get(body.action)
     if not fn:
         raise HTTPException(404, "Unknown action")
@@ -699,6 +825,7 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
                 return {"status": "error", "msg": "Salary not set. Please set salary from Salary tab first."}
         recs = _month_records(cur, emp["employee_key"], year, month)
         advances = _advances_for(cur, emp["employee_key"], year, month)
+        holidays = holidays_in(cur, year, month)
     days_in_month = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
     per_day = monthly / rules.base_days
     today = mc.today_ist()
@@ -710,6 +837,8 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
         st, t_in, t_out, hrs = "Absent", "", "—", "—"
         if dow == rules.off_day:
             st = "Weekly Off"
+        elif d in holidays and not rec:
+            st = "Holiday"          # a public holiday: nobody is absent, nothing is cut (someone who did come in is shown as they checked in)
         elif dt > today:
             st = "Future"
         elif rec:
@@ -722,7 +851,7 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
         if day["dow"] == rules.off_day and day["status"] == "Weekly Off" and 0 <= i - 1 and i + 1 < len(arr):
             if arr[i - 1]["status"] in ("Absent", "Incomplete") and arr[i + 1]["status"] in ("Absent", "Incomplete"):
                 day["status"], day["sandwichApplied"] = "Absent (Sandwich)", True
-    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "sandwich": 0, "incomplete": 0, "weeklyOff": 0, "future": 0}
+    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "sandwich": 0, "incomplete": 0, "weeklyOff": 0, "holiday": 0, "future": 0}
     ded = 0.0
     for day in arr:
         s = day["status"]
@@ -745,14 +874,31 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
             ded += 1
         elif s == "Weekly Off":
             stats["weeklyOff"] += 1
+        elif s == "Holiday":
+            stats["holiday"] += 1
         elif s == "Future":
             stats["future"] += 1
     total_adv = sum(a["amount"] for a in advances)
     net = max(0, monthly - ded * per_day - total_adv)
+    counted, percent = stat_percentages(stats, total_adv, monthly)
     return {"status": "ok", "employeeName": emp["employee_name"], "year": year, "month": month, "monthlySalary": monthly,
+            "countedDays": counted, "percent": percent,
             "perDaySalary": round(per_day * 100) / 100, "baseDays": rules.base_days, "totalDeductionDays": ded,
             "deductionAmount": _round(ded * per_day), "totalAdvance": total_adv, "advances": advances, "netSalary": _round(net),
             "totalPaidDays": round(max(0, rules.base_days - ded) * 10) / 10, "stats": stats, "days": arr}
+
+
+def stat_percentages(stats: dict, advance: float = 0, monthly: float = 0) -> tuple[int, dict]:
+    """(days counted, % under each salary-slip card). The base is the days that count towards pay: present + late + half day + absent
+    + incomplete - weekly offs and days still to come are left out. Absent already holds the sandwich days, so Sandwich is shown as its
+    own share of the same base (the cards are not meant to add up to 100). Advance is a share of the gross salary."""
+    counted = stats["present"] + stats["late"] + stats["halfDay"] + stats["absent"] + stats["incomplete"]
+
+    def pct(n):
+        return round(n * 100 / counted, 1) if counted else 0.0
+    out = {k: pct(stats[k]) for k in ("present", "late", "halfDay", "absent", "sandwich", "incomplete")}
+    out["advance"] = round(advance * 100 / monthly, 1) if monthly else 0.0
+    return counted, out
 
 
 # --- advances
@@ -897,13 +1043,15 @@ def get_monthly_report(user, name, year, month):
     with db.cursor() as cur:
         emp = _find_employee(cur, name, active_only=False)
         recs = _month_records(cur, emp["employee_key"], year, month) if emp else {}
-    return _monthly_from(rules, recs, year, month)
+        holidays = holidays_in(cur, year, month)
+    return _monthly_from(rules, recs, year, month, holidays)
 
 
-def _monthly_from(rules: Rules, recs: dict, year: int, month: int) -> dict:
+def _monthly_from(rules: Rules, recs: dict, year: int, month: int, holidays: dict | None = None) -> dict:
     n = _fmt_month_days(year, month)
+    holidays = holidays or {}
     today, days = mc.today_ist(), []
-    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "weeklyOff": 0, "incomplete": 0}
+    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "weeklyOff": 0, "holiday": 0, "incomplete": 0}
     for d in range(1, n + 1):
         dt = date(year, month, d)
         dow, rec = rules.js_dow(dt), recs.get(d)
@@ -919,6 +1067,9 @@ def _monthly_from(rules: Rules, recs: dict, year: int, month: int) -> dict:
         elif dow == rules.off_day:
             status = "Weekly Off"
             stats["weeklyOff"] += 1
+        elif d in holidays:
+            status = "Holiday"
+            stats["holiday"] += 1
         elif dt > today:
             status = "—"
         else:
@@ -927,7 +1078,7 @@ def _monthly_from(rules: Rules, recs: dict, year: int, month: int) -> dict:
         days.append({"day": d, "dayName": JS_DAYS[dow], "date": dt.isoformat(), "status": status, "time": t_in, "checkoutTime": t_out,
                      "hoursWorked": hrs, "hasRecord": rec is not None, "site": (rec["location_name"] or "") if rec else "",
                      "corrected": bool(rec and rec.get("corrected_at")), "note": (rec.get("correction_note") or "") if rec else ""})
-    stats["totalWorkingDays"] = n - stats["weeklyOff"]
+    stats["totalWorkingDays"] = n - stats["weeklyOff"] - stats["holiday"]
     stats["paidDays"] = stats["present"] + stats["late"] + stats["halfDay"] * 0.5
     return {"status": "ok", "days": days, "stats": stats}
 
@@ -944,8 +1095,9 @@ def get_monthly_all(user, year, month):
     with db.cursor() as cur:
         cur.execute("SELECT employee_key, employee_name, role_title FROM dim_att_employee WHERE is_active ORDER BY lower(employee_name)")
         emps = cur.fetchall()
+        holidays = holidays_in(cur, year, month)
         for e in emps:
-            rep = _monthly_from(rules, _month_records(cur, e["employee_key"], year, month), year, month)
+            rep = _monthly_from(rules, _month_records(cur, e["employee_key"], year, month), year, month, holidays)
             out.append({"name": e["employee_name"], "role": e["role_title"] or "", "stats": rep["stats"], "days": rep["days"]})
     return {"status": "ok", "year": year, "month": month, "employees": out}
 
@@ -1083,13 +1235,59 @@ def delete_attendance(user, data):
 
 
 def _working_days_back(rules: Rules, count: int, limit: int) -> list[date]:
+    """The last `count` working days before today: weekly offs and public holidays are not working days."""
+    with db.cursor() as cur:
+        cur.execute("SELECT holiday_date FROM att_holiday WHERE holiday_date >= %s", (mc.today_ist() - timedelta(days=limit + 1),))
+        holidays = {r["holiday_date"] for r in cur.fetchall()}
     out, d, scanned = [], mc.today_ist(), 0
     while len(out) < count and scanned < limit:
         d -= timedelta(days=1)
         scanned += 1
-        if not rules.is_off(d):
+        if not rules.is_off(d) and d not in holidays:
             out.append(d)
     return out
+
+
+# --- public holidays (Attendance owner dashboard > Employees)
+def get_holidays(user, year=None):
+    try:
+        year = int(year or mc.today_ist().year)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Year is not valid."}
+    with db.cursor() as cur:
+        cur.execute("SELECT holiday_date, holiday_name FROM att_holiday WHERE extract(year FROM holiday_date) = %s ORDER BY holiday_date", (year,))
+        return {"status": "ok", "year": year, "holidays": [{"date": r["holiday_date"].isoformat(), "name": r["holiday_name"]} for r in cur.fetchall()]}
+
+
+def add_holiday(user, day, name):
+    try:
+        d = date.fromisoformat(str(day or "")[:10])
+    except ValueError:
+        return {"status": "error", "msg": "Choose the date of the holiday."}
+    name = " ".join(str(name or "").split())[:80]
+    if not name:
+        return {"status": "error", "msg": "Give the holiday a name (e.g. Diwali)."}
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO att_holiday (holiday_date, holiday_name, created_by_user_key) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (holiday_date) DO UPDATE SET holiday_name = EXCLUDED.holiday_name", (d, name, user["user_key"]))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target) VALUES (%s, %s, 'attendance.add_holiday', %s)",
+                    (user["user_key"], user["username"], f"{d.isoformat()} {name}"))
+    return {"status": "ok", "date": d.isoformat(), "name": name}
+
+
+def delete_holiday(user, day):
+    try:
+        d = date.fromisoformat(str(day or "")[:10])
+    except ValueError:
+        return {"status": "error", "msg": "Date is not valid."}
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM att_holiday WHERE holiday_date = %s RETURNING holiday_name", (d,))
+        row = cur.fetchone()
+        if not row:
+            return {"status": "error", "msg": "That holiday was not found."}
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target) VALUES (%s, %s, 'attendance.delete_holiday', %s)",
+                    (user["user_key"], user["username"], f"{d.isoformat()} {row['holiday_name']}"))
+    return {"status": "ok"}
 
 
 def get_absent_streak(user, days):
@@ -1173,6 +1371,9 @@ OWNER = {
     "setEmployeePlaces": lambda u, a: set_employee_places(u, a[1], a[2] if len(a) > 2 else []),
     "addEmployee": lambda u, a: add_employee(u, a[1], a[2] if len(a) > 2 else ""),
     "deleteEmployee": lambda u, a: delete_employee(u, a[1]),
+    "getHolidays": lambda u, a: get_holidays(u, a[1] if len(a) > 1 else None),
+    "addHoliday": lambda u, a: add_holiday(u, a[1], a[2] if len(a) > 2 else ""),
+    "deleteHoliday": lambda u, a: delete_holiday(u, a[1]),
     "getAllPINs": lambda u, a: get_all_pins(u),
     "setEmployeePIN": lambda u, a: set_employee_pin(u, a[1], a[2]),
 }
@@ -1180,7 +1381,7 @@ OWNER = {
 
 @router.post("/owner/rpc")
 def owner_rpc(body: RpcIn, user=Depends(OWNER_DEP)):
-    if body.action in ("correctAttendance", "deleteAttendance", "manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces"):
+    if body.action in ("correctAttendance", "deleteAttendance", "manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces", "addHoliday", "deleteHoliday"):
         access.require_edit(user, OWNER_PAGE)
     fn = OWNER.get(body.action)
     if not fn:
