@@ -9,12 +9,14 @@ import hashlib
 import logging
 import os
 import uuid
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from . import access, auth, db, roles
 
+IST = ZoneInfo("Asia/Kolkata")
 log = logging.getLogger("o2d.photos")
 router = APIRouter(prefix="/o2d", tags=["o2d-photos"])
 ANY_VIEWER = access.require_page(*access.ORDER_PAGES)   # whoever can see the order lists can see its photos
@@ -24,6 +26,7 @@ MAX_PER_KIND = 5                     # photos per order and kind
 LINK_SECONDS = 600
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic"}
 ORDER_DOC_TYPES = {**EXT, "application/pdf": "pdf"}   # what may be attached to an order: a photo of the challan, or its PDF (read by doc_check)
+DUPLICATE_CHECKED = {"decor", "purchase", "challan"}   # modules where the same picture twice is a wrong photo
 PDF_MODULES = {"decor", "challan"}   # modules whose documents (challans) may also be a PDF
 # which O2D pages may attach / see each kind of photo
 UPLOAD_PAGES = {"dispatch": ("o2d_shop_dispatch", "o2d_godown_dispatch"),
@@ -67,8 +70,31 @@ def _may_upload(user, kind: str) -> bool:
     return bool(access.effective_pages(user) & set(UPLOAD_PAGES[kind]))
 
 
+def duplicate_check_on() -> bool:
+    """The same picture attached twice is refused (a wrong photo). VT_PHOTO_DUPLICATE_CHECK=off switches it off (the tests reuse one picture)."""
+    return os.environ.get("VT_PHOTO_DUPLICATE_CHECK", "on").lower() != "off"
+
+
+def _order_duplicate(cur, sha: str, order_key: int) -> str | None:
+    """A sentence naming the OTHER order this exact picture is already attached to, or None."""
+    cur.execute("SELECT o.sl_no, o.dc_inv_no FROM order_attachments a JOIN fact_orders o ON o.order_key = a.order_key "
+                "WHERE a.sha256 = %s AND a.order_key <> %s ORDER BY a.attachment_key DESC LIMIT 1", (sha, order_key))
+    r = cur.fetchone()
+    if not r:
+        return None
+    return (f"This photo is already attached to another order (Sl {r['sl_no']}" + (f", DC / Inv {r['dc_inv_no']}" if r["dc_inv_no"] else "") +
+            "). It looks like the wrong photo - please attach the right one.")
+
+
 def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> dict:
     order = _visible_order(user, sl_no)
+    sha = hashlib.sha256(data).hexdigest()
+    msg = None
+    if duplicate_check_on():
+        with db.cursor() as cur:
+            msg = _order_duplicate(cur, sha, order["order_key"])
+    if msg:
+        raise HTTPException(409, msg)
     key = f"orders/{order['order_key']}/{kind}/{uuid.uuid4().hex}.{ORDER_DOC_TYPES[content_type]}"
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM order_attachments WHERE order_key = %s AND kind = %s",
@@ -82,7 +108,7 @@ def save_photo(user, sl_no: int, kind: str, data: bytes, content_type: str) -> d
                 "INSERT INTO order_attachments (order_key, kind, object_key, content_type, size_bytes, "
                 "uploaded_by_key, uploaded_by, sha256) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
                 (order["order_key"], kind, key, content_type, len(data), user["user_key"],
-                 user.get("display_name") or user["username"], hashlib.sha256(data).hexdigest()))
+                 user.get("display_name") or user["username"], sha))
             return {"id": cur.fetchone()["attachment_key"], "orderKey": order["order_key"]}
     except Exception:
         try:  # don't leave an orphan object behind
@@ -189,13 +215,21 @@ def put_file(module: str, record_key: int, kind: str, user, data: bytes, content
         raise HTTPException(415, "Photo must be a JPEG, PNG, WebP or HEIC image." + (" (A PDF is also fine here.)" if module in PDF_MODULES else ""))
     if not data or len(data) > MAX_BYTES:
         raise HTTPException(413, "Photo is too large (8 MB maximum)." if data else "Empty photo.")
+    sha = hashlib.sha256(data).hexdigest()
+    if module in DUPLICATE_CHECKED and duplicate_check_on():
+        with db.cursor() as cur:
+            cur.execute("SELECT uploaded_at FROM file_attachment WHERE module = %s AND sha256 = %s ORDER BY attachment_key DESC LIMIT 1", (module, sha))
+            earlier = cur.fetchone()
+        if earlier:
+            raise HTTPException(409, "This photo was already uploaded on " + earlier["uploaded_at"].astimezone(IST).strftime("%d-%m-%Y %H:%M") +
+                                ". It looks like the wrong photo - please attach the right one.")
     key = f"{module}/{record_key}/{uuid.uuid4().hex}.{ext}"
     storage().put_object(Bucket=_bucket(), Key=key, Body=data, ContentType=content_type)
     try:
         with db.cursor() as cur:
-            cur.execute("INSERT INTO file_attachment (module, record_key, kind, object_key, content_type, size_bytes, uploaded_by_key) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
-                        (module, record_key, kind, key, content_type, len(data), user["user_key"]))
+            cur.execute("INSERT INTO file_attachment (module, record_key, kind, object_key, content_type, size_bytes, uploaded_by_key, sha256) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING attachment_key",
+                        (module, record_key, kind, key, content_type, len(data), user["user_key"], sha))
             return cur.fetchone()["attachment_key"]
     except Exception:
         try:

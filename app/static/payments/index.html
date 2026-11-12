@@ -1710,6 +1710,7 @@ function loadMerge_(){
     MERGE.rows = res.rows || [];
     MERGE.counts = res.counts || MERGE.counts;
     MERGE.required = res.required || [];
+    MERGE.decorCompanies = (res.decorCompanies || []).map(c => String(c).toLowerCase());
     MERGE.canWrite = res.canWrite !== false;
     updateMergeTabLabels();
     if (mergeKind()) renderMerge();
@@ -1784,7 +1785,7 @@ function renderMerge(){
 
     const company = document.createElement('select'); company.disabled = locked;
     company.innerHTML = '<option value="">— company —</option>' +
-      companiesCache.filter(c => isDecorKind(row.kind) || (COMPANY_META[c] || {}).isSales).map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
+      companiesCache.filter(c => isDecorKind(row.kind) ? (!(MERGE.decorCompanies || []).length || MERGE.decorCompanies.includes(String(c).toLowerCase())) : (COMPANY_META[c] || {}).isSales).map(c => `<option value="${esc(c)}"${c === d.company ? ' selected' : ''}>${esc(c)}</option>`).join('');
     td(company);
     const party = input('text', d.party, v => { d.party = v; }, { placeholder: 'Party', autocomplete: 'off' });
     const dl = document.createElement('datalist'); dl.id = 'dl_' + row.key; party.setAttribute('list', dl.id);

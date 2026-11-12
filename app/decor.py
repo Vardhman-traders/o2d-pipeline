@@ -463,7 +463,7 @@ def edit_payment(user, who, p):
     if amount <= 0:
         return {"ok": False, "msg": "Amount must be above 0."}
     with db.cursor() as cur:
-        cur.execute("SELECT p.payment_key, p.amount, p.pay_date, p.ref_no, p.remarks, c.client_code, c.product_type_key, c.added_by, c.assigned_to, c.status "
+        cur.execute("SELECT p.payment_key, p.amount, p.pay_date, p.ref_no, p.remarks, c.client_key, c.client_code, c.product_type_key, c.added_by, c.assigned_to, c.status "
                     "FROM fact_decor_payment p JOIN dim_decor_client c ON c.client_key = p.client_key WHERE p.payment_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
@@ -480,6 +480,20 @@ def edit_payment(user, who, p):
         cur.execute("UPDATE fact_decor_payment SET stage_key = %s, stage_text = %s, amount = %s, mode_key = %s, pay_date = %s, ref_no = %s, remarks = %s "
                     "WHERE payment_key = %s", (sk, None if sk else (p.get("stage") or None), round(amount, 2), _mode_key(cur, p.get("mode")),
                                                new_date, p.get("pnum") or None, p.get("remarks") or None, r["payment_key"]))
+    return _attach_to_entry(user, r["client_key"], p, "Payment", payment_key=r["payment_key"])
+
+
+def _attach_to_entry(user, client_key, p, what, payment_key=None, expense_key=None) -> dict:
+    """A photo / PDF chosen while editing an entry stays with that entry. The edit itself is already saved; a refused photo is explained."""
+    if not (p.get("base64") and p.get("mimeType")):
+        return {"ok": True}
+    if not attachments.configured():
+        return {"ok": True, "photoSkipped": True, "msg": f"{what} saved. Photo skipped: photo storage is not set up yet."}
+    try:
+        _store_photo(user, client_key, p.get("stage") or p.get("type") or what, f"[{what}] " + (p.get("pnum") or p.get("notes") or ""),
+                     "photo" if payment_key else "challan", p["base64"], p["mimeType"], payment_key=payment_key, expense_key=expense_key)
+    except HTTPException as e:
+        return {"ok": True, "photoSkipped": True, "msg": f"{what} saved. Photo not added: {e.detail}"}
     return {"ok": True}
 
 
@@ -556,7 +570,7 @@ def edit_expense(user, who, p):
     if not str(p.get("type") or "").strip():
         return {"ok": False, "msg": "Expense type required"}
     with db.cursor() as cur:
-        cur.execute("SELECT e.expense_key, e.expense_type, e.amount, e.exp_date, e.notes, c.client_code, c.added_by, c.assigned_to, c.status "
+        cur.execute("SELECT e.expense_key, e.expense_type, e.amount, e.exp_date, e.notes, c.client_key, c.client_code, c.added_by, c.assigned_to, c.status "
                     "FROM fact_decor_expense e JOIN dim_decor_client c ON c.client_key = e.client_key WHERE e.expense_key = %s", (int(p.get("rowIndex") or 0),))
         r = cur.fetchone()
         if not r or not _visible(who, r):
@@ -570,7 +584,7 @@ def edit_expense(user, who, p):
                 "after": {"type": str(p.get("type") or "")[:100], "amount": round(amount, 2), "exp_date": str(new_date), "notes": p.get("notes") or None}})
         cur.execute("UPDATE fact_decor_expense SET expense_type = %s, amount = %s, exp_date = %s, notes = %s WHERE expense_key = %s",
                     (str(p.get("type") or "")[:100], round(amount, 2), new_date, p.get("notes") or None, r["expense_key"]))
-    return {"ok": True}
+    return _attach_to_entry(user, r["client_key"], p, "Expense", expense_key=r["expense_key"])
 
 
 def add_item(user, who, p):

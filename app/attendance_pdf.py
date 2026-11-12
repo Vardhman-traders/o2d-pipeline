@@ -142,6 +142,7 @@ CARD_COLOURS = {          # card key -> (label, number colour, top border)
     "absent": ("ABSENT", "#dc2626", "#ef4444"),
     "sandwich": ("SANDWICH", "#ea580c", "#f97316"),
     "advance": ("ADVANCE", "#c2410c", "#c2410c"),
+    "bonus": ("BONUS", "#15803d", "#16a34a"),
 }
 # calendar cell: status -> (fill, border, label colour)
 DAY_LOOK = {
@@ -195,14 +196,16 @@ def _slip_employee(name: str, role: str, monthly: float) -> Table:
 def _slip_cards(r: dict) -> list:
     """One card per count with its % of the counted days underneath (Advance: % of the gross salary)."""
     s, pc = r["stats"], r["percent"]
-    keys = ["present", "late", "halfDay", "absent"] + (["sandwich"] if s["sandwich"] > 0 else []) + (["advance"] if r["totalAdvance"] > 0 else [])
+    keys = (["present", "late", "halfDay", "absent"] + (["sandwich"] if s["sandwich"] > 0 else []) + (["advance"] if r["totalAdvance"] > 0 else [])
+            + (["bonus"] if r.get("bonusEarned") else []))      # the bonus card is there only for the months it is earned
     cells, tops = [], []
     for k in keys:
         label, num_colour, top = CARD_COLOURS[k]
-        value = _rs(r["totalAdvance"]) if k == "advance" else str(s[k])
-        cells.append([Paragraph(escape(value), _ps("cv" + k, 14 if k != "advance" else 11, colors.HexColor(num_colour), True, 1)),
+        value = _rs(r["totalAdvance"]) if k == "advance" else _rs(r["bonus"]) if k == "bonus" else str(s[k])
+        under = "1 day" if k == "bonus" else f"{pc[k]:.1f}%"
+        cells.append([Paragraph(escape(value), _ps("cv" + k, 14 if k not in ("advance", "bonus") else 11, colors.HexColor(num_colour), True, 1)),
                       Paragraph(label, _ps("cl" + k, 6.5, MUTED, True, 1)),
-                      Paragraph(f"{pc[k]:.1f}%", _ps("cp" + k, 8.5, colors.HexColor(num_colour), True, 1))])
+                      Paragraph(under, _ps("cp" + k, 8.5, colors.HexColor(num_colour), True, 1))])
         tops.append(colors.HexColor(top))
     gap, n = 2, len(keys)
     row: list = []                                     # a thin empty column between the cards
@@ -224,26 +227,38 @@ def _slip_cards(r: dict) -> list:
 
 def _slip_table(r: dict) -> Table:
     s, per = r["stats"], r["perDaySalary"]
-    rows: list[list] = [["Earnings", ""], ["Monthly gross salary", _rs(r["monthlySalary"])], [f"Per day rate (/ {r['baseDays']} days)", _rs(per)],
-                        ["Deductions", ""],
-                        [f"Absent ({s['absent']} days x {_rs(per)})", "- " + _rs(round(s["absent"] * per))],
-                        [f"Half Day ({s['halfDay']} x 0.5 x {_rs(per)})", "- " + _rs(round(s["halfDay"] * 0.5 * per))]]
-    seps, reds, ambers = [0, 3], [4, 5], []
-    if s["incomplete"]:
-        rows.append([f"Incomplete ({s['incomplete']} days x {_rs(per)})", "- " + _rs(round(s["incomplete"] * per))])
+    rows: list[list] = [["Earnings", ""], ["Monthly gross salary", _rs(r["monthlySalary"])], [f"Per day rate (/ {r['baseDays']} days)", _rs(per)]]
+    seps, reds, ambers, greens = [0], [], [], []
+    if r.get("bonusEarned"):
+        rows.append([f"Bonus - no leave this month (1 day x {_rs(per)})", "+ " + _rs(r["bonus"])])
+        greens.append(len(rows) - 1)
+    rows.append(["Deductions", ""])
+    seps.append(len(rows) - 1)
+    leave_cut, leaves = r.get("leaveDeductionDays", 0), r.get("leaves", 0)
+    if leave_cut:
+        rows.append([f"Leaves ({leave_cut:g} days x {_rs(per)})", "- " + _rs(round(leave_cut * per))])
+        reds.append(len(rows) - 1)
+    elif leaves:
+        rows.append([f"Leaves ({leaves:g}) - covered, nothing cut", "Rs 0"])
+    if r.get("offsetDays"):
+        rows.append([f"Monday worked ({s.get('offWorked', 0)}) - cancels {r['offsetDays']:g} leave", "Counted above"])
+    rows.append([f"Half Day ({s['halfDay']} x 0.5 x {_rs(per)})", "- " + _rs(round(s["halfDay"] * 0.5 * per))])
+    reds.append(len(rows) - 1)
+    if s["sandwich"]:
+        rows.append([f"Monday cut ({s['sandwich']} day x {_rs(per)})", "- " + _rs(round(s["sandwich"] * per))])
         reds.append(len(rows) - 1)
     for a in r["advances"]:
         rows.append([f"Advance - {str(a.get('date', ''))[:10]}" + (f" ({a['note']})" if a.get("note") else ""), "- " + _rs(a["amount"])])
         ambers.append(len(rows) - 1)
-    if s["sandwich"]:
-        rows.append([f"Sandwich ({s['sandwich']} day - included in absent)", "Counted above"])
-        reds.append(len(rows) - 1)
+    if r.get("carryIn"):
+        rows.append(["Advance balance from earlier months", "- " + _rs(r["carryIn"])])
+        ambers.append(len(rows) - 1)
     rows.append(["Summary", ""])
     seps.append(len(rows) - 1)
     rows.append([f"Total deduction ({r['totalDeductionDays']:g} days)", "- " + _rs(r["deductionAmount"])])
     reds.append(len(rows) - 1)
-    if r["totalAdvance"] > 0:
-        rows.append(["Total advance", "- " + _rs(r["totalAdvance"])])
+    if r["totalAdvance"] > 0 or r.get("carryIn"):
+        rows.append(["Total advance", "- " + _rs(r["totalAdvance"] + r.get("carryIn", 0))])
         ambers.append(len(rows) - 1)
     rows.append(["Paid days", f"{r['totalPaidDays']:g} / {r['baseDays']} days"])
     green = len(rows) - 1
@@ -258,6 +273,8 @@ def _slip_table(r: dict) -> Table:
         body[i][1] = Paragraph(escape(rows[i][1]), _ps("tvr", 8, colors.HexColor("#dc2626"), True, 2))
     for i in ambers:
         body[i][1] = Paragraph(escape(rows[i][1]), _ps("tva", 8, colors.HexColor("#c2410c"), True, 2))
+    for i in greens:
+        body[i][1] = Paragraph(escape(rows[i][1]), _ps("tvg2", 8, colors.HexColor("#16a34a"), True, 2))
     body[green][1] = Paragraph(escape(rows[green][1]), _ps("tvg", 8, colors.HexColor("#16a34a"), True, 2))
     t = Table(body, colWidths=[(SLIP_W - 55) * mm, 55 * mm])
     t.setStyle(TableStyle(style))
@@ -265,8 +282,12 @@ def _slip_table(r: dict) -> Table:
 
 
 def _slip_net(net: float) -> Table:
-    t = Table([[Paragraph("Net Payable Salary", _ps("nl", 9, colors.HexColor("#c7d2fe"), True)),
-                Paragraph(escape(_rs(net)), _ps("nv", 15, colors.white, True, 2))]], colWidths=[(SLIP_W - 70) * mm, 70 * mm], rowHeights=[14 * mm])
+    """A net below nothing = more advance than salary: it is shown as a negative amount, to be cut from next month's salary."""
+    label = "Net Payable Salary" if net >= 0 else "Net Payable Salary (advance balance - cut from next month)"
+    value = _rs(net) if net >= 0 else "- " + _rs(-net)
+    t = Table([[Paragraph(label, _ps("nl", 9, colors.HexColor("#c7d2fe"), True)),
+                Paragraph(escape(value), _ps("nv", 15, colors.HexColor("#fecaca") if net < 0 else colors.white, True, 2))]],
+              colWidths=[(SLIP_W - 70) * mm, 70 * mm], rowHeights=[14 * mm])
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NAVY), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (0, 0), 10),
                            ("RIGHTPADDING", (1, 0), (1, 0), 10), ("ROUNDEDCORNERS", [6, 6, 6, 6])]))
     return t

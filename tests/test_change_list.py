@@ -34,15 +34,15 @@ def test_a_holiday_is_not_an_absent_day(client, db_conn, seed):
                         "VALUES (%s, %s, %s, %s, 'Present', 480) ON CONFLICT DO NOTHING", (key, dt, time(9, 0), time(18, 0)))
     db_conn.commit()
     before = own(client, boss, "getSalaryReport", name, 2026, 6)
-    assert before["stats"]["absent"] == 2 and before["deductionAmount"] == 2000
+    assert before["stats"]["absent"] == 3 and before["deductionAmount"] == 3000        # the 9th and 10th, and Monday the 8th is cut with the 9th
 
     assert own(client, boss, "addHoliday", "2026-06-09", "Test holiday")["status"] == "ok"
     assert own(client, boss, "addHoliday", "not a date", "x")["status"] == "error" and own(client, boss, "addHoliday", "2026-06-12", "")["status"] == "error"
     after = own(client, boss, "getSalaryReport", name, 2026, 6)
     nine = next(d for d in after["days"] if d["day"] == 9)
     assert nine["status"] == "Holiday" and after["stats"]["holiday"] == 1 and after["stats"]["absent"] == 1
-    assert after["deductionAmount"] == 1000 and after["netSalary"] == 29000                      # the holiday costs nothing
-    assert after["countedDays"] == before["countedDays"] - 1                                    # and is not one of the days the % is out of
+    assert after["deductionAmount"] == 0 and after["netSalary"] == 30000                         # the holiday costs nothing, and the one leave left (the 10th) is free
+    assert after["countedDays"] == before["countedDays"] - 2                                    # the 9th and the Monday cut with it are no longer days the % is out of
     month = own(client, boss, "getMonthlyReport", name, 2026, 6)
     assert next(d for d in month["days"] if d["day"] == 9)["status"] == "Holiday" and month["stats"]["holiday"] == 1 and month["stats"]["absent"] == 1
     assert [h["name"] for h in own(client, boss, "getHolidays", 2026)["holidays"] if h["date"] == "2026-06-09"] == ["Test holiday"]

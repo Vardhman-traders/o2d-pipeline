@@ -247,7 +247,7 @@ def test_assign_clients_and_edit_delete_quotations_and_decor_money_through_the_p
     assert q["counts"]["decor_in"] == before_in + 1
     row = next(r for r in q["rows"] if r["kind"] == "decor_in" and r["dcNo"] == code)
     assert row["dcNo"] == code and "Imported Sharma" in row["address"] and row["orderAmount"] == 1000 and row["split"] == "bank" and row["bank"] == 1000
-    body = {"date": row["date"], "company": "IRIS", "party": "Imported Sharma", "cashAmount": 0, "bankAmount": 1000, "remarks": "decor stage"}
+    body = {"date": row["date"], "company": "OIKOS", "party": "Imported Sharma", "cashAmount": 0, "bankAmount": 1000, "remarks": "decor stage"}
     assert client.post(f"/payments/merge/{row['key']}/merge", json={**body, "bankAmount": 400}, headers=owner).json()["success"] is False   # must add up
     assert client.post(f"/payments/merge/{row['key']}/merge", json={**body, "cashAmount": 1000, "bankAmount": 0}, headers=owner).json()["success"] is False  # UPI = bank
     done = client.post(f"/payments/merge/{row['key']}/merge", json=body, headers=owner).json()
@@ -268,7 +268,7 @@ def test_assign_clients_and_edit_delete_quotations_and_decor_money_through_the_p
     assert rpc(client, asha, "addExpense", clientId=code, type="Labour", amount=250, date=row["date"])["ok"]
     out = next(r for r in client.get("/payments/merge", headers=owner).json()["rows"] if r["kind"] == "decor_out" and r["dcNo"] == code)
     assert out["split"] == "both" and out["orderAmount"] == 250 and out["cash"] == 250
-    assert client.post(f"/payments/merge/{out['key']}/merge", json={"date": out["date"], "company": "IRIS", "party": "", "cashAmount": 250, "bankAmount": 0, "remarks": ""}, headers=owner).json()["success"]
+    assert client.post(f"/payments/merge/{out['key']}/merge", json={"date": out["date"], "company": "OIKOS", "party": "", "cashAmount": 250, "bankAmount": 0, "remarks": ""}, headers=owner).json()["success"]
     assert rpc(client, asha, "addExpense", clientId=code, type="Tea", amount=10, date=row["date"])["ok"]
     with db_conn.cursor() as cur:
         cur.execute("DELETE FROM fact_decor_expense WHERE expense_type = 'Tea'")

@@ -22,7 +22,7 @@ from . import (access, admin, admin_tools, attachments, auth, challans, checklis
 async def lifespan(app):
     auth.check_config()
     db.init_pool()
-    scheduler = daily_reports.start_scheduler()   # 7:30 PM IST delivery reports (VT_SCHEDULER=off disables)
+    scheduler = daily_reports.start_scheduler()   # 7:00 PM IST delivery reports (VT_SCHEDULER=off disables)
     att_jobs = attendance.start_scheduler()       # WhatsApp retries every 5 min + the daily auto check-out
     yield
     for s in (scheduler, att_jobs):

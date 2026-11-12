@@ -528,6 +528,7 @@ tr:hover td{background:#F5F6FF}
       <div class="form-group" style="margin-bottom:13px"><label>Date</label><input type="date" id="er_date"></div>
       <div class="form-group" id="er_pnumWrap" style="margin-bottom:13px"><label>Reference No.</label><input type="text" id="er_pnum"></div>
       <div class="form-group"><label id="er_noteLabel">Remarks</label><textarea id="er_note" rows="2"></textarea></div>
+      <div class="form-group" style="margin-top:10px"><label>Add a photo / PDF to this entry (optional)</label><input type="file" id="er_file" accept="image/*,application/pdf"></div>
       <p style="font-size:.76rem;color:var(--t3);margin-top:10px">Every change is recorded (who, and the old and new values).</p>
     </div>
     <div class="modal-foot">
@@ -1277,7 +1278,7 @@ function openEditPayment(clientId,rowIndex){
     document.getElementById('er_date').value=_isoFromDmy(row.date);
     document.getElementById('er_pnum').value=row.pnum||'';
     document.getElementById('er_noteLabel').textContent='Remarks';document.getElementById('er_note').value=row.remarks||'';
-    openModal('editRowModal');
+    document.getElementById('er_file').value='';openModal('editRowModal');
   }).catch(function(e){toast('Error: '+String(e));});
 }
 function openEditExpense(clientId,rowIndex){
@@ -1292,7 +1293,7 @@ function openEditExpense(clientId,rowIndex){
     document.getElementById('er_amount').value=Math.round(row.amount*100);previewAmt('er_amount','er_preview');
     document.getElementById('er_date').value=_isoFromDmy(row.date);
     document.getElementById('er_noteLabel').textContent='Notes';document.getElementById('er_note').value=row.notes||'';
-    openModal('editRowModal');
+    document.getElementById('er_file').value='';openModal('editRowModal');
   }).catch(function(e){toast('Error: '+String(e));});
 }
 function submitEditRow(){
@@ -1308,11 +1309,14 @@ function submitEditRow(){
     if(!payload.type){toast('Expense Type required');return;}
   }
   var btn=document.getElementById('er_save');btn.disabled=true;
-  gas(e.kind==='payment'?'editPayment':'editExpense',payload).then(function(r){
+  readEntryFile(document.getElementById('er_file').files[0]).then(function(f){
+    if(f){payload.base64=f.base64;payload.mimeType=f.mimeType;}
+    return gas(e.kind==='payment'?'editPayment':'editExpense',payload);
+  }).then(function(r){
     btn.disabled=false;
-    if(r&&r.ok){toast('Saved');closeModal('editRowModal');loadAll();openClientDetail(e.clientId);}
+    if(r&&r.ok){toast(r.photoSkipped?r.msg:'Saved');document.getElementById('er_file').value='';closeModal('editRowModal');loadAll();openClientDetail(e.clientId);}
     else toast('Not saved: '+((r&&r.msg)||'unknown error'));
-  }).catch(function(err){btn.disabled=false;toast('Not saved: '+String(err));});
+  }).catch(function(err){btn.disabled=false;toast('Not saved: '+String(err.message||err));});
 }
 function deletePayment(clientId,rowIndex){
   if(!confirm('Delete this payment?'))return;

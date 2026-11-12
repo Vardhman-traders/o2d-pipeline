@@ -1,13 +1,15 @@
 """Automatic daily reports, in two batches a day (IST):
 
-  7:30 PM  one PDF per delivery person (the people offered on the Godown Dispatch screen) listing every order that person delivered that
+  7:00 PM  one PDF per delivery person (the people offered on the Godown Dispatch screen) listing every order that person delivered that
            day, plus Godown / Shop received & payments (cash), (other mode), Godown + Shop (bank) and (all other transactions);
-  9:00 PM  Awaiting receiving, and the Godown / Shop Dispatch / Godown Dispatch pending-orders reports.
+  9:00 PM  Awaiting receiving, and the Godown / Shop Dispatch / Godown Dispatch pending-orders reports;
+  9:30 PM  attendance (present / absent), VT Decor payments and expenses, Purchase (godown / shop), Checklist, Payments dashboard and
+           Regular expenses (daily_extra_reports.py).
 
 The PDFs are kept in the database (Reports page: download any day's). After each batch ONE message goes to the Reports group set under
-Setup > WhatsApp ("Daily reports - 7:30 PM" / "9:00 PM"): every report with a download link that works without a login and expires after
+Setup > WhatsApp ("Daily reports - 7:00 PM" / "9:00 PM"): every report with a download link that works without a login and expires after
 3 days (needs PUBLIC_BASE_URL, or Render's RENDER_EXTERNAL_URL; without it the message lists the reports and points to the portal). The
-7:30 PM batch also posts the one-message delivery summary ("Daily delivery summary").
+7:00 PM batch also posts the one-message delivery summary ("Daily delivery summary").
 
 How it runs: a small background thread inside the web service wakes every minute and does each batch once, after its time (also if the
 service was restarted later in the evening). `daily_report_run` plus a database lock make that safe if more than one copy of the service
@@ -35,12 +37,16 @@ router = APIRouter(prefix="/o2d/daily-reports", tags=["daily-reports"])
 
 # kinds = every order-based report kept for the batch (the Reports card's); whatsapp = the ones listed in the group message, in order
 BATCHES = {
-    "evening": {"at": time(19, 30), "label": "7:30 PM", "persons": True, "alert": "reports_evening",
+    "evening": {"at": time(19, 0), "label": "7:00 PM", "persons": True, "alert": "reports_evening",
                 "kinds": ("godown-received-cash", "shop-received-cash", "received-bank", "received-other-all"),
                 "whatsapp": ("godown-received-cash", "shop-received-cash")},
     "night": {"at": time(21, 0), "label": "9:00 PM", "persons": False, "alert": "reports_night",
               "kinds": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending"),
               "whatsapp": ("receiving-pending", "godown-pending", "shop-dispatch-pending", "godown-dispatch-pending")},
+    # attendance, VT Decor, purchase, checklist, Payments dashboard and Regular expenses (app/daily_extra_reports.py); after the 9:00 PM auto check-out
+    "closing": {"at": time(21, 30), "label": "9:30 PM", "persons": False, "alert": "reports_closing", "kinds": (), "extra": True,
+                "whatsapp": ("att-present", "att-absent", "decor-payments", "decor-expenses", "purchase-godown", "purchase-shop", "checklist",
+                             "pay-cards", "regular-expenses")},
 }
 RUN_AT = BATCHES["evening"]["at"]
 DAILY_REPORT_KINDS = BATCHES["evening"]["kinds"] + BATCHES["night"]["kinds"]
@@ -79,7 +85,7 @@ def build_pdf(person: str, day: date, rows: list[dict], generated_at: datetime) 
                                  f"Deliveries on {day:%d-%m-%Y}", "#1b7f8c")
 
 
-def generate(day: date, now: datetime | None = None, batches: tuple = ("evening", "night")) -> list[dict]:
+def generate(day: date, now: datetime | None = None, batches: tuple = ("evening", "night", "closing")) -> list[dict]:
     """(Re)build and store the day's reports of the given batches (all by default). Returns the delivery people's [{person, orders, cartage}]."""
     now = now or datetime.now(IST)
     persons: list[dict] = []
@@ -107,6 +113,9 @@ def generate_batch(day: date, now: datetime, batch: str) -> tuple[list[dict], li
             persons.append({"person": person, "orders": len(rows), "cartage": sum(float(r.get("cartage") or 0) for r in rows)})
             stored.append({"key": key, "title": f"Delivery - {person}", "orders": len(rows), "kind": None})
     stored += generate_reports(day, now, spec["kinds"])
+    if spec.get("extra"):
+        from . import daily_extra_reports      # imported here: attendance (which daily_extra_reports uses) imports this module
+        stored += daily_extra_reports.generate(day, now)
     return persons, stored
 
 
@@ -151,6 +160,11 @@ def shared_link(report_key: int, now: datetime | None = None) -> str:
     return f"{base}/o2d/daily-reports/shared/{report_key}.pdf?exp={exp}&sig={_sign(report_key, exp)}"
 
 
+def daily_extra_kinds() -> tuple:
+    from . import daily_extra_reports
+    return daily_extra_reports.KINDS
+
+
 def report_blocks(stored: list[dict], batch: str) -> list[str]:
     """The numbered lines of the group message, each with its link: the delivery people first, then the batch's WhatsApp reports in order."""
     spec = BATCHES[batch]
@@ -159,7 +173,8 @@ def report_blocks(stored: list[dict], batch: str) -> list[str]:
     blocks = []
     for n, r in enumerate(entries, 1):
         link = shared_link(r["key"])
-        blocks.append(f"{n}. {r['title']} ({r['orders']} order{'s' if r['orders'] != 1 else ''})" + (f"\n{link}" if link else ""))
+        noun = "entr" + ("y" if r["orders"] == 1 else "ies") if r["kind"] in daily_extra_kinds() else "order" + ("" if r["orders"] == 1 else "s")
+        blocks.append(f"{n}. {r['title']} ({r['orders']} {noun})" + (f"\n{link}" if link else ""))
     return blocks
 
 
@@ -207,7 +222,7 @@ def send_summary(day: date, done: list[dict]) -> dict:
 
 
 def run_if_due(now: datetime | None = None) -> bool:
-    """Do today's batches once each, any time after their time (7:30 PM, 9:00 PM IST). True when this call did at least one."""
+    """Do today's batches once each, any time after their time (7:00 PM, 9:00 PM, 9:30 PM IST). True when this call did at least one."""
     now = now or datetime.now(IST)
     did = False
     for batch, spec in BATCHES.items():
@@ -273,7 +288,7 @@ def list_reports(day: date | None = Query(default=None, alias="date"), user=Depe
         rows = cur.fetchall()
         cur.execute("SELECT DISTINCT report_date FROM daily_report_run ORDER BY report_date DESC LIMIT 14")
         days = [r["report_date"].isoformat() for r in cur.fetchall()]
-    return {"ok": True, "date": day.isoformat(), "days": days, "runsAt": "7:30 PM and 9:00 PM IST", "canGenerate": user["role"] == "admin",
+    return {"ok": True, "date": day.isoformat(), "days": days, "runsAt": "7:00 PM, 9:00 PM and 9:30 PM IST", "canGenerate": user["role"] == "admin",
             "reports": [{"key": r["report_key"], "person": r["person_name"], "orders": r["order_count"], "kind": r["report_kind"],
                          "generatedAt": r["generated_at"].astimezone(IST).strftime("%d-%m-%Y %H:%M")} for r in rows]}
 
