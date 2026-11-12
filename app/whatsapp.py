@@ -122,22 +122,29 @@ ALERTS: dict[str, dict] = {
         "template": ("🌙 *AUTO CHECK-OUT* — Code Blue\n" + RULE + "\nInhone checkout nahi kiya tha — system ne {auto_time} pe kar diya:\n\n"
                      "{list}\n\n📅 {date}\n" + RULE)},
     "delivery_day_summary": {
-        "label": "Daily delivery summary (7:30 PM)", "group_label": "Reports group", "group_from": "reports_evening",
-        "when": "Every day at 7:30 PM IST, after the per-person delivery reports are built: one message listing each delivery person's orders. Empty group = the Reports group.",
+        "label": "Daily delivery summary (7:00 PM)", "group_label": "Reports group", "group_from": "reports_evening",
+        "when": "Every day at 7:00 PM IST, after the per-person delivery reports are built: one message listing each delivery person's orders. Empty group = the Reports group.",
         "placeholders": {"date": "The day (dd-mm-yyyy)", "summary": "One line per delivery person: name, number of orders, cartage"},
         "sample": {"date": "19-10-2026", "summary": "Ranjeet(E-R) - 4 orders, cartage Rs 200\nBy Porter - 2 orders, cartage Rs 150"},
         "template": "Delivery summary - {date}\n\n{summary}"},
     "reports_evening": {
-        "label": "Daily reports - 7:30 PM", "group_label": "Reports group",
-        "when": "Every day at 7:30 PM IST, when these reports are built: every delivery person's report, Godown / Shop received & payments (cash) and (other mode). "
+        "label": "Daily reports - 7:00 PM", "group_label": "Reports group",
+        "when": "Every day at 7:00 PM IST, when these reports are built: every delivery person's report, Godown / Shop received & payments (cash) and (other mode). "
                 "One message with a download link for each PDF (links work without a login and expire after 3 days).",
         "placeholders": {"date": "The day (dd-mm-yyyy)", "time": "The time of this batch", "list": "One line per report with its link"},
-        "sample": {"date": "19-10-2026", "time": "7:30 PM", "list": "1. Delivery - Ranjeet(E-R) (4 orders)\nhttps://example.com/r/1\n2. Godown received & payments - cash (6 orders)\nhttps://example.com/r/2"},
+        "sample": {"date": "19-10-2026", "time": "7:00 PM", "list": "1. Delivery - Ranjeet(E-R) (4 orders)\nhttps://example.com/r/1\n2. Godown received & payments - cash (6 orders)\nhttps://example.com/r/2"},
+        "template": "*Reports - {time}* - Code Blue\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
+    "reports_closing": {
+        "label": "Daily reports - 9:30 PM", "group_label": "Reports group", "group_from": "reports_evening",
+        "when": "Every day at 9:30 PM IST: Attendance present and absent, VT Decor payments and expenses, Purchase (Godown and Shop), Checklist done / pending, "
+                "the Payments dashboard cards and the Regular expenses page, as download links. Empty group = the 7:00 PM reports group.",
+        "placeholders": {"date": "The day (dd-mm-yyyy)", "time": "The time of this batch", "list": "One line per report with its link"},
+        "sample": {"date": "19-10-2026", "time": "9:30 PM", "list": "1. Attendance - Present (12 entries)\nhttps://example.com/r/5\n2. Attendance - Absent (2 entries)\nhttps://example.com/r/6"},
         "template": "*Reports - {time}* - Code Blue\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},
     "reports_night": {
         "label": "Daily reports - 9:00 PM", "group_label": "Reports group", "group_from": "reports_evening",
         "when": "Every day at 9:00 PM IST: Awaiting receiving, Godown pending orders, Shop Dispatch pending orders and Godown Dispatch pending orders, as download links. "
-                "Empty group = the 7:30 PM reports group.",
+                "Empty group = the 7:00 PM reports group.",
         "placeholders": {"date": "The day (dd-mm-yyyy)", "time": "The time of this batch", "list": "One line per report with its link"},
         "sample": {"date": "19-10-2026", "time": "9:00 PM", "list": "1. Awaiting receiving (25 orders)\nhttps://example.com/r/3\n2. Godown - pending orders (38 orders)\nhttps://example.com/r/4"},
         "template": "*Reports - {time}* - Code Blue\n" + RULE + "\n📅 {date}\n\n{list}\n" + RULE},

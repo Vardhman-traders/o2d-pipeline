@@ -135,7 +135,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 .adv-form-card{background:#fff7ed;border:2px solid #fed7aa;border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1rem}
 .adv-form-title{font-size:.88rem;font-weight:800;color:#c2410c;margin-bottom:.25rem}
 .adv-form-sub{font-size:.72rem;color:#92400e;margin-bottom:1rem;line-height:1.5}
-.adv-form-grid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.6rem;align-items:end}
+.adv-form-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:.6rem;align-items:end}
 @media(max-width:600px){.adv-form-grid{grid-template-columns:1fr 1fr}}
 
 .adv-item{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1.5px solid #fed7aa;border-radius:12px;padding:.7rem 1rem;margin-bottom:.5rem}
@@ -532,6 +532,10 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
           <div>
             <div class="sal-set-label">Amount (₹)</div>
             <input class="input" type="number" id="advAmount" placeholder="e.g. 2000" min="1">
+          </div>
+          <div>
+            <div class="sal-set-label">Date (the month it is cut from)</div>
+            <input class="input" type="date" id="advDate">
           </div>
           <div>
             <div class="sal-set-label">Note (optional)</div>
@@ -968,6 +972,7 @@ function openAdvanceForm(idx){
   document.getElementById('advFormTitle').textContent='💸 Advance — '+e.name;
   document.getElementById('advEmpName').value=e.name;
   document.getElementById('advAmount').value=''; document.getElementById('advNote').value='';
+  var ad=document.getElementById('advDate'); ad.max=new Date().toLocaleDateString('en-CA'); ad.value=ad.max;
   openMform('mf-adv');
   setTimeout(function(){ document.getElementById('advAmount').focus(); },80);
 }
@@ -1076,7 +1081,7 @@ function doAddAdvance(){
       } else { toast('❌ '+(r.msg||'Failed'),'err'); }
     })
     .withFailureHandler(function(){ toast('Connection error','err'); })
-    .addAdvancePayment(PWD,name,amt,note);
+    .addAdvancePayment(PWD,name,amt,note,document.getElementById('advDate').value);
 }
 
 function doDeleteAdvance(id){
@@ -1152,6 +1157,8 @@ function renderSalaryReport(r){
 
   if(r.totalAdvance>0)
     html+='<div class="advance-badge">💸 Advance liya: ₹'+fmt(r.totalAdvance)+' ('+r.advances.length+' entry) — deduct hoga</div><br>';
+  if(r.carryIn>0)
+    html+='<div class="advance-badge">↩️ Pichhle mahine ka advance balance: ₹'+fmt(r.carryIn)+' — is mahine ki salary se kategi</div><br>';
 
   var pc=r.percent||{};
   function pctLine(key,colour){ return '<div class="sal-stat-pct" style="color:'+colour+'">'+(pc[key]!=null?Number(pc[key]).toFixed(1):'0.0')+'%</div>'; }
@@ -1162,6 +1169,7 @@ function renderSalaryReport(r){
     +'<div class="sal-stat red"><div class="sal-stat-val" style="color:#dc2626">'+s.absent+'</div><div class="sal-stat-lbl">Absent</div>'+pctLine('absent','#dc2626')+'</div>'
     +(s.sandwich>0?'<div class="sal-stat orange"><div class="sal-stat-val" style="color:#ea580c">'+s.sandwich+'</div><div class="sal-stat-lbl">🥪 Sandwich</div>'+pctLine('sandwich','#ea580c')+'</div>':'')
     +(r.totalAdvance>0?'<div class="sal-stat adv"><div class="sal-stat-val" style="color:#c2410c">₹'+fmt(r.totalAdvance)+'</div><div class="sal-stat-lbl">Advance</div>'+pctLine('advance','#c2410c')+'</div>':'')
+    +(r.bonusEarned?'<div class="sal-stat green"><div class="sal-stat-val" style="color:#15803d">₹'+fmt(r.bonus)+'</div><div class="sal-stat-lbl">🎁 Bonus</div><div class="sal-stat-pct" style="color:#15803d">1 day</div></div>':'')
     +'</div>'
     +'<div class="sal-pct-note">% = share of the '+(r.countedDays||0)+' days that count towards pay (weekly offs and days still to come are left out; Sandwich days are already part of Absent'+(r.totalAdvance>0?'; Advance = share of the gross salary':'')+')</div>';
 
@@ -1169,9 +1177,13 @@ function renderSalaryReport(r){
     +'<tr class="sep"><td colspan="2">Earnings</td></tr>'
     +'<tr><td class="lbl">Monthly gross salary</td><td class="val">₹'+fmt(r.monthlySalary)+'</td></tr>'
     +'<tr><td class="lbl">Per day rate (÷ '+r.baseDays+' days)</td><td class="val">₹'+fmt(r.perDaySalary)+'</td></tr>'
+    +(r.bonusEarned?'<tr><td class="lbl">🎁 Bonus — no leave this month (1 day × ₹'+fmt(r.perDaySalary)+')</td><td class="val green">+ ₹'+fmt(r.bonus)+'</td></tr>':'')
     +'<tr class="sep"><td colspan="2">Deductions</td></tr>'
-    +'<tr><td class="lbl">Absent ('+s.absent+' days × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.absent*r.perDaySalary))+'</td></tr>'
-    +'<tr><td class="lbl">Half Day ('+s.halfDay+' × 0.5 × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</td></tr>';
+    +(r.leaveDeductionDays>0?'<tr><td class="lbl">Leaves ('+r.leaveDeductionDays+' days × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(r.leaveDeductionDays*r.perDaySalary))+'</td></tr>'
+        :(r.leaves>0?'<tr><td class="lbl">Leaves ('+r.leaves+') — covered, nothing cut</td><td class="val green">₹0</td></tr>':''))
+    +(r.offsetDays>0?'<tr><td class="lbl">Monday worked ('+(s.offWorked||0)+') — cancels '+r.offsetDays+' leave</td><td class="val green">Counted above</td></tr>':'')
+    +'<tr><td class="lbl">Half Day ('+s.halfDay+' × 0.5 × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.halfDay*0.5*r.perDaySalary))+'</td></tr>'
+    +(s.sandwich>0?'<tr><td class="lbl">🥪 Monday cut ('+s.sandwich+' day × ₹'+fmt(r.perDaySalary)+')</td><td class="val red">− ₹'+fmt(Math.round(s.sandwich*r.perDaySalary))+'</td></tr>':'');
 
   if(r.totalAdvance>0){
     for(var a=0;a<r.advances.length;a++){
@@ -1179,16 +1191,16 @@ function renderSalaryReport(r){
     }
   }
 
-  if(s.sandwich>0)
-    html+='<tr><td class="lbl">🥪 Sandwich ('+s.sandwich+' day — included in absent)</td><td class="val red">Counted above</td></tr>';
+  if(r.carryIn>0)
+    html+='<tr><td class="lbl">↩️ Advance balance from earlier months</td><td class="val amber">− ₹'+fmt(r.carryIn)+'</td></tr>';
 
   html+='<tr class="sep"><td colspan="2">Summary</td></tr>'
     +'<tr><td class="lbl"><strong>Total deduction ('+r.totalDeductionDays+' days)</strong></td><td class="val red"><strong>− ₹'+fmt(r.deductionAmount)+'</strong></td></tr>'
-    +(r.totalAdvance>0?'<tr><td class="lbl"><strong>Total advance</strong></td><td class="val amber"><strong>− ₹'+fmt(r.totalAdvance)+'</strong></td></tr>':'')
+    +(r.totalAdvance>0||r.carryIn>0?'<tr><td class="lbl"><strong>Total advance</strong></td><td class="val amber"><strong>− ₹'+fmt(r.totalAdvance+r.carryIn)+'</strong></td></tr>':'')
     +'<tr><td class="lbl">Paid days</td><td class="val green">'+r.totalPaidDays+' / '+r.baseDays+' days</td></tr>'
     +'</table>';
 
-  html+='<div class="slip-net"><div class="slip-net-lbl">💰 Net Payable Salary</div><div class="slip-net-val">₹'+fmt(r.netSalary)+'</div></div>';
+  html+='<div class="slip-net"><div class="slip-net-lbl">💰 Net Payable Salary'+(r.netSalary<0?' <span style="font-size:.7rem">(advance balance — next month ki salary se kategi)</span>':'')+'</div><div class="slip-net-val"'+(r.netSalary<0?' style="color:#fecaca"':'')+'>'+(r.netSalary<0?'− ':'')+'₹'+fmt(Math.abs(r.netSalary))+'</div></div>';
 
   // Calendar
   html+='<div style="font-size:.82rem;font-weight:700;color:#374151;margin-bottom:.4rem">📅 Attendance Calendar — '+mName+' '+r.year+'</div>';
@@ -1495,7 +1507,7 @@ function downloadSalCSV(){
   var r=window._lastSalary; if(!r){toast('Pehle salary calculate karo','err');return;}
   var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var mName=months[r.month-1];
-  var lines=['VT — Salary Slip','Employee,'+csvS(r.employeeName),'Month,'+mName+' '+r.year,'','Gross Salary,'+r.monthlySalary,'Per Day Rate (÷'+r.baseDays+'),'+r.perDaySalary,'Total Deduction Days,'+r.totalDeductionDays,'Deduction Amount,'+r.deductionAmount,'Advance,'+r.totalAdvance,'Net Salary,'+r.netSalary,'Paid Days,'+r.totalPaidDays,'','Attendance','Present,'+r.stats.present,'Late,'+r.stats.late,'Half Day,'+r.stats.halfDay,'Absent,'+r.stats.absent];
+  var lines=['VT — Salary Slip','Employee,'+csvS(r.employeeName),'Month,'+mName+' '+r.year,'','Gross Salary,'+r.monthlySalary,'Per Day Rate (÷'+r.baseDays+'),'+r.perDaySalary,'Total Deduction Days,'+r.totalDeductionDays,'Deduction Amount,'+r.deductionAmount,'Advance,'+r.totalAdvance,'Advance balance from earlier months,'+r.carryIn,'Bonus,'+r.bonus,'Net Salary,'+r.netSalary,'Paid Days,'+r.totalPaidDays,'','Attendance','Present,'+r.stats.present,'Late,'+r.stats.late,'Half Day,'+r.stats.halfDay,'Absent,'+r.stats.absent];
   if(r.advances.length){lines.push('','Advance Details','Date,Amount,Note');for(var a=0;a<r.advances.length;a++) lines.push(csvS(r.advances[a].date)+','+r.advances[a].amount+','+csvS(r.advances[a].note||''));}
   dl(lines.join('\n'),r.employeeName.replace(/[^a-zA-Z0-9]/g,'_')+'_Salary_'+mName+'_'+r.year+'.csv');
 }
@@ -1594,11 +1606,11 @@ function exportFullMonth(){
       done();
       if(sal.status!=='ok'){ toast('❌ '+(sal.msg||'Failed'),'err'); return; }
       var mName=MONTHS_FULL[month-1], n=att.employees.length?att.employees[0].days.length:0;
-      var salRows=[['VT - Monthly Salary Sheet '+mName+' '+year],[],['Employee','Role','Monthly salary','Per day (÷ '+sal.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Incomplete','Deduction days','Deduction amount','Advance','Net payable','Paid days']];
+      var salRows=[['VT - Monthly Salary Sheet '+mName+' '+year],[],['Employee','Role','Monthly salary','Per day (÷ '+sal.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Incomplete','Deduction days','Deduction amount','Advance','Advance balance from earlier months','Bonus','Net payable','Paid days']];
       var net=0,adv=0,ded=0;
       sal.rows.forEach(function(x){
         if(!x.salarySet){ salRows.push([x.name,x.role,'Salary not set']); return; }
-        salRows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.incomplete,x.deductionDays,x.deductionAmount,x.advance,x.netSalary,x.paidDays]);
+        salRows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.incomplete,x.deductionDays,x.deductionAmount,x.advance,x.carryIn||0,x.bonus||0,x.netSalary,x.paidDays]);
         net+=x.netSalary; adv+=x.advance; ded+=x.deductionAmount;
       });
       salRows.push([],['Total','','','','','','','','','','','',ded,adv,net]);
@@ -1628,7 +1640,7 @@ function exportSalOne(){
   var mName=MONTHS_FULL[r.month-1], s=r.stats;
   var rows=[['VT - Salary Slip'],['Employee',r.employeeName],['Month',mName+' '+r.year],[],
             ['Gross salary',r.monthlySalary],['Per day rate (÷ '+r.baseDays+')',r.perDaySalary],['Deduction days',r.totalDeductionDays],['Deduction amount',r.deductionAmount],
-            ['Advance',r.totalAdvance],['Net payable',r.netSalary],['Paid days',r.totalPaidDays],[],
+            ['Advance',r.totalAdvance],['Advance balance from earlier months',r.carryIn],['Bonus',r.bonus],['Net payable',r.netSalary],['Paid days',r.totalPaidDays],[],
             ['Present',s.present],['Late',s.late],['Half Day',s.halfDay],['Absent',s.absent],['Sandwich days',s.sandwich],['Weekly Off',s.weeklyOff],[],
             ['Day','Status','Check-in','Check-out','Hours']];
   r.days.forEach(function(d){ rows.push([d.day,d.status,d.time||'',d.checkoutTime||'',d.hoursWorked||'']); });
@@ -1643,11 +1655,11 @@ function exportSalAll(){
     if(r.status==='unauthorized'){logout();return;}
     if(r.status!=='ok'){ toast('❌ '+(r.msg||'Failed'),'err'); return; }
     var mName=MONTHS_FULL[month-1];
-    var rows=[['Employee','Role','Monthly salary','Per day (÷ '+r.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Deduction days','Deduction amount','Advance','Net payable','Paid days']];
+    var rows=[['Employee','Role','Monthly salary','Per day (÷ '+r.baseDays+')','Present','Late','Half Day','Absent','Sandwich','Weekly Off','Deduction days','Deduction amount','Advance','Advance balance from earlier months','Bonus','Net payable','Paid days']];
     var net=0,adv=0,ded=0;
     r.rows.forEach(function(x){
       if(!x.salarySet){ rows.push([x.name,x.role,'Salary not set']); return; }
-      rows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.deductionDays,x.deductionAmount,x.advance,x.netSalary,x.paidDays]);
+      rows.push([x.name,x.role,x.monthlySalary,x.perDay,x.present,x.late,x.halfDay,x.absent,x.sandwich,x.weeklyOff,x.deductionDays,x.deductionAmount,x.advance,x.carryIn||0,x.bonus||0,x.netSalary,x.paidDays]);
       net+=x.netSalary; adv+=x.advance; ded+=x.deductionAmount;
     });
     rows.push([],['Total','','','','','','','','','','',ded,adv,net]);

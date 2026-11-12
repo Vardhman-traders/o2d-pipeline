@@ -44,6 +44,11 @@ def required_fields() -> list[str]:
     return [field for field, key, dflt in flags if mc.int_setting(key, dflt)]
 
 
+def decor_companies() -> list[str]:
+    """The companies a VT Decor row may be merged to (Setup > Module settings); empty = no limit."""
+    return [c.strip() for c in _text("pay_merge_decor_companies", "Oikos, Wallpaper, Texture").split(",") if c.strip()]
+
+
 def _default_company_key(cur) -> int | None:
     name = _text("pay_merge_default_company", "")
     return mc.lookup_key(cur, "dim_company", "company_key", "company_name", name) if name else None
@@ -149,7 +154,7 @@ def queue(status: str = Query(default="awaiting"), user=Depends(ANY)):
                     (status, status))
         rows = [_item(r) for r in cur.fetchall()]
     return {"ok": True, "rows": rows, "counts": {k: counts.get(k, 0) for k in KINDS},
-            "required": required_fields(), "canWrite": not access.is_view_only(user, *PAGES)}
+            "required": required_fields(), "decorCompanies": decor_companies(), "canWrite": not access.is_view_only(user, *PAGES)}
 
 
 class MergeIn(BaseModel):
@@ -230,6 +235,9 @@ def _txn_fields(cur, row: dict, body: MergeIn, user: dict) -> dict:
                                  "An admin can set it in Setup > Module settings.")
     if out["company_key"] is None:
         raise HTTPException(422, "Please choose a company from the list.")
+    allowed = decor_companies()
+    if kind in DECOR_KINDS and allowed and body.company.strip().lower() not in {c.lower() for c in allowed}:
+        raise HTTPException(422, "VT Decor entries can only be merged to: " + ", ".join(allowed) + ".")
     cur.execute("SELECT is_sales_company FROM dim_company WHERE company_key = %s", (out["company_key"],))
     if kind not in DECOR_KINDS and not cur.fetchone()["is_sales_company"]:
         raise HTTPException(422, "Sales and Sales Return can only be merged for a sales company (VT or Asian).")

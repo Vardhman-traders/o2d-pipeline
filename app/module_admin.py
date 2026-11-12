@@ -328,6 +328,8 @@ SETTINGS = [
      "label": "Remarks must be filled before a row is merged (1 = required, 0 = optional)"},
     {"key": "pay_merge_default_company", "group": "Payments - from O2D Cashier", "type": "text", "max": 100, "default": "",
      "label": "Company filled in automatically on every new row (a company name from the Payments list; blank = none)"},
+    {"key": "pay_merge_decor_companies", "group": "Payments - from O2D Cashier", "type": "text", "max": 100, "default": "Oikos, Wallpaper, Texture",
+     "label": "Companies a VT Decor Received / Expenses row may be merged to (company names from the Payments list, separated by commas)"},
     {"key": "pay_merge_sales_type", "group": "Payments - from O2D Cashier", "type": "text", "max": 50, "default": "Sales",
      "label": "Payments transaction type a Sales row is merged as"},
     {"key": "pay_merge_return_type", "group": "Payments - from O2D Cashier", "type": "text", "max": 50, "default": "Sale Return",

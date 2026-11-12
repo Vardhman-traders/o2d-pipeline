@@ -521,10 +521,11 @@ def _month_records(cur, emp_key: int, year: int, month: int) -> dict[int, dict]:
 
 
 def _advances_for(cur, emp_key: int, year: int, month: int) -> list[dict]:
+    """The advances dated in this month (the date the advance is FOR - it can be typed, so an October advance entered in November counts in October)."""
     cur.execute("SELECT advance_date, created_at, amount, note FROM fact_att_advance WHERE employee_key = %s "
-                "AND extract(year FROM advance_date) = %s AND extract(month FROM advance_date) = %s ORDER BY advance_key", (emp_key, year, month))
-    return [{"date": r["created_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M"), "amount": float(r["amount"]), "note": r["note"] or ""}
-            for r in cur.fetchall()]
+                "AND extract(year FROM advance_date) = %s AND extract(month FROM advance_date) = %s ORDER BY advance_date, advance_key", (emp_key, year, month))
+    return [{"date": r["advance_date"].strftime("%d-%m-%Y"), "enteredAt": r["created_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M"),
+             "amount": float(r["amount"]), "note": r["note"] or ""} for r in cur.fetchall()]
 
 
 # ------------------------------------------------------------------ "My salary": an employee sees only their own, after their own PIN
@@ -802,6 +803,114 @@ def get_all_salaries(user):
                                               "setBy": r["display_name"] or "Owner"} for r in cur.fetchall()]}
 
 
+CARRY_MONTHS_BACK = 24      # how far back an unrecovered advance is followed into later months
+
+
+def _month_figures(rules: Rules, recs: dict, holidays: dict, year: int, month: int, today: date) -> dict:
+    """One month's days, counts and the days that cost salary - the salary rules, with no money in them yet.
+
+    Leave ("chhutti") = a full absent day (Absent, Incomplete). A half day or a late mark is not a leave.
+      * 0 leaves, no half day, no late mark and the month is over  -> a bonus day;
+      * 1 leave -> nothing is cut for it; 2 or more -> every leave day is cut;
+      * a Monday (the weekly off) worked cancels one leave (half for a half day); with no leave to cancel it earns nothing extra;
+      * a weekly off next to an absent day (before OR after it) is cut as well - the "Monday cut" - on top of the leave rule;
+      * a half day costs half a day; a public holiday costs nothing."""
+    days_in_month = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
+    arr = []
+    for d in range(1, days_in_month + 1):
+        dt = date(year, month, d)
+        dow = rules.js_dow(dt)
+        rec = recs.get(d)
+        st, t_in, t_out, hrs, worked_off = "Absent", "", "—", "—", None
+        if dow == rules.off_day:
+            st = "Weekly Off"
+            if rec and dt <= today:
+                shown = rules.resolve(rec["final_status"], _mins(rec["check_in_time"]))
+                if shown in ("Present", "Late", "Half Day"):
+                    worked_off = shown          # worked on the weekly off: shown as they checked in, and it cancels a leave
+                    t_in = _hhmm(rec["check_in_time"])
+                    t_out = _hhmm(rec["check_out_time"]) if rec["check_out_time"] else "—"
+                    hrs = _hours_text(rec["hours_worked_min"]) if rec["check_out_time"] else "—"
+        elif d in holidays and not rec:
+            st = "Holiday"          # a public holiday: nobody is absent, nothing is cut (someone who did come in is shown as they checked in)
+        elif dt > today:
+            st = "Future"
+        elif rec:
+            st = rules.resolve(rec["final_status"], _mins(rec["check_in_time"]))
+            t_in = _hhmm(rec["check_in_time"])
+            t_out = _hhmm(rec["check_out_time"]) if rec["check_out_time"] else "—"
+            hrs = _hours_text(rec["hours_worked_min"]) if rec["check_out_time"] else "—"
+        arr.append({"day": d, "dow": dow, "status": st, "time": t_in, "checkoutTime": t_out, "hoursWorked": hrs, "sandwichApplied": False,
+                    "workedOnOff": worked_off})
+    before = [x["status"] for x in arr]
+    for i, day in enumerate(arr):   # the Monday cut: a weekly off that was not worked, next to an absent day (either side)
+        if day["status"] == "Weekly Off" and not day["workedOnOff"]:
+            near = [before[j] for j in (i - 1, i + 1) if 0 <= j < len(arr)]
+            if any(x in ("Absent", "Incomplete") for x in near):
+                day["status"], day["sandwichApplied"] = "Absent (Sandwich)", True
+    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "sandwich": 0, "incomplete": 0, "weeklyOff": 0, "holiday": 0, "future": 0,
+             "offWorked": 0}
+    offset = 0.0
+    for day in arr:
+        st = day["status"]
+        if st == "Present":
+            stats["present"] += 1
+        elif st == "Late":
+            stats["late"] += 1
+        elif st == "Half Day":
+            stats["halfDay"] += 1
+        elif st == "Absent":
+            stats["absent"] += 1
+        elif st == "Absent (Sandwich)":
+            stats["absent"] += 1
+            stats["sandwich"] += 1
+        elif st == "Incomplete":
+            stats["incomplete"] += 1
+        elif st == "Weekly Off":
+            stats["weeklyOff"] += 1
+        elif st == "Holiday":
+            stats["holiday"] += 1
+        elif st == "Future":
+            stats["future"] += 1
+        if day["workedOnOff"]:
+            stats["offWorked"] += 1
+            offset += 0.5 if day["workedOnOff"] == "Half Day" else 1.0
+    leaves = stats["absent"] - stats["sandwich"] + stats["incomplete"]
+    left = max(0.0, leaves - offset)
+    leave_days = left if left > 1 else 0.0
+    ded = leave_days + 0.5 * stats["halfDay"] + stats["sandwich"]
+    month_over = today > date(year, month, days_in_month)
+    bonus = month_over and leaves == 0 and stats["sandwich"] == 0 and stats["halfDay"] == 0 and stats["late"] == 0 and stats["incomplete"] == 0
+    return {"days": arr, "stats": stats, "leaves": leaves, "offsetDays": offset, "leavesAfterOffset": left, "leaveDeductionDays": leave_days,
+            "deductionDays": ded, "bonus": bonus, "monthOver": month_over}
+
+
+def _carry_in(cur, emp_key: int, monthly: float, year: int, month: int, rules: Rules, today: date) -> float:
+    """What is still owed from advances of earlier months: each month's advances (plus what was carried in) are taken from that month's
+    salary; whatever the salary could not cover moves on to the next month."""
+    first_this = date(year, month, 1)
+    cur.execute("SELECT advance_date, amount FROM fact_att_advance WHERE employee_key = %s AND advance_date < %s ORDER BY advance_date", (emp_key, first_this))
+    rows = cur.fetchall()
+    if not rows:
+        return 0.0
+    by_month: dict[tuple[int, int], float] = {}
+    for r in rows:
+        k = (r["advance_date"].year, r["advance_date"].month)
+        by_month[k] = by_month.get(k, 0.0) + float(r["amount"])
+    y, m = min(by_month)
+    floor_y, floor_m = divmod(year * 12 + month - 1 - CARRY_MONTHS_BACK, 12)
+    if (y, m) < (floor_y, floor_m + 1):
+        y, m = floor_y, floor_m + 1
+    per_day = monthly / rules.base_days
+    carry = 0.0
+    while (y, m) < (year, month):
+        fig = _month_figures(rules, _month_records(cur, emp_key, y, m), holidays_in(cur, y, m), y, m, today)
+        base = max(0.0, monthly - fig["deductionDays"] * per_day + (per_day if fig["bonus"] else 0.0))
+        carry = max(0.0, round(by_month.get((y, m), 0.0) + carry - base, 2))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return carry
+
+
 def get_salary_report(user, name, year, month, override=None, rules: Rules | None = None):
     rules = rules or Rules()
     try:
@@ -810,6 +919,7 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
             raise ValueError
     except (TypeError, ValueError):
         return {"status": "error", "msg": "Year and month are not valid."}
+    today = mc.today_ist()
     with db.cursor() as cur:
         emp = _find_employee(cur, name, active_only=False)
         if not emp:
@@ -826,66 +936,23 @@ def get_salary_report(user, name, year, month, override=None, rules: Rules | Non
         recs = _month_records(cur, emp["employee_key"], year, month)
         advances = _advances_for(cur, emp["employee_key"], year, month)
         holidays = holidays_in(cur, year, month)
-    days_in_month = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
+        carry = _carry_in(cur, emp["employee_key"], monthly, year, month, rules, today)
+    fig = _month_figures(rules, recs, holidays, year, month, today)
     per_day = monthly / rules.base_days
-    today = mc.today_ist()
-    arr = []
-    for d in range(1, days_in_month + 1):
-        dt = date(year, month, d)
-        dow = rules.js_dow(dt)
-        rec = recs.get(d)
-        st, t_in, t_out, hrs = "Absent", "", "—", "—"
-        if dow == rules.off_day:
-            st = "Weekly Off"
-        elif d in holidays and not rec:
-            st = "Holiday"          # a public holiday: nobody is absent, nothing is cut (someone who did come in is shown as they checked in)
-        elif dt > today:
-            st = "Future"
-        elif rec:
-            st = rules.resolve(rec["final_status"], _mins(rec["check_in_time"]))
-            t_in = _hhmm(rec["check_in_time"])
-            t_out = _hhmm(rec["check_out_time"]) if rec["check_out_time"] else "—"
-            hrs = _hours_text(rec["hours_worked_min"]) if rec["check_out_time"] else "—"
-        arr.append({"day": d, "dow": dow, "status": st, "time": t_in, "checkoutTime": t_out, "hoursWorked": hrs, "sandwichApplied": False})
-    for i, day in enumerate(arr):   # sandwich rule: a weekly off between two absent days is also an absent day
-        if day["dow"] == rules.off_day and day["status"] == "Weekly Off" and 0 <= i - 1 and i + 1 < len(arr):
-            if arr[i - 1]["status"] in ("Absent", "Incomplete") and arr[i + 1]["status"] in ("Absent", "Incomplete"):
-                day["status"], day["sandwichApplied"] = "Absent (Sandwich)", True
-    stats = {"present": 0, "late": 0, "halfDay": 0, "absent": 0, "sandwich": 0, "incomplete": 0, "weeklyOff": 0, "holiday": 0, "future": 0}
-    ded = 0.0
-    for day in arr:
-        s = day["status"]
-        if s == "Present":
-            stats["present"] += 1
-        elif s == "Late":
-            stats["late"] += 1
-        elif s == "Half Day":
-            stats["halfDay"] += 1
-            ded += 0.5
-        elif s == "Absent":
-            stats["absent"] += 1
-            ded += 1
-        elif s == "Absent (Sandwich)":
-            stats["absent"] += 1
-            stats["sandwich"] += 1
-            ded += 1
-        elif s == "Incomplete":
-            stats["incomplete"] += 1
-            ded += 1
-        elif s == "Weekly Off":
-            stats["weeklyOff"] += 1
-        elif s == "Holiday":
-            stats["holiday"] += 1
-        elif s == "Future":
-            stats["future"] += 1
+    ded, stats = fig["deductionDays"], fig["stats"]
+    bonus = per_day if fig["bonus"] else 0.0
     total_adv = sum(a["amount"] for a in advances)
-    net = max(0, monthly - ded * per_day - total_adv)
+    earned = max(0.0, monthly - ded * per_day + bonus)           # what the attendance leaves of the salary (never below nothing)
+    net = earned - total_adv - carry                              # below nothing = more advance than salary: the balance moves to next month
     counted, percent = stat_percentages(stats, total_adv, monthly)
     return {"status": "ok", "employeeName": emp["employee_name"], "year": year, "month": month, "monthlySalary": monthly,
             "countedDays": counted, "percent": percent,
             "perDaySalary": round(per_day * 100) / 100, "baseDays": rules.base_days, "totalDeductionDays": ded,
             "deductionAmount": _round(ded * per_day), "totalAdvance": total_adv, "advances": advances, "netSalary": _round(net),
-            "totalPaidDays": round(max(0, rules.base_days - ded) * 10) / 10, "stats": stats, "days": arr}
+            "totalPaidDays": round(max(0, rules.base_days - ded) * 10) / 10 + (1 if bonus else 0), "stats": stats, "days": fig["days"],
+            "bonus": _round(bonus), "bonusEarned": fig["bonus"], "monthOver": fig["monthOver"], "leaves": fig["leaves"],
+            "leavesAfterOffset": fig["leavesAfterOffset"], "leaveDeductionDays": fig["leaveDeductionDays"], "offsetDays": fig["offsetDays"],
+            "carryIn": _round(carry), "carryForward": _round(-net) if net < 0 else 0}
 
 
 def stat_percentages(stats: dict, advance: float = 0, monthly: float = 0) -> tuple[int, dict]:
@@ -902,30 +969,39 @@ def stat_percentages(stats: dict, advance: float = 0, monthly: float = 0) -> tup
 
 
 # --- advances
-def add_advance(user, name, amount, note):
+def add_advance(user, name, amount, note, day=None):
+    """`day` = the date the advance is for (yyyy-mm-dd or dd-mm-yyyy; default today; not in the future). It decides the month it is cut from."""
     try:
         amt = float(amount)
     except (TypeError, ValueError):
         amt = 0
     if not name or amt <= 0:
         return {"status": "error", "msg": "Valid name and amount required"}
+    when = mc.today_ist()
+    if day not in (None, ""):
+        text = str(day).strip()
+        try:
+            when = date.fromisoformat(text[:10]) if text[:4].isdigit() else datetime.strptime(text[:10], "%d-%m-%Y").date()
+        except ValueError:
+            return {"status": "error", "msg": "The advance date is not valid."}
+        if when > mc.today_ist():
+            return {"status": "error", "msg": "An advance cannot be dated in the future."}
     with db.cursor() as cur:
         emp = _find_employee(cur, name, active_only=False)
         if not emp:
             return {"status": "error", "msg": "Employee not found. Pick the name from the list."}
-        cur.execute("INSERT INTO fact_att_advance (employee_key, advance_date, amount, note, added_by_user_key) VALUES (%s, %s, %s, %s, %s) RETURNING created_at",
-                    (emp["employee_key"], mc.today_ist(), round(amt, 2), (note or "").strip() or None, user["user_key"]))
-        created = cur.fetchone()["created_at"]
-    return {"status": "ok", "name": emp["employee_name"], "amount": amt, "date": created.astimezone(mc.IST).strftime("%d-%m-%Y %H:%M")}
+        cur.execute("INSERT INTO fact_att_advance (employee_key, advance_date, amount, note, added_by_user_key) VALUES (%s, %s, %s, %s, %s)",
+                    (emp["employee_key"], when, round(amt, 2), (note or "").strip() or None, user["user_key"]))
+    return {"status": "ok", "name": emp["employee_name"], "amount": amt, "date": when.strftime("%d-%m-%Y")}
 
 
 def get_all_advances(user, name=None):
     with db.cursor() as cur:
-        cur.execute("SELECT a.advance_key, a.created_at, a.amount, a.note, e.employee_name, u.display_name FROM fact_att_advance a "
+        cur.execute("SELECT a.advance_key, a.advance_date, a.created_at, a.amount, a.note, e.employee_name, u.display_name FROM fact_att_advance a "
                     "JOIN dim_att_employee e ON e.employee_key = a.employee_key LEFT JOIN dim_user u ON u.user_key = a.added_by_user_key "
-                    "WHERE (%s::text IS NULL OR lower(e.employee_name) LIKE '%%' || lower(%s) || '%%') ORDER BY a.advance_key DESC",
+                    "WHERE (%s::text IS NULL OR lower(e.employee_name) LIKE '%%' || lower(%s) || '%%') ORDER BY a.advance_date DESC, a.advance_key DESC",
                     (str(name).strip() or None if name else None,) * 2)
-        return {"status": "ok", "advances": [{"id": r["advance_key"], "date": r["created_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M"),
+        return {"status": "ok", "advances": [{"id": r["advance_key"], "date": r["advance_date"].strftime("%d-%m-%Y"), "enteredAt": r["created_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M"),
                                               "name": r["employee_name"], "amount": float(r["amount"]), "note": r["note"] or "",
                                               "addedBy": r["display_name"] or "Owner"} for r in cur.fetchall()]}
 
@@ -1123,7 +1199,8 @@ def get_salary_all(user, year, month):
         rows.append({"name": e["employee_name"], "role": e["role_title"] or "", "salarySet": True, "monthlySalary": r["monthlySalary"],
                      "perDay": r["perDaySalary"], "present": s["present"], "late": s["late"], "halfDay": s["halfDay"], "absent": s["absent"],
                      "sandwich": s["sandwich"], "incomplete": s["incomplete"], "weeklyOff": s["weeklyOff"], "deductionDays": r["totalDeductionDays"],
-                     "deductionAmount": r["deductionAmount"], "advance": r["totalAdvance"], "netSalary": r["netSalary"], "paidDays": r["totalPaidDays"]})
+                     "deductionAmount": r["deductionAmount"], "advance": r["totalAdvance"], "bonus": r["bonus"], "carryIn": r["carryIn"],
+                     "netSalary": r["netSalary"], "paidDays": r["totalPaidDays"]})
     return {"status": "ok", "year": year, "month": month, "baseDays": rules.base_days, "rows": rows}
 
 
@@ -1356,7 +1433,7 @@ OWNER = {
     "getAllSalaries": lambda u, a: get_all_salaries(u),
     "setEmployeeSalary": lambda u, a: set_employee_salary(u, a[1], a[2]),
     "getAllAdvances": lambda u, a: get_all_advances(u, a[1] if len(a) > 1 else None),
-    "addAdvancePayment": lambda u, a: add_advance(u, a[1], a[2], a[3] if len(a) > 3 else ""),
+    "addAdvancePayment": lambda u, a: add_advance(u, a[1], a[2], a[3] if len(a) > 3 else "", a[4] if len(a) > 4 else None),
     "deleteAdvance": lambda u, a: delete_advance(u, a[1]),
     "getSalaryReport": lambda u, a: get_salary_report(u, a[1], a[2], a[3], a[4] if len(a) > 4 else None),
     "getMonthlyReport": lambda u, a: get_monthly_report(u, a[1], a[2], a[3]),

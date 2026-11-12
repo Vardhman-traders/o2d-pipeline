@@ -1,5 +1,5 @@
 """The messages of the "WhatsApp Template" document: the five dispatch formats (VT Dispatch / Porter / Company / Transport / Receiving groups) and the
-automatic report PDFs (7:30 PM and 9:00 PM) sent to the Reports group."""
+automatic report PDFs (7:00 PM and 9:00 PM) sent to the Reports group."""
 import json
 import re
 from datetime import datetime, timedelta
@@ -193,7 +193,7 @@ def test_evening_reports_go_to_the_reports_group_with_working_links(client, peop
     daily_reports.send_reports(today, "evening", stored)
     assert [s["to"] for s in wa] == ["REPORTS@g.us"]
     text = wa[0]["text"]
-    assert text.startswith("*Reports - 7:30 PM*") and today.strftime("%d-%m-%Y") in text
+    assert text.startswith("*Reports - 7:00 PM*") and today.strftime("%d-%m-%Y") in text
     # the document's order: each delivery person, then Godown cash, Shop cash
     order_of = [text.index(t) for t in ["Delivery - Amit"] + titles("godown-received-cash", "shop-received-cash")]
     assert order_of == sorted(order_of)
@@ -239,7 +239,7 @@ def test_without_a_public_address_the_message_still_lists_the_reports_and_a_long
     wa.clear()
     monkeypatch.setattr(daily_reports, "MESSAGE_LIMIT", 120)
     daily_reports.send_reports(today, "evening", stored)
-    assert len(wa) > 1 and all(s["to"] == "REPORTS@g.us" and s["text"].startswith("*Reports - 7:30 PM*") for s in wa)
+    assert len(wa) > 1 and all(s["to"] == "REPORTS@g.us" and s["text"].startswith("*Reports - 7:00 PM*") for s in wa)
     joined = "\n".join(s["text"] for s in wa)
     assert all(t in joined for t in titles("godown-received-cash", "shop-received-cash"))
 
@@ -250,12 +250,15 @@ def test_both_batches_run_once_each_day_and_message_the_group(client, people, db
     groups(client, h["admin"], reports_evening="REPORTS@g.us")
     day = datetime.now(daily_reports.IST).replace(year=datetime.now().year + 4, hour=18, minute=0)           # a day nothing has run for
     assert daily_reports.run_if_due(day) is False and wa == []
-    assert daily_reports.run_if_due(day.replace(hour=19, minute=31)) is True
-    assert [s["text"].split("\n")[0] for s in wa] == ["*Reports - 7:30 PM* - Code Blue"]
+    assert daily_reports.run_if_due(day.replace(hour=19, minute=1)) is True
+    assert [s["text"].split("\n")[0] for s in wa] == ["*Reports - 7:00 PM* - Code Blue"]
     assert daily_reports.run_if_due(day.replace(hour=20, minute=30)) is False                          # 9:00 PM is not here yet
     assert daily_reports.run_if_due(day.replace(hour=21, minute=1)) is True
-    assert [s["text"].split("\n")[0] for s in wa] == ["*Reports - 7:30 PM* - Code Blue", "*Reports - 9:00 PM* - Code Blue"]
-    assert daily_reports.run_if_due(day.replace(hour=23, minute=0)) is False and len(wa) == 2         # each batch once a day
+    assert [s["text"].split("\n")[0] for s in wa] == ["*Reports - 7:00 PM* - Code Blue", "*Reports - 9:00 PM* - Code Blue"]
+    assert daily_reports.run_if_due(day.replace(hour=21, minute=15)) is False                         # 9:30 PM is not here yet
+    assert daily_reports.run_if_due(day.replace(hour=21, minute=31)) is True
+    assert wa[-1]["text"].split("\n")[0] == "*Reports - 9:30 PM* - Code Blue"
+    assert daily_reports.run_if_due(day.replace(hour=23, minute=0)) is False and len(wa) == 3         # each batch once a day
     with db_conn.cursor() as cur:
         cur.execute("SELECT batch FROM daily_report_run WHERE report_date = %s ORDER BY batch", (day.date(),))
-        assert [r[0] for r in cur.fetchall()] == ["evening", "night"]
+        assert [r[0] for r in cur.fetchall()] == ["closing", "evening", "night"]
