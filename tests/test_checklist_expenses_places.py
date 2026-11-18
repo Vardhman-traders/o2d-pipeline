@@ -69,9 +69,9 @@ def test_employee_tagged_to_a_work_place_cannot_mark_from_another(client, db_con
 
     # someone not tagged to anything keeps working from any work place
     assert pub(client, "checkLocation", *SHOP, "Free Person")["status"] == "ok"
-    assert pub(client, "saveAttendance", {"name": "Free Person", "lat": SHOP[0], "lng": SHOP[1]})["status"] == "ok"
+    assert pub(client, "saveAttendance", {"name": "Free Person", "lat": SHOP[0], "lng": SHOP[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})["status"] == "ok"
     # the tagged person can mark from their own place, and clearing the tags frees them again
-    assert pub(client, "saveAttendance", {"name": "Tagged Person", "lat": GODOWN[0], "lng": GODOWN[1]})["status"] == "ok"
+    assert pub(client, "saveAttendance", {"name": "Tagged Person", "lat": GODOWN[0], "lng": GODOWN[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})["status"] == "ok"
     assert own("setEmployeePlaces", "Tagged Person", [])["status"] == "ok"
     assert pub(client, "checkLocation", *SHOP, "Tagged Person")["status"] == "ok"
 

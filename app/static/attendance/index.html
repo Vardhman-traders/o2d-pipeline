@@ -235,6 +235,16 @@ select:disabled{opacity:.6;cursor:wait}
 
     </div>
 
+    <!-- the live camera (a photo from the gallery is not accepted: the selfie is taken here, now) -->
+    <div id="liveCam" style="display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column;align-items:center;justify-content:center">
+      <video id="liveVideo" autoplay playsinline muted style="max-width:100%;max-height:70vh;transform:scaleX(-1);background:#111"></video>
+      <p style="color:#fff;font-family:system-ui;font-size:.9rem;margin:.8rem 1rem;text-align:center">Look at the camera and tap the button. Only you should be in the photo.</p>
+      <div style="display:flex;gap:1rem">
+        <button type="button" onclick="closeLiveCamera()" style="padding:.8rem 1.4rem;border-radius:12px;border:0;font-weight:700;background:#374151;color:#fff">Cancel</button>
+        <button type="button" onclick="captureLivePhoto()" style="padding:.8rem 2rem;border-radius:12px;border:0;font-weight:800;background:#16a34a;color:#fff">📸 Take photo</button>
+      </div>
+    </div>
+
     <!-- STEP 2: SELFIE -->
     <div class="sec" id="s1">
       <div class="selfie-box checkin-mode" id="selfieBox">
@@ -244,7 +254,7 @@ select:disabled{opacity:.6;cursor:wait}
       </div>
 
       <div class="camera-btn-wrap">
-        <label class="camera-btn-label" id="cameraLabel" for="cameraInput">
+        <label class="camera-btn-label" id="cameraLabel" for="cameraInput" onclick="return openLiveCamera(event)">
           <div class="btn-icon">📸</div>
           <div class="btn-title">Tap Here to Open Camera</div>
           <div class="btn-sub">Front camera opens automatically</div>
@@ -524,6 +534,58 @@ function goStep2(){
   showSec(1);
 }
 
+/* ── this phone's random id (kept in the browser; the server stores only a hash) and the live camera ── */
+function deviceId(){
+  try{
+    var id=localStorage.getItem('vt_att_device');
+    if(!id||id.length<12){
+      var a=new Uint8Array(16);
+      if(window.crypto&&crypto.getRandomValues) crypto.getRandomValues(a); else for(var i=0;i<16;i++) a[i]=Math.floor(Math.random()*256);
+      id=Array.prototype.map.call(a,function(x){return ('0'+x.toString(16)).slice(-2);}).join('');
+      localStorage.setItem('vt_att_device',id);
+    }
+    return id;
+  }catch(e){ return ''; }
+}
+var liveStream=null;
+function openLiveCamera(ev){
+  if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)) return true;          // old browser: the normal camera input
+  if(ev) ev.preventDefault();
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:960}},audio:false}).then(function(stream){
+    liveStream=stream;
+    var v=document.getElementById('liveVideo'); v.srcObject=stream;
+    document.getElementById('liveCam').style.display='flex';
+  }).catch(function(){
+    document.getElementById('cameraInput').click();                                         // camera not allowed here: fall back to the camera input
+  });
+  return false;
+}
+function closeLiveCamera(){
+  if(liveStream){ liveStream.getTracks().forEach(function(t){t.stop();}); liveStream=null; }
+  document.getElementById('liveCam').style.display='none';
+}
+function captureLivePhoto(){
+  var v=document.getElementById('liveVideo');
+  if(!v.videoWidth){ return; }
+  var w=v.videoWidth,h=v.videoHeight;
+  if(w>MAX_DIM||h>MAX_DIM){ if(w>=h){h=Math.round(h*(MAX_DIM/w));w=MAX_DIM;}else{w=Math.round(w*(MAX_DIM/h));h=MAX_DIM;} }
+  var canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+  canvas.getContext('2d').drawImage(v,0,0,w,h);
+  photoB64=canvas.toDataURL('image/jpeg',JPEG_QUALITY);
+  closeLiveCamera();
+  document.getElementById('photoAlert').className='alert';
+  document.getElementById('photoPreview').src=photoB64;
+  document.getElementById('previewWrap').style.display='block';
+  document.getElementById('stampText').textContent=new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
+  document.getElementById('retakeRow').style.display='flex';
+  var lbl=document.getElementById('cameraLabel');
+  lbl.classList.add('has-photo');
+  lbl.querySelector('.btn-icon').textContent='✅';
+  lbl.querySelector('.btn-title').textContent='Photo Taken!';
+  lbl.querySelector('.btn-sub').textContent='Tap "Retake" to change it';
+  document.getElementById('submitBtn').disabled=false;
+}
+
 function onPhotoTaken(e){
   var file=e.target.files[0];
   if(!file) return;
@@ -668,7 +730,7 @@ function doCheckinAttempt(name,allowRetry){
       btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance';
       showPhotoErr('❌ Could not reach server. Check internet and try again.');
     })
-    .saveAttendance({name:name,lat:uLat,lng:uLng,photo:photoB64});
+    .saveAttendance({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId()});
 }
 
 function doCheckoutAttempt(name,allowRetry){
@@ -702,7 +764,7 @@ function doCheckoutAttempt(name,allowRetry){
       btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out';
       showPhotoErr('❌ Could not reach server. Check internet and try again.');
     })
-    .saveCheckout({name:name,lat:uLat,lng:uLng,photo:photoB64});
+    .saveCheckout({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId()});
 }
 
 function showPhotoErr(msg){ var a=document.getElementById('photoAlert'); a.textContent=msg; a.className='alert a-err show'; }

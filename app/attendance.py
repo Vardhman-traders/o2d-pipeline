@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg2.extras import Json
 from pydantic import BaseModel, ConfigDict
 
-from . import access, attachments, auth, daily_reports, db, module_admin, modcommon as mc, whatsapp
+from . import access, attachments, auth, daily_reports, db, face_match, module_admin, modcommon as mc, whatsapp
 
 log = logging.getLogger("attendance")
 router = APIRouter(prefix="/attendance", tags=["attendance"])
@@ -62,6 +62,9 @@ class Rules:
         self.link_on = int(val("att_employee_link_on")) == 1
         self.pin_attempts = int(val("att_pin_max_attempts"))
         self.pin_lock_minutes = int(val("att_pin_lock_minutes"))
+        self.face_on = int(val("att_face_check_on")) == 1
+        self.face_threshold = float(val("att_face_threshold"))
+        self.device_check_on = int(val("att_device_check_on")) == 1
 
     @staticmethod
     def _minutes(text: str, default: str) -> int:
@@ -423,7 +426,7 @@ def check_location_rpc(lat, lng, name=None):
     return out
 
 
-def save_attendance(data: dict):
+def save_attendance(data: dict, ip: str = ""):
     data = data or {}
     rules = Rules()
     with db.cursor() as cur:
@@ -439,6 +442,9 @@ def save_attendance(data: dict):
         existing = _today_row(cur, emp["employee_key"], now.date())
         if existing:
             return {"status": "already_marked", "time": _to12h(_hhmm(existing["check_in_time"])), "rowIndex": existing["attendance_key"]}
+        photo_bytes = _decode_photo(data.get("photo"))
+        if not photo_bytes:       # the page always sends the selfie; a request without one did not come from the page
+            return {"status": "error", "msg": "Please take your selfie with the camera first."}
         cur.execute("INSERT INTO fact_attendance (employee_key, work_date, check_in_time, location_key, distance_m, final_status, wa_status) "
                     "VALUES (%s, %s, %s, %s, %s, 'Incomplete', %s) ON CONFLICT (employee_key, work_date) DO NOTHING RETURNING attendance_key",
                     (emp["employee_key"], now.date(), now.time().replace(microsecond=0), loc["location_key"], loc["dist"],
@@ -452,11 +458,12 @@ def save_attendance(data: dict):
     if photo:
         with db.cursor() as cur:
             cur.execute("UPDATE fact_attendance SET photo_in_key = %s WHERE attendance_key = %s", (photo, key))
+    _punch_checks(emp, key, "in", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules)
     return {"status": "ok", "time": now.strftime("%I:%M %p"), "dist": loc["dist"],
             "site": loc["site"], "email": "Not logged in", "rowIndex": key, "photoSaved": bool(photo)}
 
 
-def save_checkout(data: dict):
+def save_checkout(data: dict, ip: str = ""):
     data = data or {}
     rules = Rules()
     with db.cursor() as cur:
@@ -474,6 +481,9 @@ def save_checkout(data: dict):
             return {"status": "no_checkin", "msg": "Aaj ka check-in nahi mila"}
         if r["check_out_time"] is not None:
             return {"status": "already_checkout", "time": _to12h(_hhmm(r["check_out_time"])), "rowIndex": r["attendance_key"]}
+        photo_bytes = _decode_photo(data.get("photo"))
+        if not photo_bytes:
+            return {"status": "error", "msg": "Please take your selfie with the camera first."}
         in_min, out_min = _mins(r["check_in_time"]), now.hour * 60 + now.minute
         hours_text, hours_min = _hours(in_min, out_min)
         status = rules.final_status(in_min, out_min)
@@ -486,8 +496,221 @@ def save_checkout(data: dict):
     if photo:
         with db.cursor() as cur:
             cur.execute("UPDATE fact_attendance SET photo_out_key = %s WHERE attendance_key = %s", (photo, key))
+    _punch_checks(emp, key, "out", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules)
     return {"status": "ok", "time": now.strftime("%I:%M %p"), "hoursWorked": hours_text, "checkInTime": check_in_text,
             "finalStatus": status, "rowIndex": key, "photoSaved": bool(photo)}
+
+
+# ------------------------------------------------------------------ is it really them? Flag and tell the admins - never block
+# A punch is flagged (and every admin told, by WhatsApp group and the web bell) when the selfie does not look like the employee's reference
+# photos, the exact same photo was used for another punch, or the same phone marked another employee the same day. The owner then marks it OK
+# or "not the same person" (Attendance owner dashboard > Today). A flagged punch still counts: nothing here ever stops anyone.
+FACE_PHOTOS_MAX = 5
+
+
+def _decode_photo(data_url) -> bytes | None:
+    import base64
+    text = str(data_url or "")
+    if text.startswith("data:"):
+        text = text.partition(",")[2]
+    try:
+        return base64.b64decode(text, validate=False) or None
+    except Exception:
+        return None
+
+
+def _device_hash(device) -> str | None:
+    """The phone's random id (kept in the browser by the page), stored only as a hash."""
+    text = str(device or "").strip()
+    if not 12 <= len(text) <= 100:
+        return None
+    return hashlib.sha256(("att-device:" + text).encode()).hexdigest()
+
+
+def _tell_review(name: str, kind: str, when_text: str, day: date, reason: str) -> None:
+    try:
+        from . import notify
+        notify.fire("att_review", {"name": name, "kind": "Check-in" if kind == "in" else "Check-out", "time": when_text,
+                                   "date": day.strftime("%d %b %Y"), "reason": reason[:1].upper() + reason[1:]})
+    except Exception:
+        log.exception("could not send the attendance review notification")
+
+
+def _punch_checks(emp: dict, attendance_key: int, kind: str, photo: bytes | None, device, ip: str, day: date, when_text: str, rules: Rules) -> None:
+    """Record which phone / address and which photo a punch came from, compare the face, and flag it when it looks like someone else's.
+    Never raises and never changes the punch."""
+    try:
+        flags, reasons = [], []
+        sha = hashlib.sha256(photo).hexdigest() if photo else None
+        dev = _device_hash(device)
+        refs: list = []
+        with db.cursor() as cur:
+            if sha and attachments.duplicate_check_on():
+                cur.execute("SELECT 1 FROM att_punch_check WHERE photo_sha256 = %s AND NOT (attendance_key = %s AND kind = %s) LIMIT 1", (sha, attendance_key, kind))
+                if cur.fetchone():
+                    flags.append("photo")
+                    reasons.append("this exact photo was already used for another punch")
+            if dev and rules.device_check_on:
+                cur.execute("SELECT DISTINCT e.employee_name FROM att_punch_check c JOIN fact_attendance a ON a.attendance_key = c.attendance_key "
+                            "JOIN dim_att_employee e ON e.employee_key = a.employee_key WHERE c.device_hash = %s AND a.work_date = %s "
+                            "AND a.employee_key <> %s ORDER BY 1 LIMIT 3", (dev, day, emp["employee_key"]))
+                others = [r["employee_name"] for r in cur.fetchall()]
+                if others:
+                    flags.append("device")
+                    reasons.append("the same phone was used today for " + ", ".join(others))
+            if rules.face_on and photo:
+                cur.execute("SELECT embedding FROM att_employee_face WHERE employee_key = %s", (emp["employee_key"],))
+                refs = [r["embedding"] for r in cur.fetchall()]
+        face_status, score = "unavailable", None
+        if rules.face_on and photo:
+            if not refs:
+                face_status = "not_enrolled"
+            else:
+                state, vec = face_match.embed(photo)
+                if state == "ok":
+                    score = max(face_match.similarity(vec, ref) for ref in refs)
+                    face_status = "match" if score >= rules.face_threshold else "mismatch"
+                    if face_status == "mismatch":
+                        flags.append("face")
+                        reasons.append(f"the selfie does not look like {emp['employee_name']}'s reference photos (score {score:.2f})")
+                elif state == "no_face":
+                    face_status = "no_face"
+                    flags.append("face")
+                    reasons.append("no face could be found in the selfie")
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO att_punch_check (attendance_key, kind, device_hash, client_ip, photo_sha256, face_status, face_score, flags) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (attendance_key, kind) DO UPDATE SET device_hash = EXCLUDED.device_hash, "
+                        "client_ip = EXCLUDED.client_ip, photo_sha256 = EXCLUDED.photo_sha256, face_status = EXCLUDED.face_status, "
+                        "face_score = EXCLUDED.face_score, flags = EXCLUDED.flags, review_result = NULL, reviewed_by_user_key = NULL, reviewed_at = NULL",
+                        (attendance_key, kind, dev, (ip or "")[:64] or None, sha, face_status, score, ",".join(flags)))
+        if flags:
+            _tell_review(emp["employee_name"], kind, when_text, day, "; ".join(reasons))
+    except Exception:
+        log.exception("the punch checks failed for attendance %s", attendance_key)
+
+
+def _reason_text(flags: str, status: str, score) -> str:
+    parts = []
+    if "face" in flags:
+        parts.append("Face does not match the reference photos" + (f" (score {float(score):.2f})" if score is not None else "") if status == "mismatch"
+                     else "No face found in the selfie")
+    if "photo" in flags:
+        parts.append("Same photo used before")
+    if "device" in flags:
+        parts.append("Same phone as another employee today")
+    return "; ".join(parts)
+
+
+def get_punch_reviews(user, days=14):
+    """Punches that were flagged in the last `days` days: not yet looked at first, then the ones already decided."""
+    try:
+        days = max(1, min(int(days or 14), 90))
+    except (TypeError, ValueError):
+        days = 14
+    with db.cursor() as cur:
+        cur.execute("SELECT c.attendance_key, c.kind, c.flags, c.face_status, c.face_score, c.review_result, c.reviewed_at, c.client_ip, a.work_date, "
+                    "a.check_in_time, a.check_out_time, a.photo_in_key, a.photo_out_key, e.employee_key, e.employee_name, ru.display_name AS reviewed_by "
+                    "FROM att_punch_check c JOIN fact_attendance a ON a.attendance_key = c.attendance_key "
+                    "JOIN dim_att_employee e ON e.employee_key = a.employee_key LEFT JOIN dim_user ru ON ru.user_key = c.reviewed_by_user_key "
+                    "WHERE c.flags <> '' AND a.work_date >= %s ORDER BY (c.review_result IS NOT NULL), a.work_date DESC, c.created_at DESC LIMIT 300",
+                    (mc.today_ist() - timedelta(days=days),))
+        rows = cur.fetchall()
+        cur.execute("SELECT employee_key, attachment_key FROM att_employee_face WHERE attachment_key IS NOT NULL AND employee_key = ANY(%s) ORDER BY face_key",
+                    ([r["employee_key"] for r in rows] or [0],))
+        refs: dict[int, list[int]] = {}
+        for r in cur.fetchall():
+            refs.setdefault(r["employee_key"], []).append(r["attachment_key"])
+    urls = _signed([(r["photo_in_key"] if r["kind"] == "in" else r["photo_out_key"]) for r in rows] + [k for v in refs.values() for k in v[:2]])
+    out = []
+    for r in rows:
+        shot = r["photo_in_key"] if r["kind"] == "in" else r["photo_out_key"]
+        at = r["check_in_time"] if r["kind"] == "in" else r["check_out_time"]
+        out.append({"attendanceKey": r["attendance_key"], "kind": r["kind"], "name": r["employee_name"], "date": _dmy(r["work_date"]), "time": _to12h(_hhmm(at)),
+                    "reason": _reason_text(r["flags"], r["face_status"], r["face_score"]), "flags": r["flags"].split(","),
+                    "score": float(r["face_score"]) if r["face_score"] is not None else None, "photo": urls.get(shot, ""),
+                    "reference": [urls.get(k, "") for k in refs.get(r["employee_key"], [])[:2]], "ip": r["client_ip"] or "",
+                    "review": r["review_result"] or "", "reviewedBy": r["reviewed_by"] or "",
+                    "reviewedAt": r["reviewed_at"].astimezone(mc.IST).strftime("%d-%m-%Y %H:%M") if r["reviewed_at"] else ""})
+    return {"status": "ok", "pending": sum(1 for x in out if not x["review"]), "items": out}
+
+
+def review_punch(user, attendance_key, kind, result, note=""):
+    """The owner's verdict on a flagged punch: 'ok' (it is them) or 'not_same' (someone else marked it)."""
+    if result not in ("ok", "not_same") or kind not in ("in", "out"):
+        return {"status": "error", "msg": "Choose OK or Not the same person."}
+    try:
+        key = int(attendance_key)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Invalid row"}
+    with db.cursor() as cur:
+        cur.execute("UPDATE att_punch_check SET review_result = %s, reviewed_by_user_key = %s, reviewed_at = now(), review_note = %s "
+                    "WHERE attendance_key = %s AND kind = %s AND flags <> '' RETURNING attendance_key", (result, user["user_key"], (note or "").strip()[:300] or None, key, kind))
+        if not cur.fetchone():
+            return {"status": "error", "msg": "That punch was not found."}
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target) VALUES (%s, %s, 'attendance.review_punch', %s)",
+                    (user["user_key"], user["username"], f"{key}/{kind} {result}"))
+    return {"status": "ok"}
+
+
+def get_employee_faces(user, name):
+    with db.cursor() as cur:
+        emp = _need_emp(cur, name)
+        cur.execute("SELECT face_key, attachment_key, created_at FROM att_employee_face WHERE employee_key = %s ORDER BY face_key", (emp["employee_key"],))
+        rows = cur.fetchall()
+    urls = _signed([r["attachment_key"] for r in rows if r["attachment_key"]])
+    return {"status": "ok", "available": face_match.available(), "max": FACE_PHOTOS_MAX,
+            "faces": [{"id": r["face_key"], "url": urls.get(r["attachment_key"], ""), "addedOn": _dmy(r["created_at"].astimezone(mc.IST).date())} for r in rows]}
+
+
+def add_employee_face(user, name, data_url):
+    """A clear photo of the employee for the face check (the admin may pick it from the gallery: it is the reference, not a punch)."""
+    photo = _decode_photo(data_url)
+    if not photo:
+        return {"status": "error", "msg": "Choose a photo first."}
+    with db.cursor() as cur:
+        emp = _need_emp(cur, name)
+        cur.execute("SELECT count(*) AS n FROM att_employee_face WHERE employee_key = %s", (emp["employee_key"],))
+        if cur.fetchone()["n"] >= FACE_PHOTOS_MAX:
+            return {"status": "error", "msg": f"At most {FACE_PHOTOS_MAX} photos per employee. Delete one first."}
+    vec, problem = face_match.check_enrolment(photo)
+    if not vec:
+        return {"status": "error", "msg": problem}
+    attachment = None
+    if attachments.configured():
+        text = str(data_url)
+        attachment = attachments.put_data_url("attface", emp["employee_key"], "face", user, text if text.startswith("data:") else "data:image/jpeg;base64," + text)
+    with db.cursor() as cur:
+        cur.execute("INSERT INTO att_employee_face (employee_key, attachment_key, embedding, created_by_user_key) VALUES (%s, %s, %s, %s)",
+                    (emp["employee_key"], attachment, vec, user["user_key"]))
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target) VALUES (%s, %s, 'attendance.add_face', %s)",
+                    (user["user_key"], user["username"], emp["employee_name"]))
+    return {"status": "ok"}
+
+
+def delete_employee_face(user, face_key):
+    try:
+        key = int(face_key)
+    except (TypeError, ValueError):
+        return {"status": "error", "msg": "Invalid row"}
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM att_employee_face f USING dim_att_employee e WHERE f.face_key = %s AND e.employee_key = f.employee_key "
+                    "RETURNING f.attachment_key, e.employee_name", (key,))
+        row = cur.fetchone()
+        if not row:
+            return {"status": "error", "msg": "Photo not found."}
+        object_key = None
+        if row["attachment_key"]:
+            cur.execute("DELETE FROM file_attachment WHERE attachment_key = %s RETURNING object_key", (row["attachment_key"],))
+            gone = cur.fetchone()
+            object_key = gone["object_key"] if gone else None
+        cur.execute("INSERT INTO admin_audit_log (admin_user_key, admin_username, action, target) VALUES (%s, %s, 'attendance.delete_face', %s)",
+                    (user["user_key"], user["username"], row["employee_name"]))
+    if object_key and attachments.configured():
+        try:
+            attachments.storage().delete_object(Bucket=attachments._bucket(), Key=object_key)
+        except Exception:
+            log.exception("could not remove the reference photo file")
+    return {"status": "ok"}
 
 
 def notify_attendance(row_index, name):
@@ -636,6 +859,8 @@ def get_employee_salary_view(name, token, year=None, month=None):
 
 PUBLIC_IP = {      # the calls that also need the caller's address
     "verifyEmployeePIN": lambda a, ip: verify_employee_pin(a[0], a[1], ip),
+    "saveAttendance": lambda a, ip: save_attendance(a[0], ip),
+    "saveCheckout": lambda a, ip: save_checkout(a[0], ip),
 }
 
 PUBLIC = {
@@ -643,8 +868,6 @@ PUBLIC = {
     "getEmployeeSalaryView": lambda a: get_employee_salary_view(a[0], a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else None, a[3] if len(a) > 3 else None),
     "getTodayStatus": lambda a: get_today_status(a[0]),
     "checkLocation": lambda a: check_location_rpc(a[0], a[1], a[2] if len(a) > 2 else None),
-    "saveAttendance": lambda a: save_attendance(a[0]),
-    "saveCheckout": lambda a: save_checkout(a[0]),
     "notifyAttendance": lambda a: notify_attendance(a[0], a[1]),
     "getDashboardUrl": lambda a: "/attendance/dashboard.html",
 }
@@ -657,7 +880,13 @@ RATE_PER_MINUTE = 90
 
 
 def _client_ip(request: Request) -> str:
-    return (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+    """The caller's address. Behind Render's proxy the proxy ADDS the address it saw to the END of X-Forwarded-For; the entries before it are
+    whatever the caller typed, so they cannot be trusted (VT_PROXY_HOPS = how many proxies are in front of the app, default 1)."""
+    parts = [x.strip() for x in (request.headers.get("x-forwarded-for") or "").split(",") if x.strip()]
+    if parts:
+        hops = max(1, int(os.environ.get("VT_PROXY_HOPS", "1") or 1))
+        return parts[-hops] if len(parts) >= hops else parts[0]
+    return request.client.host if request.client else "?"
 
 
 def _throttle(request: Request):
@@ -738,6 +967,17 @@ def get_today_attendance(user):
         emps = cur.fetchall()
     urls = _signed([r["photo_in_key"] for r in rows] + [r["photo_out_key"] for r in rows])
     marked = [_marked_row(r, rules, urls) for r in rows]
+    checks: dict[int, dict] = {}
+    if rows:
+        with db.cursor() as cur:
+            cur.execute("SELECT attendance_key, kind, face_status, face_score, flags, review_result FROM att_punch_check WHERE attendance_key = ANY(%s)",
+                        ([r["attendance_key"] for r in rows],))
+            for c in cur.fetchall():
+                checks.setdefault(c["attendance_key"], {})[c["kind"]] = {"face": c["face_status"], "score": float(c["face_score"]) if c["face_score"] is not None else None,
+                                                                          "flags": [f for f in c["flags"].split(",") if f], "review": c["review_result"] or "",
+                                                                          "reason": _reason_text(c["flags"], c["face_status"], c["face_score"])}
+    for r, m in zip(rows, marked):
+        m["attendanceKey"], m["checks"] = r["attendance_key"], checks.get(r["attendance_key"], {})
     seen = {r["employee_key"] for r in rows}
     off = rules.is_off(today)
     absent = [] if off else [{"name": e["employee_name"], "role": e["role_title"] or ""} for e in emps if e["employee_key"] not in seen]
@@ -1025,8 +1265,11 @@ def get_all_employees(user):
         places: dict[int, list[str]] = {}
         for r in cur.fetchall():
             places.setdefault(r["employee_key"], []).append(r["location_name"])
+        cur.execute("SELECT employee_key, count(*) AS n FROM att_employee_face GROUP BY employee_key")
+        faces = {r["employee_key"]: r["n"] for r in cur.fetchall()}
         return {"status": "ok", "employees": [{"name": r["employee_name"], "role": r["role_title"] or "", "active": r["is_active"],
-                                               "addedOn": _dmy(r["added_on"]), "places": places.get(r["employee_key"], [])} for r in emps]}
+                                               "addedOn": _dmy(r["added_on"]), "places": places.get(r["employee_key"], []),
+                                               "faces": faces.get(r["employee_key"], 0)} for r in emps]}
 
 
 def get_work_places(user):
@@ -1453,12 +1696,19 @@ OWNER = {
     "deleteHoliday": lambda u, a: delete_holiday(u, a[1]),
     "getAllPINs": lambda u, a: get_all_pins(u),
     "setEmployeePIN": lambda u, a: set_employee_pin(u, a[1], a[2]),
+    "getPunchReviews": lambda u, a: get_punch_reviews(u, a[1] if len(a) > 1 else 14),
+    "reviewPunch": lambda u, a: review_punch(u, a[1], a[2], a[3], a[4] if len(a) > 4 else ""),
+    "getEmployeeFaces": lambda u, a: get_employee_faces(u, a[1]),
+    "addEmployeeFace": lambda u, a: add_employee_face(u, a[1], a[2]),
+    "deleteEmployeeFace": lambda u, a: delete_employee_face(u, a[1]),
 }
 
 
 @router.post("/owner/rpc")
 def owner_rpc(body: RpcIn, user=Depends(OWNER_DEP)):
     if body.action in ("correctAttendance", "deleteAttendance", "manualCheckout", "setEmployeeSalary", "addAdvancePayment", "deleteAdvance", "addEmployee", "deleteEmployee", "setEmployeePIN", "setEmployeePlaces", "addHoliday", "deleteHoliday"):
+        access.require_edit(user, OWNER_PAGE)
+    if body.action in ("reviewPunch", "addEmployeeFace", "deleteEmployeeFace"):
         access.require_edit(user, OWNER_PAGE)
     fn = OWNER.get(body.action)
     if not fn:

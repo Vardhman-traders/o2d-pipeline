@@ -84,3 +84,18 @@ python scripts/seed_demo.py              # add demo data by hand to an empty loc
 ```
 The script refuses to run against anything but a local database and ignores `DATABASE_URL` in `.env`, so it can
 never touch Render. Edits to `app/static` show on a browser refresh; Python changes reload automatically.
+
+## Attendance: is it really them? (buddy-punching checks)
+The employee page stays open (no portal sign-in), so the server checks each punch after it is saved and **flags - never blocks** a doubtful one
+(`attendance._punch_checks`, table `att_punch_check`, migration 061):
+- the selfie is compared with the employee's reference photos (admin: Attendance owner dashboard > Employees > Photos). `app/face_match.py` uses
+  OpenCV YuNet + SFace on this server; nothing leaves it. The two model files (~39 MB) are downloaded into `data/models` (`python -m app.face_match
+  download`, run by the Render build; they are also fetched on first use). Without them the face check is simply off. Setup > Module settings >
+  Attendance: `att_face_check_on`, `att_face_threshold` (default 0.363; higher flags more), `att_device_check_on`;
+- the exact same photo used for another punch, and the same phone (a random id kept in the browser, stored hashed) marking two employees on one
+  day, are flagged too;
+- a flagged punch notifies the admins (WhatsApp alert `att_review` + the web bell) and appears under "Attendance to review" on the Today screen,
+  where the owner marks it "It is them" or "Not the same person". The server refuses a punch that has no selfie at all;
+- the selfie is taken with the live camera (no gallery) when the browser allows it; `VT_PHOTO_DUPLICATE_CHECK=off` (the tests) turns the
+  reused-photo flag off; `VT_PROXY_HOPS` (default 1) says how many proxies sit in front of the app for the caller's address.
+
