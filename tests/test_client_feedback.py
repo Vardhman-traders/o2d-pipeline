@@ -171,8 +171,8 @@ def test_scheduler_runs_the_day_once_after_7_pm_only(client, people):
     # a day far in the future has no run yet: nothing happens before 7:00 PM, it happens once after
     later = base.replace(year=base.year + 3, hour=18, minute=59)
     assert daily_reports.run_if_due(later) is False
-    assert daily_reports.run_if_due(later.replace(minute=1)) is True
-    assert daily_reports.run_if_due(later.replace(minute=15)) is False                  # the 7:00 PM batch is done; the 9:00 PM one is not due yet
+    assert daily_reports.run_if_due(later.replace(hour=19, minute=1)) is True
+    assert daily_reports.run_if_due(later.replace(hour=19, minute=15)) is False                  # the 7:00 PM batch is done; the 9:00 PM one is not due yet
     assert daily_reports.run_if_due(later.replace(hour=21, minute=5)) is True           # the second batch of the day
     assert daily_reports.run_if_due(later.replace(hour=21, minute=35)) is True          # the closing batch (9:30 PM)
     assert daily_reports.run_if_due(later.replace(hour=22, minute=0)) is False          # each batch runs once a day

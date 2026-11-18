@@ -98,8 +98,8 @@ def test_check_in_out_flow_with_location_photo_and_whatsapp(client, db_conn, see
         # a person set to "no WhatsApp" is recorded but never messaged
         quiet = "Quiet Person"
         client.post("/admin/masters/att_employee", json={"name": quiet, "is_active": True, "skip_whatsapp": True}, headers=admin)
-        q = pub(client, "saveAttendance", {"name": quiet, "lat": GODOWN[0], "lng": GODOWN[1]})
-        assert q["status"] == "ok" and q["photoSaved"] is False and pub(client, "notifyAttendance", q["rowIndex"], quiet)["status"] == "nothing"
+        q = pub(client, "saveAttendance", {"name": quiet, "lat": GODOWN[0], "lng": GODOWN[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})
+        assert q["status"] == "ok" and q["photoSaved"] is True and pub(client, "notifyAttendance", q["rowIndex"], quiet)["status"] == "nothing"
         assert len(sent) == 2
 
         # the owner dashboard: today's table (with photo links), manual and automatic check-out

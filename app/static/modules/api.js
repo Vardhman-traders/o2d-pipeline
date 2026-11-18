@@ -139,7 +139,8 @@
   ['verifyOwnerPassword', 'getTodayAttendance', 'manualCheckout', 'getAllSalaries', 'setEmployeeSalary', 'getAllAdvances', 'addAdvancePayment',
    'deleteAdvance', 'getSalaryReport', 'getMonthlyReport', 'getAbsentStreak', 'getEmployeeStreak', 'getAllEmployees', 'addEmployee',
    'deleteEmployee', 'getAllPINs', 'setEmployeePIN', 'getWorkPlaces', 'setEmployeePlaces', 'getMonthlyAll', 'getSalaryAll', 'correctAttendance',
-   'deleteAttendance', 'getHolidays', 'addHoliday', 'deleteHoliday'].forEach(function (n) {
+   'deleteAttendance', 'getHolidays', 'addHoliday', 'deleteHoliday', 'getPunchReviews', 'reviewPunch', 'getEmployeeFaces', 'addEmployeeFace',
+   'deleteEmployeeFace'].forEach(function (n) {
     fns[n] = function () { return attOwner(n, Array.prototype.slice.call(arguments)); };
   });
 

@@ -310,6 +310,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
 
   <!-- TODAY -->
   <div class="view active" id="v-today">
+    <div class="card" id="reviewCard" style="display:none;border:1.5px solid #fed7aa"></div>
     <div class="rules-box">
       <strong>Attendance Rules:</strong> &nbsp;
       <span id="rulesLine">Checkout <strong>before 2 PM → Absent</strong> &nbsp;|&nbsp;
@@ -422,9 +423,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
         <strong>Salary Rules:</strong> &nbsp;
         Base = <strong>30 working days</strong> &nbsp;|&nbsp;
         Per Day = <strong>Monthly ÷ 30</strong> &nbsp;|&nbsp;
-        Absent = <strong>−1 din</strong> &nbsp;|&nbsp;
+        0 chhutti = <strong>+1 din bonus</strong> (koi half day / late nahi) &nbsp;|&nbsp;
+        1 chhutti = <strong>koi cut nahi</strong> &nbsp;|&nbsp;
+        2+ chhutti = <strong>sab chhutti cut</strong> &nbsp;|&nbsp;
+        Chhutti ke bagal ka Monday = <strong>−1 din</strong> &nbsp;|&nbsp;
+        Monday ko kaam = <strong>1 chhutti cancel</strong> &nbsp;|&nbsp;
         Half Day = <strong>−0.5 din</strong> &nbsp;|&nbsp;
-        Late = <strong>No deduction</strong> &nbsp;|&nbsp;
         Advance = <strong>Amount deduct hoga</strong>
       </div>
 
@@ -647,8 +651,8 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
       </div>
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Name</th><th>Role</th><th>Can mark attendance from</th><th>Status</th><th>Added On</th><th style="text-align:right">Action</th></tr></thead>
-          <tbody id="empListBody"><tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
+          <thead><tr><th>Name</th><th>Role</th><th>Can mark attendance from</th><th>Face photos</th><th>Status</th><th>Added On</th><th style="text-align:right">Action</th></tr></thead>
+          <tbody id="empListBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -666,6 +670,24 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:linear-gradient(160de
     New work place add karne ke liye Setup &gt; Dropdown values &gt; Attendance - work places.
   </div>
   <button class="btn btn-full" onclick="savePlaces()">💾 Save</button>
+</div>
+
+<!-- REFERENCE FACE PHOTOS OF AN EMPLOYEE -->
+<div class="modal-overlay" id="faceModal" style="display:none" onclick="if(event.target===this)closeFaces()">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-title">📷 Face photos</div>
+    <div class="modal-sub" id="faceSub">—</div>
+    <div id="faceList" style="display:flex;flex-wrap:wrap;gap:.7rem;margin:.6rem 0"></div>
+    <div style="font-size:.75rem;color:#6b7280;margin-bottom:.6rem;line-height:1.55">
+      Saaf, seedhi (front) photo, achhi roshni, sirf isi person ki. 2–3 photo daalo (chashme / topi ke saath aur bina). Attendance ki selfie in photos se match hoti hai;
+      shak wali selfie aapko <strong>review ke liye</strong> dikhegi aur admin ko notification jayega — punch kabhi block nahi hota. Gallery se photo daal sakte ho.
+    </div>
+    <input type="file" id="faceFile" accept="image/*" class="input">
+    <div class="modal-btns">
+      <button class="btn btn-ghost btn-sm" onclick="closeFaces()">Close</button>
+      <button class="btn btn-sm" id="faceAddBtn" onclick="uploadFace()">➕ Add photo</button>
+    </div>
+  </div>
 </div>
 
 <!-- MANUAL CHECKOUT MODAL -->
@@ -780,6 +802,64 @@ function loadToday(){
     .withSuccessHandler(function(r){ if(r.status==='unauthorized'){logout();return;} renderToday(r); })
     .withFailureHandler(function(){ toast('Could not load today','err'); })
     .getTodayAttendance(PWD);
+  loadReviews();
+}
+
+/* ─── PUNCHES TO REVIEW: the selfie did not look like the employee, the same photo was used before, or one phone marked two people ─── */
+var REVIEWS=[];
+function loadReviews(){
+  VT.run
+    .withSuccessHandler(function(r){ if(!r||r.status!=='ok') return; REVIEWS=r.items||[]; renderReviews(r.pending||0); })
+    .withFailureHandler(function(){})
+    .getPunchReviews(PWD,14);
+}
+function faceThumb(url,label){
+  if(!url) return '';
+  return '<a href="'+escH(url)+'" target="_blank" rel="noopener" style="text-align:center;font-size:.65rem;color:#6b7280;text-decoration:none"><img src="'+escH(url)
+    +'" style="height:96px;width:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;display:block"><span>'+label+'</span></a>';
+}
+function renderReviews(pending){
+  var card=document.getElementById('reviewCard'); if(!card) return;
+  if(!REVIEWS.length){ card.style.display='none'; card.innerHTML=''; return; }
+  var h='<div class="card-title">⚠️ Attendance to review <span class="pill '+(pending?'red':'green')+'">'+pending+' waiting</span></div>'
+    +'<div class="card-sub">Selfie employee jaisi nahi lagi, wahi photo pehle use hui, ya wahi phone doosre employee ke liye use hua. Dekh kar mark karo — punch phir bhi count hota hai.</div>';
+  var doneShown=0;
+  REVIEWS.forEach(function(it){
+    if(it.review){ if(doneShown>=6) return; doneShown++; }
+    var verdict=it.review==='ok'?'<span class="pill green">✔ It is them'+(it.reviewedBy?' — '+escH(it.reviewedBy):'')+'</span>'
+      :it.review==='not_same'?'<span class="pill red">✖ Not the same person'+(it.reviewedBy?' — '+escH(it.reviewedBy):'')+'</span>':'';
+    var btns=(!it.review&&IS_ADMIN)?'<div style="margin-top:.4rem"><button class="btn btn-sm btn-green" onclick="doReview('+it.attendanceKey+',\''+it.kind+'\',\'ok\')">✔ It is them</button> '
+      +'<button class="btn btn-sm btn-danger" onclick="doReview('+it.attendanceKey+',\''+it.kind+'\',\'not_same\')">✖ Not the same person</button></div>':'';
+    h+='<div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-start;padding:.7rem 0;border-top:1px solid #f1f5f9;'+(it.review?'opacity:.65':'')+'">'
+      +faceThumb(it.photo,'This '+(it.kind==='in'?'check-in':'check-out'))+faceThumb(it.reference[0],'Reference')+faceThumb(it.reference[1],'Reference')
+      +'<div style="flex:1;min-width:200px"><strong>'+escH(it.name)+'</strong> <span style="color:#6b7280;font-size:.8rem">'+(it.kind==='in'?'Check-in':'Check-out')+' '+escH(it.time)+' · '+escH(it.date)+'</span>'
+      +'<div style="color:#b45309;font-size:.82rem;margin-top:.2rem">'+escH(it.reason)+'</div>'+(verdict?'<div style="margin-top:.3rem">'+verdict+'</div>':'')+btns+'</div></div>';
+  });
+  card.innerHTML=h; card.style.display='block';
+}
+function doReview(key,kind,result){
+  VT.run
+    .withSuccessHandler(function(r){
+      if(r.status==='ok'){ toast(result==='ok'?'✔ Marked: it is them':'✖ Marked: not the same person','ok'); loadReviews(); loadToday(); }
+      else toast('❌ '+(r.msg||'Failed'),'err');
+    })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .reviewPunch(PWD,key,kind,result);
+}
+function checkBadges(m){
+  var h='', c=m.checks||{};
+  ['in','out'].forEach(function(k){
+    var x=c[k]; if(!x) return;
+    var lbl=k==='in'?'In':'Out';
+    if(x.flags&&x.flags.length){
+      var cls=x.review==='ok'?'green':(x.review==='not_same'?'red':'orange');
+      var txt=x.review==='ok'?'✔ OK':(x.review==='not_same'?'✖ not same':'⚠ review');
+      h+=' <span class="pill '+cls+'" title="'+escH(lbl+': '+x.reason)+'">'+txt+' ('+lbl+')</span>';
+    } else if(x.face==='match'){
+      h+=' <span title="'+lbl+' selfie matches the reference photos'+(x.score!=null?' (score '+x.score.toFixed(2)+')':'')+'" style="color:#16a34a;font-size:.8rem">✔</span>';
+    }
+  });
+  return h;
 }
 
 function renderToday(r){
@@ -846,7 +926,7 @@ function renderTodayTable(){
     var hoursCell=m.checkedOut?('<strong>'+m.hoursWorked+'</strong>'):'<span style="color:#94a3b8">—</span>';
     var actionCell=m.checkedOut?'<span style="color:#94a3b8;font-size:.75rem">Done</span>':(IS_ADMIN?'<button class="btn btn-sm btn-green" onclick="openCheckoutModal(\''+escH(m.name)+'\')">🏁 Checkout</button>':'<span style="color:#94a3b8;font-size:.75rem">Admin only</span>');
     if(IS_ADMIN) actionCell+=' <button class="btn btn-sm btn-ghost" title="Galat punch theek karo" onclick="openFixToday('+r.marked.indexOf(m)+')">✏️ Fix'+(m.corrected?' ✎':'')+'</button>';
-    rows+='<tr><td><strong>'+escH(m.name)+'</strong>'+photoLinks(m)+'</td><td>'+m.time+'</td><td>'+outCell+'</td><td>'+hoursCell+'</td><td>'+statusPill(m.finalStatus)+'</td><td>'+si+' '+escH(m.site)+'</td><td>'+actionCell+'</td></tr>';
+    rows+='<tr><td><strong>'+escH(m.name)+'</strong>'+photoLinks(m)+checkBadges(m)+'</td><td>'+m.time+'</td><td>'+outCell+'</td><td>'+hoursCell+'</td><td>'+statusPill(m.finalStatus)+'</td><td>'+si+' '+escH(m.site)+'</td><td>'+actionCell+'</td></tr>';
   }
   var nmLabel=r.isWeeklyOff?'Weekly Off':'Not marked';
   for(var j=0;j<notMarked.length;j++){
@@ -1408,7 +1488,7 @@ function renderEmpList(){
   var filtered=ALL_EMPS.filter(function(e){return !q||e.name.toLowerCase().indexOf(q)!==-1||(e.role||'').toLowerCase().indexOf(q)!==-1;});
   var ac=ALL_EMPS.filter(function(e){return e.active;}).length;
   document.getElementById('empCountSub').textContent=ac+' active · '+(ALL_EMPS.length-ac)+' removed · '+ALL_EMPS.length+' total';
-  if(!filtered.length){document.getElementById('empListBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">No match</td></tr>';return;}
+  if(!filtered.length){document.getElementById('empListBody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">No match</td></tr>';return;}
   var rows='';
   for(var i=0;i<filtered.length;i++){
     var e=filtered[i];
@@ -1416,9 +1496,67 @@ function renderEmpList(){
     var action=e.active?'<button class="btn btn-sm btn-danger" onclick="doDeleteEmployee(\''+escH(e.name)+'\')">🗑️ Remove</button>':'<button class="btn btn-sm btn-ghost" onclick="doReactivate(\''+escH(e.name)+'\',\''+escH(e.role||'')+'\')">↩️ Restore</button>';
     var pl=(e.places&&e.places.length)?escH(e.places.join(', ')):'<span style="color:#94a3b8">Any work place</span>';
     var plBtn=e.active?' <button class="btn btn-sm btn-ghost" onclick="openPlaces(\''+ALL_EMPS.indexOf(e)+'\')">📍 Edit</button>':'';
-    rows+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'—')+'</td><td>'+pl+plBtn+'</td><td>'+pill+'</td><td>'+escH(e.addedOn||'—')+'</td><td style="text-align:right">'+action+'</td></tr>';
+    var fc=(e.faces?'<span class="pill green">📷 '+e.faces+'</span>':'<span class="pill red">None</span>')+(e.active?' <button class="btn btn-sm btn-ghost" onclick="openFaces('+ALL_EMPS.indexOf(e)+')">📷 Photos</button>':'');
+    rows+='<tr><td><strong>'+escH(e.name)+'</strong></td><td>'+escH(e.role||'—')+'</td><td>'+pl+plBtn+'</td><td>'+fc+'</td><td>'+pill+'</td><td>'+escH(e.addedOn||'—')+'</td><td style="text-align:right">'+action+'</td></tr>';
   }
   document.getElementById('empListBody').innerHTML=rows;
+}
+/* ─── reference face photos ─── */
+var FACE_EMP='';
+function openFaces(idx){
+  var e=ALL_EMPS[idx]; if(!e) return;
+  FACE_EMP=e.name; document.getElementById('faceSub').textContent=e.name+(e.role?' — '+e.role:'');
+  document.getElementById('faceFile').value=''; document.getElementById('faceModal').style.display='flex'; loadFaces();
+}
+function closeFaces(){ document.getElementById('faceModal').style.display='none'; loadEmployeeList(); }
+function loadFaces(){
+  var box=document.getElementById('faceList'); box.innerHTML='<span style="color:#94a3b8">Loading…</span>';
+  VT.run
+    .withSuccessHandler(function(r){
+      if(!r||r.status!=='ok'){ box.innerHTML='<span style="color:#dc2626">'+escH((r&&r.msg)||'Could not load')+'</span>'; return; }
+      var h=r.faces.map(function(f){
+        return '<div style="text-align:center;font-size:.65rem;color:#6b7280">'+(f.url?'<a href="'+escH(f.url)+'" target="_blank" rel="noopener"><img src="'+escH(f.url)+'" style="height:96px;width:96px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;display:block"></a>'
+          :'<div style="height:96px;width:96px;border-radius:10px;border:1px dashed #cbd5e1;display:flex;align-items:center;justify-content:center">saved</div>')
+          +f.addedOn+'<br><button class="btn btn-sm btn-danger" onclick="deleteFace('+f.id+')">🗑️</button></div>';
+      }).join('');
+      box.innerHTML=h||'<span style="color:#b45309">Abhi koi photo nahi — attendance ki selfie match nahi ho paegi.</span>';
+      if(r.available===false) box.innerHTML+='<div style="flex-basis:100%;color:#b45309;font-size:.78rem">⚠️ Face matching server par abhi installed nahi hai — photos save ho jaengi par match tab tak off rahega.</div>';
+      document.getElementById('faceAddBtn').disabled=(r.faces.length>=(r.max||5));
+    })
+    .withFailureHandler(function(){ box.innerHTML='<span style="color:#dc2626">Connection error</span>'; })
+    .getEmployeeFaces(PWD,FACE_EMP);
+}
+function uploadFace(){
+  var f=document.getElementById('faceFile').files[0];
+  if(!f){ toast('Pehle photo chuno','err'); return; }
+  var btn=document.getElementById('faceAddBtn'); btn.disabled=true; btn.textContent='Checking…';
+  var rd=new FileReader();
+  rd.onerror=function(){ btn.disabled=false; btn.textContent='➕ Add photo'; toast('Photo padh nahi paye','err'); };
+  rd.onload=function(ev){
+    var img=new Image();
+    img.onload=function(){
+      var w=img.width,h=img.height,M=1280; if(w>M||h>M){ if(w>=h){h=Math.round(h*(M/w));w=M;}else{w=Math.round(w*(M/h));h=M;} }
+      var cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
+      VT.run
+        .withSuccessHandler(function(r){
+          btn.disabled=false; btn.textContent='➕ Add photo';
+          if(r.status==='ok'){ toast('✅ Photo added','ok'); document.getElementById('faceFile').value=''; loadFaces(); }
+          else toast('❌ '+(r.msg||'Failed'),'err');
+        })
+        .withFailureHandler(function(){ btn.disabled=false; btn.textContent='➕ Add photo'; toast('Connection error','err'); })
+        .addEmployeeFace(PWD,FACE_EMP,cv.toDataURL('image/jpeg',0.9));
+    };
+    img.onerror=function(){ btn.disabled=false; btn.textContent='➕ Add photo'; toast('Yeh photo nahi khul rahi','err'); };
+    img.src=ev.target.result;
+  };
+  rd.readAsDataURL(f);
+}
+function deleteFace(id){
+  if(!confirm('Delete this photo?')) return;
+  VT.run
+    .withSuccessHandler(function(r){ if(r.status==='ok'){ toast('🗑️ Deleted','ok'); loadFaces(); } else toast('❌ '+(r.msg||'Failed'),'err'); })
+    .withFailureHandler(function(){ toast('Connection error','err'); })
+    .deleteEmployeeFace(PWD,id);
 }
 function doAddEmployee(){
   var name=document.getElementById('newEmpName').value.trim();

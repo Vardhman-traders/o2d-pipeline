@@ -170,7 +170,7 @@ entries:
       - tests/test_client_feedback.py::test_under_processing_card_counts_and_filters_like_a_stage
       - tests/test_client_feedback.py::test_cartage_follows_the_date_of_receiving_not_the_order_or_delivery_date
       - tests/test_client_feedback.py::test_daily_delivery_reports_are_built_stored_listed_and_downloadable
-      - tests/test_client_feedback.py::test_scheduler_runs_the_day_once_after_7_30_pm_only
+      - tests/test_client_feedback.py::test_scheduler_runs_the_day_once_after_7_pm_only
       - tests/test_client_feedback_ui.py::test_godown_receiving_date_starts_as_today_and_shop_dispatch_second_box_is_received
       - tests/test_client_feedback_ui.py::test_overview_under_processing_card_filters_the_board_and_the_shop_box_keeps_tracking
       - tests/test_client_feedback_ui.py::test_purchase_dates_start_as_today

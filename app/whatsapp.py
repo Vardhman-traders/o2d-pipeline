@@ -105,6 +105,14 @@ ALERTS: dict[str, dict] = {
         "sample": {"icon": "🟢", "name": "Ramesh Kumar", "time": "09:12 AM", "status": "Present", "site_icon": "🏭", "site": "Godown", "dist": " (12m)", "date": "19 Oct 2026"},
         "template": ("{icon} *CHECK-IN* — Code Blue\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *Time:* {time}\n📊 *Status:* {status}\n"
                      "{site_icon} *Location:* {site}{dist}\n📅 *Date:* {date}\n" + RULE)},
+    "att_review": {
+        "label": "Attendance - punch to review", "group_label": "Attendance group", "group_from": "att_checkin", "app_title": "Attendance to review: {name}",
+        "when": "When a check-in / check-out looks doubtful: the selfie does not look like the employee's reference photos, the same photo was used before, "
+                "or the same phone was used for another employee that day. Every admin also gets it on the web bell. Review it on the Attendance owner dashboard > Today.",
+        "placeholders": {"name": "Employee", "kind": "Check-in / Check-out", "time": "Time (12-hour)", "date": "Date (dd Mon yyyy)", "reason": "What looked wrong"},
+        "sample": {"name": "Ramesh Kumar", "kind": "Check-in", "time": "09:12 AM", "date": "19 Oct 2026", "reason": "The selfie does not look like Ramesh Kumar's reference photos"},
+        "template": ("⚠️ *ATTENDANCE TO REVIEW* — Code Blue\n" + RULE + "\n👤 *Naam:* {name}\n🕐 *{kind}:* {time}\n❗ {reason}\n📅 *Date:* {date}\n"
+                     "Please check it on the Attendance dashboard > Today.\n" + RULE)},
     "att_checkout": {
         "label": "Attendance - check-out message", "group_label": "Attendance group", "group_from": "att_checkin",
         "when": "When an employee checks out, or the owner checks someone out by hand. Empty group = the check-in group.",

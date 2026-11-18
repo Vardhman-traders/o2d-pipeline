@@ -4,7 +4,7 @@ services:
     name: vardhman-api
     runtime: python
     plan: starter         # paid plan: no idle sleep, more headroom for concurrent connections
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && (python -m app.face_match download || true)   # the face models for attendance (a failure only switches the face check off)
     preDeployCommand: python migrate.py   # applies new migrations before each release; a failure stops the deploy
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health

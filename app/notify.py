@@ -19,7 +19,7 @@ log = logging.getLogger("notify")
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 ANY = auth.require_roles(*roles.ALL_ROLES)
 BACKGROUND = os.environ.get("VT_NOTIFY_INLINE") != "1"      # the tests send inline so they can look at the result
-MODULE_OF = {"deleg": "delegation", "chk": "checklist"}
+MODULE_OF = {"deleg": "delegation", "chk": "checklist", "att": "attendance"}
 
 
 def _log(alert_key: str, channel: str, recipient: str, ok: bool, detail: str = "") -> None:

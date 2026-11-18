@@ -15,13 +15,13 @@ def test_untagged_employee_marks_from_anywhere_and_the_row_has_no_work_place(cli
     _employee(client, admin, "Roaming Person")
     check = pub(client, "checkLocation", *FAR, "Roaming Person")
     assert check["status"] == "ok" and check["anywhere"] is True and "Anywhere" in check["site"]
-    saved = pub(client, "saveAttendance", {"name": "Roaming Person", "lat": FAR[0], "lng": FAR[1]})
+    saved = pub(client, "saveAttendance", {"name": "Roaming Person", "lat": FAR[0], "lng": FAR[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})
     assert saved["status"] == "ok" and "Anywhere" in saved["site"]
     with db_conn.cursor() as cur:
         cur.execute("SELECT a.location_key FROM fact_attendance a JOIN dim_att_employee e ON e.employee_key = a.employee_key "
                     "WHERE e.employee_name = 'Roaming Person'")
         assert [r[0] for r in cur.fetchall()] == [None]
-    out = pub(client, "saveCheckout", {"name": "Roaming Person", "lat": FAR[0], "lng": FAR[1]})
+    out = pub(client, "saveCheckout", {"name": "Roaming Person", "lat": FAR[0], "lng": FAR[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})
     assert out["status"] == "ok"
 
 
@@ -40,4 +40,4 @@ def test_tagged_employee_is_still_held_to_their_work_place(client, db_conn, seed
     assert pub(client, "checkLocation", *FAR, "Fixed Person")["status"] == "wrong_location"
     assert pub(client, "saveAttendance", {"name": "Fixed Person", "lat": FAR[0], "lng": FAR[1]})["status"] == "wrong_location"
     assert pub(client, "saveAttendance", {"name": "Fixed Person", "lat": SHOP[0], "lng": SHOP[1]})["status"] == "wrong_location"
-    assert pub(client, "saveAttendance", {"name": "Fixed Person", "lat": GODOWN[0], "lng": GODOWN[1]})["status"] == "ok"
+    assert pub(client, "saveAttendance", {"name": "Fixed Person", "lat": GODOWN[0], "lng": GODOWN[1], "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="})["status"] == "ok"
