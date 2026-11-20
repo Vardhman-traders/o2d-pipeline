@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Delete exported data</title>
+<link rel="stylesheet" href="/admin/vault/delete/page.css">
+</head>
+<body>
+<h1>Delete the exported data from this server</h1>
+<p class="warn">This permanently removes all orders, payments, expenses, purchases and VT Decor data (and their stored photos) from THIS server.
+It cannot be undone here. It is only allowed after an export was uploaded, checked and confirmed, and nothing has changed since.
+Attendance, salary, logins, settings and the customer and reference lists are never touched.</p>
+
+<h2>Step 1: Preview (deletes nothing)</h2>
+<label>Export password <input id="pw" type="password" autocomplete="off"></label>
+<label>Authenticator code <input id="otp" type="text" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+<label><input type="checkbox" id="files" checked> Also delete the stored photo and document files</label>
+<button id="preview">Preview</button>
+<pre id="out"></pre>
+
+<h2>Step 2: Delete</h2>
+<p>Needs a preview that is old enough (the cooling-off time) and still valid. Type the phrase exactly, tick the box, then enter the password and a <b>new</b> code above.</p>
+<label>Preview id <input id="plan" type="text" autocomplete="off"></label>
+<label>Type exactly: <b id="phrase">DELETE ALL ORDERS AND MONEY DATA</b> <input id="typed" type="text" autocomplete="off"></label>
+<label><input type="checkbox" id="backups"> I understand database backups and storage versions keep the old data until they expire</label>
+<button id="go">Delete permanently</button>
+<pre id="done"></pre>
+<script src="/admin/vault/delete/page.js"></script>
+</body>
+</html>

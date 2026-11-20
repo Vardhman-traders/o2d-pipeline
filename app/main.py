@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import (access, admin, admin_tools, attachments, auth, challans, checklist, config, db, delegation, expenses, module_admin, o2d_cartage,
                o2d_cashier, o2d_reports, o2d_screens, payment_merge, payments, purchase, decor, attendance, attendance_pdf, doc_check, reconcile, roles, data_tools,
-               timeline, doc_numbers, whatsapp, daily_reports, notify)
+               timeline, doc_numbers, whatsapp, daily_reports, notify, vault_delete, vault_export)
 
 
 @asynccontextmanager
@@ -619,6 +619,10 @@ app.include_router(o2d_reports.router)
 app.include_router(admin.router)
 app.include_router(admin_tools.router)
 app.include_router(reconcile.router)
+if vault_export.enabled():   # off unless VAULT_EXPORT_ENABLED=1 and fully configured; otherwise these routes do not exist at all
+    app.include_router(vault_export.router)
+    if vault_delete.enabled():   # a second, separate switch (VAULT_DELETE_ENABLED=1) for the guarded delete
+        app.include_router(vault_delete.router)
 app.include_router(access.router)
 app.include_router(access.public_router)
 app.include_router(admin.public_router)

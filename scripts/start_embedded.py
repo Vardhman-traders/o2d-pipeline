@@ -4,6 +4,7 @@ Used by start_local_test_embedded.bat. Everything is local; nothing touches Rend
 (the script copies the time-zone files pgserver lacks, which the app needs for Asia/Kolkata).
 """
 import atexit
+import os
 import shutil
 import subprocess
 import sys
@@ -91,5 +92,6 @@ print("Stop the server with Ctrl+C in this window: the database is shut down pro
 
 import run_local  # noqa: E402
 
-sys.argv = [sys.argv[0], "--no-docker", "--db-url", base + "/vt_dev", *sys.argv[1:]]
+db_name = os.environ.get("VT_DB_NAME", "vt_dev")   # an automated test sets VT_DB_NAME to use its own database
+sys.argv = [sys.argv[0], "--no-docker", "--db-url", base + "/" + db_name, *sys.argv[1:]]
 run_local.main()

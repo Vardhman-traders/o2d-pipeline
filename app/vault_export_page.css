@@ -1,0 +1,6 @@
+body{font:16px system-ui,sans-serif;margin:2rem auto;max-width:36rem;padding:0 16px;color:#1b1b1b}
+label{display:block;margin:.9rem 0 .25rem}
+input[type=password],input[type=text]{width:100%;padding:.5rem;box-sizing:border-box}
+button{padding:.55rem 1rem;margin:.6rem .5rem 0 0}
+pre{white-space:pre-wrap;background:#f4f4f4;padding:.75rem;border-radius:6px}
+.warn{background:#fff4e5;border:1px solid #e0a040;padding:.6rem .8rem;border-radius:6px}
