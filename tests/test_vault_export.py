@@ -107,7 +107,7 @@ def test_snapshot_has_only_allowed_tables_and_matching_counts(client, db_conn, s
     lite.deserialize(data)
     names = {r[0] for r in lite.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     expected = set(vault_export.tables_for(vault_export.SELECTABLE_GROUPS))
-    assert names == expected | {"_vault_meta", "_vault_tables", "_vault_columns", "_vault_files", "_vault_tombstones"}
+    assert names == expected | {"_vault_meta", "_vault_tables", "_vault_columns", "_vault_files", "_vault_tombstones", "_vault_packs", "_vault_manifest"}
     assert not (names & vault_export.EXCLUDED)
     cols = [r[1] for r in lite.execute("PRAGMA table_info(dim_user)")]
     assert cols == ["user_key", "username", "display_name", "role"]

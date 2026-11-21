@@ -322,7 +322,9 @@ def build_snapshot(database_url: str, groups, pack_writer=None, progress=None, *
             "CREATE TABLE _vault_tables (name TEXT PRIMARY KEY, row_count INTEGER, digest TEXT, sums TEXT, row_filter TEXT, key_columns TEXT, delta_rows INTEGER, tombstones INTEGER);"
             "CREATE TABLE _vault_tombstones (table_name TEXT, row_key TEXT);"
             "CREATE TABLE _vault_files (file_id TEXT, source TEXT, attachment_key INTEGER, batch_no INTEGER, pack INTEGER, offset INTEGER, length INTEGER, size INTEGER, sha256 TEXT, status TEXT);"
-            "CREATE TABLE _vault_columns (table_name TEXT, ordinal INTEGER, column_name TEXT, pg_type TEXT);")
+            "CREATE TABLE _vault_columns (table_name TEXT, ordinal INTEGER, column_name TEXT, pg_type TEXT);"
+            "CREATE TABLE _vault_packs (batch_no INTEGER, pack INTEGER, sha256 TEXT, size INTEGER);"      # which uploaded pack file is which, by checksum
+            "CREATE TABLE _vault_manifest (key TEXT PRIMARY KEY, value TEXT);")                            # what the other side shows (see vault_manifest)
         report: dict[str, dict] = {}
         delta = base_state is not None
         if delta and fp_key is None:
@@ -401,6 +403,7 @@ def build_snapshot(database_url: str, groups, pack_writer=None, progress=None, *
         if pack_writer is not None:
             total = _add_attachments(lite, tables, pack_writer, progress, new_keys if delta else None, batch_no)
             packs = pack_writer.finish()
+            lite.executemany("INSERT INTO _vault_packs VALUES (?,?,?,?)", [(batch_no, i, p["sha256"], p["size"]) for i, p in enumerate(packs)])
             attach_meta = {**pack_writer.counts, "listed": total, "packs": len(packs)}
         meta: dict = {
             "format": PAYLOAD_FORMAT, "kind": "delta" if delta else "full", "batch_no": str(batch_no), "base_batch": str(base_batch),
@@ -412,6 +415,8 @@ def build_snapshot(database_url: str, groups, pack_writer=None, progress=None, *
         if attach_meta is not None:
             meta["attachments"] = attach_meta
         lite.executemany("INSERT INTO _vault_meta VALUES (?,?)", [(k, json.dumps(v) if isinstance(v, (list, dict)) else v) for k, v in meta.items()])
+        from . import vault_manifest
+        lite.execute("INSERT INTO _vault_manifest VALUES ('dashboards', ?)", (vault_manifest.build_json(),))
         lite.commit()
         data = lite.serialize()
         lite.close()
