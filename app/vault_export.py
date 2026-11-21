@@ -45,7 +45,7 @@ from .admin import ADMIN, audit
 log = logging.getLogger("vault_export")
 
 PAYLOAD_FORMAT = "vault-payload-1"
-EXPORT_DIR = Path(os.environ.get("VAULT_EXPORT_DIR", "/tmp/vault-export"))
+EXPORT_DIR = Path(os.environ.get("VAULT_EXPORT_DIR", "/tmp/vault-export"))  # nosec B108 - encrypted files only, random names, mode 0600, folder mode 0700, location configurable
 FILE_TTL_SECONDS = 30 * 60
 
 # ------------------------------------------------------------------ what is exported
@@ -292,7 +292,7 @@ def _add_attachments(lite, tables, writer, progress, only_new=None, batch_no=0) 
     rows = []
     for t in ATTACHMENT_TABLES:
         if t in tables:
-            for r in lite.execute(f"SELECT attachment_key, object_key, sha256 FROM {_q(t)} WHERE object_key IS NOT NULL").fetchall():
+            for r in lite.execute(f"SELECT attachment_key, object_key, sha256 FROM {_q(t)} WHERE object_key IS NOT NULL").fetchall():  # nosec B608 - table and column names from our own allowlist, always quoted
                 if only_new is None or row_key_text([r[0]]) in only_new.get(t, ()):   # a delta carries only files the other side has not got
                     rows.append((t, *r))
     for i, (t, key, obj, sha) in enumerate(rows):
@@ -352,7 +352,7 @@ def build_snapshot(database_url: str, groups, pack_writer=None, progress=None, *
                 fps: dict[str, bytes] = {}
                 fresh: set = set()
                 digest, count, sent = 0, 0, 0
-                insert = f"INSERT INTO {_q(table)} VALUES ({', '.join('?' * len(cols))})"
+                insert = f"INSERT INTO {_q(table)} VALUES ({', '.join('?' * len(cols))})"  # nosec B608 - table and column names from our own allowlist, always quoted
                 with pg.cursor(name="vault_" + secrets.token_hex(4)) as stream:
                     stream.itersize = 5000
                     where, params = row_filter(table, groups)
@@ -486,7 +486,7 @@ def _run(jid: str, admin: dict, groups, with_files: bool = False, mode: str = "a
                                        fp_key=key, base_state=base_state, batch_no=batch_no, base_batch=base_batch)
         blob, export_id = vault_crypto.encrypt_export(plain, public_key())
         del plain
-        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)   # owner only; the files in it are 0600 and encrypted
         path = EXPORT_DIR / (secrets.token_hex(12) + ".bin")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as f:

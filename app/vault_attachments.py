@@ -36,7 +36,7 @@ class PackWriter:
 
     def _open_pack(self) -> None:
         self.close_pack()
-        self.dir.mkdir(parents=True, exist_ok=True)
+        self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.dir / (secrets.token_hex(12) + ".bin")
         self._f = os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
         self._hash, self._size = hashlib.sha256(), 0

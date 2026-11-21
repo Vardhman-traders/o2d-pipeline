@@ -46,26 +46,26 @@ _IN_OUT = "JOIN dim_txn_type y ON y.txn_type_key = t.txn_type_key"
 
 def build() -> dict:
     order_kpis = {"type": "kpis", "items": [
-        kpi("Orders", f"SELECT count(*) FROM {ORDERS}"),
-        kpi("Cancelled", f"SELECT count(*) FROM {ORDERS} WHERE stage = 'Cancelled'"),
-        kpi("Delivered", f"SELECT count(*) FROM {ORDERS} WHERE material_delivery_datetime IS NOT NULL AND stage <> 'Cancelled'"),
-        kpi("Closed", f"SELECT count(*) FROM {ORDERS} WHERE stage = 'Closed'"),
-        kpi("Amount received", f"SELECT COALESCE(SUM(CAST(amount_received AS REAL)), 0) FROM {ORDERS}", "money"),
-        kpi("Cartage", f"SELECT COALESCE(SUM(CAST(cartage AS REAL)), 0) FROM {ORDERS}", "money"),
-        kpi("Average hours to deliver", f"SELECT AVG(CAST(hours_to_deliver AS REAL)) FROM {ORDERS} WHERE hours_to_deliver IS NOT NULL", "hours"),
-        kpi("Delivered within 24 hours", f"SELECT 100.0 * SUM(CASE WHEN CAST(hours_to_deliver AS REAL) <= 24 THEN 1 ELSE 0 END) / NULLIF(COUNT(hours_to_deliver), 0) FROM {ORDERS} WHERE hours_to_deliver IS NOT NULL", "pct"),
+        kpi("Orders", f"SELECT count(*) FROM {ORDERS}"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Cancelled", f"SELECT count(*) FROM {ORDERS} WHERE stage = 'Cancelled'"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Delivered", f"SELECT count(*) FROM {ORDERS} WHERE material_delivery_datetime IS NOT NULL AND stage <> 'Cancelled'"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Closed", f"SELECT count(*) FROM {ORDERS} WHERE stage = 'Closed'"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Amount received", f"SELECT COALESCE(SUM(CAST(amount_received AS REAL)), 0) FROM {ORDERS}", "money"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Cartage", f"SELECT COALESCE(SUM(CAST(cartage AS REAL)), 0) FROM {ORDERS}", "money"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Average hours to deliver", f"SELECT AVG(CAST(hours_to_deliver AS REAL)) FROM {ORDERS} WHERE hours_to_deliver IS NOT NULL", "hours"),  # nosec B608 - constant text composed from constants; never any outside input
+        kpi("Delivered within 24 hours", f"SELECT 100.0 * SUM(CASE WHEN CAST(hours_to_deliver AS REAL) <= 24 THEN 1 ELSE 0 END) / NULLIF(COUNT(hours_to_deliver), 0) FROM {ORDERS} WHERE hours_to_deliver IS NOT NULL", "pct"),  # nosec B608 - constant text composed from constants; never any outside input
     ]}
 
     def count_by(title, column):
-        return bars(title, f"SELECT {_by(column)} AS label, count(*) AS value FROM {ORDERS} GROUP BY 1 ORDER BY 2 DESC LIMIT 12")
+        return bars(title, f"SELECT {_by(column)} AS label, count(*) AS value FROM {ORDERS} GROUP BY 1 ORDER BY 2 DESC LIMIT 12")  # nosec B608 - constant text composed from constants; never any outside input
 
     orders_tab = {"id": "orders", "title": "Orders", "blocks": [
         order_kpis,
-        line("Orders per day (latest 60 days)", f"SELECT order_date AS x, count(*) AS y FROM {ORDERS} WHERE order_date IS NOT NULL GROUP BY order_date ORDER BY order_date DESC LIMIT 60"),
-        line("Amount received per day (latest 60 days)", f"SELECT order_date AS x, SUM(CAST(amount_received AS REAL)) AS y FROM {ORDERS} WHERE order_date IS NOT NULL GROUP BY order_date ORDER BY order_date DESC LIMIT 60", "money"),
+        line("Orders per day (latest 60 days)", f"SELECT order_date AS x, count(*) AS y FROM {ORDERS} WHERE order_date IS NOT NULL GROUP BY order_date ORDER BY order_date DESC LIMIT 60"),  # nosec B608 - constant text composed from constants; never any outside input
+        line("Amount received per day (latest 60 days)", f"SELECT order_date AS x, SUM(CAST(amount_received AS REAL)) AS y FROM {ORDERS} WHERE order_date IS NOT NULL GROUP BY order_date ORDER BY order_date DESC LIMIT 60", "money"),  # nosec B608 - constant text composed from constants; never any outside input
         count_by("Orders by stage", "stage"), count_by("Orders by delivery status", "delivery_status"), count_by("Orders by payment status", "payment_status"),
         count_by("Orders by channel", "channel"), count_by("Orders by type", "submission_type"),
-        table("Latest orders", f"SELECT sl_no, dc_inv_no, order_date, stage, delivery_status, payment_status, amount_received FROM {ORDERS} ORDER BY order_date DESC, sl_no DESC LIMIT 15",
+        table("Latest orders", f"SELECT sl_no, dc_inv_no, order_date, stage, delivery_status, payment_status, amount_received FROM {ORDERS} ORDER BY order_date DESC, sl_no DESC LIMIT 15",  # nosec B608 - constant text composed from constants; never any outside input
               [col("sl_no", "Sl no", "int"), col("dc_inv_no", "Bill no"), col("order_date", "Date", "date"), col("stage"), col("delivery_status", "Delivery"), col("payment_status", "Payment"), col("amount_received", "Amount", "money")]),
     ]}
 
@@ -78,7 +78,7 @@ def build() -> dict:
         "search": ["sl_no", "dc_inv_no", "channel", "submission_type", "delivery_status", "payment_status", "stage", "shipping_location", "detailed_remarks", "ready_by", "delivered_by", "created_by"],
         "order": "order_date DESC, sl_no DESC",
         "detail": {"title": "Order", "sections": [
-            {"type": "fields", "title": "Order", "sql": f"SELECT * FROM {ORDERS} WHERE order_key = :key",
+            {"type": "fields", "title": "Order", "sql": f"SELECT * FROM {ORDERS} WHERE order_key = :key",  # nosec B608 - constant text composed from constants; never any outside input
              "formats": {"amount_received": "money", "cartage": "money", "amount_received_entered": "money", "hours_to_deliver": "hours", "order_date": "date",
                          "timestamp_created": "datetime", "material_delivery_datetime": "datetime", "last_updated_at": "datetime", "date_of_receiving": "date", "archived_at": "datetime"},
              "hide": ["order_key", "is_cancelled", "delivered_by_phone", "delivered_by_detail"]},
@@ -89,7 +89,7 @@ def build() -> dict:
             {"type": "files", "title": "Photos and documents", "source": "order_attachments", "sql": "SELECT attachment_key AS id, kind || ' · ' || COALESCE(uploaded_by, '') AS label FROM order_attachments WHERE order_key = :key ORDER BY attachment_key"},
         ]}}}
 
-    paid = f"SELECT SUM(CAST(t.amount AS REAL)) FROM fact_payment_txn t {_IN_OUT} WHERE t.status = 'Approved' AND y.direction = "
+    paid = f"SELECT SUM(CAST(t.amount AS REAL)) FROM fact_payment_txn t {_IN_OUT} WHERE t.status = 'Approved' AND y.direction = "  # nosec B608 - constant text composed from constants; never any outside input
     money_kpis = {"type": "kpis", "items": [
         kpi("Payment entries", "SELECT count(*) FROM fact_payment_txn"),
         kpi("Waiting for approval", "SELECT count(*) FROM fact_payment_txn WHERE status = 'Pending'"),
@@ -105,7 +105,7 @@ def build() -> dict:
         money_kpis,
         line("Money in per month (approved)", per_month.format(amt="t.amount", src="fact_payment_txn t " + _IN_OUT, datekey="t.txn_date_key", where="WHERE t.status = 'Approved' AND y.direction = 'in'"), "money"),
         line("Money out per month (approved)", per_month.format(amt="t.amount", src="fact_payment_txn t " + _IN_OUT, datekey="t.txn_date_key", where="WHERE t.status = 'Approved' AND y.direction = 'out'"), "money"),
-        bars("Payments by type (amount)", "SELECT y.type_name AS label, SUM(CAST(t.amount AS REAL)) AS value FROM fact_payment_txn t " + _IN_OUT + " WHERE t.status = 'Approved' GROUP BY 1 ORDER BY 2 DESC LIMIT 12", "money"),
+        bars("Payments by type (amount)", "SELECT y.type_name AS label, SUM(CAST(t.amount AS REAL)) AS value FROM fact_payment_txn t " + _IN_OUT + " WHERE t.status = 'Approved' GROUP BY 1 ORDER BY 2 DESC LIMIT 12", "money"),  # nosec B608 - constant text composed from constants; never any outside input
         bars("Payments by mode (amount)", "SELECT COALESCE(m.mode_name, '(none)') AS label, SUM(CAST(t.amount AS REAL)) AS value FROM fact_payment_txn t LEFT JOIN dim_payment_mode m ON m.mode_key = t.mode_key WHERE t.status = 'Approved' GROUP BY 1 ORDER BY 2 DESC LIMIT 12", "money"),
         bars("Payments by company (amount)", "SELECT COALESCE(c.company_name, '(none)') AS label, SUM(CAST(t.amount AS REAL)) AS value FROM fact_payment_txn t LEFT JOIN dim_company c ON c.company_key = t.company_key WHERE t.status = 'Approved' GROUP BY 1 ORDER BY 2 DESC LIMIT 12", "money"),
         line("Expenses per month", per_month.format(amt="e.amount", src="fact_expense_entry e", datekey="e.entry_date_key", where="WHERE e.voided_at IS NULL AND e.kind <> 'Topup'"), "money"),
