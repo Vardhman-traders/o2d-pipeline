@@ -1,6 +1,18 @@
-body{font:16px system-ui,sans-serif;margin:2rem auto;max-width:36rem;padding:0 16px;color:#1b1b1b}
-label{display:block;margin:.9rem 0 .25rem}
-input[type=password],input[type=text]{width:100%;padding:.5rem;box-sizing:border-box}
-button{padding:.55rem 1rem;margin:.6rem .5rem 0 0}
-pre{white-space:pre-wrap;background:#f4f4f4;padding:.75rem;border-radius:6px}
-.warn{background:#fff4e5;border:1px solid #e0a040;padding:.6rem .8rem;border-radius:6px}
+:root{--bg:#f3f5f8;--card:#fff;--fg:#17202e;--muted:#5b6678;--line:#d9dfe8;--accent:#1f5fbf;--accent-fg:#fff;--warn-bg:#fff4e0;--warn-line:#e3a53a;--out-bg:#0f1724;--out-fg:#d6e2f5;--danger:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#0f141c;--card:#18202c;--fg:#e8edf5;--muted:#97a3b6;--line:#2b3546;--accent:#6aa3ff;--accent-fg:#0b1220;--warn-bg:#2b2310;--warn-line:#8a6a1c;--out-bg:#090d14;--out-fg:#cfe0f7;--danger:#ff8a80;color-scheme:dark}}
+body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0 auto;max-width:40rem;padding:1.5rem 16px 3rem;background:var(--bg);color:var(--fg)}
+h1{font-size:1.5rem;margin:.2rem 0 .8rem}
+h2{font-size:1.1rem;margin:2rem 0 .4rem;padding-top:1rem;border-top:1px solid var(--line)}
+p{color:var(--muted)}
+label{display:block;margin:.9rem 0 .25rem;font-weight:500}
+fieldset label{font-weight:400;margin:.35rem 0}
+fieldset{border:1px solid var(--line);border-radius:10px;background:var(--card);margin-top:1.2rem;padding:.4rem 1rem .8rem}
+legend{padding:0 .4rem;font-weight:600}
+input[type=password],input[type=text]{width:100%;padding:.6rem .7rem;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button{padding:.6rem 1.1rem;margin:.9rem .5rem 0 0;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:var(--accent-fg);font:inherit;font-weight:600;cursor:pointer}
+button#plan,button#batches{background:transparent;color:var(--accent)}
+button:hover{filter:brightness(1.08)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--out-bg);color:var(--out-fg);padding:.9rem 1rem;border-radius:10px;min-height:1.5rem;font:13px/1.55 ui-monospace,Consolas,monospace}
+pre:empty{display:none}
+.warn{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--fg);padding:.7rem .9rem;border-radius:10px}
