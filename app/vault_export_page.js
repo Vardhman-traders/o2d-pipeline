@@ -4,7 +4,8 @@ if (!token) out.textContent = 'You are not signed in. Sign in to the main app as
 const body = () => JSON.stringify({
   password: document.getElementById('pw').value, totp: document.getElementById('otp').value,
   groups: [...document.querySelectorAll('.g:checked')].map(x => x.value),
-  attachments: document.getElementById('files').checked});
+  attachments: document.getElementById('files').checked,
+  mode: document.getElementById('full').checked ? 'full' : 'auto'});
 const call = (path, opt) => fetch('/admin/vault' + path, {...opt, headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'}});
 const save = async (path, name) => {
   const d = await call(path); const blob = await d.blob(); const a = document.createElement('a');
