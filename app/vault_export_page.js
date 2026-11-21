@@ -1,4 +1,7 @@
 const token = sessionStorage.getItem('vt_token');
+const why = (s) => s === 401 ? 'Not signed in on this page (401). Sign in to the main app in THIS tab, using the SAME address as this page (for example 127.0.0.1:8021, not localhost), then open this page again in the same tab.'
+  : s === 403 ? 'Refused (403): the export password or the code was wrong, or that code was already used (wait for a new one), or there were too many tries.'
+  : s === 409 ? 'Refused (409): an export is already running, or this action is not allowed right now.' : 'Refused (' + s + ')';
 const out = document.getElementById('out');
 if (!token) out.textContent = 'You are not signed in. Sign in to the main app as an admin in THIS browser tab, then open this page again in the same tab.';
 const body = () => JSON.stringify({
@@ -15,14 +18,14 @@ const clearSecrets = () => { document.getElementById('pw').value = ''; document.
 document.getElementById('plan').onclick = async () => {
   out.textContent = 'Working...';
   const r = await call('/plan', {method: 'POST', body: body()}); clearSecrets();
-  if (!r.ok) { out.textContent = 'Refused (' + r.status + ')'; return; }
+  if (!r.ok) { out.textContent = why(r.status); return; }
   const j = await r.json();
   out.textContent = Object.entries(j.tables).map(([t, n]) => t + ': ' + n).join('\n') + '\n\nNever exported: ' + j.never_exported.join(', ');
 };
 const bout = document.getElementById('bout');
 document.getElementById('batches').onclick = async () => {
   const r = await call('/batches');
-  if (!r.ok) { bout.textContent = 'Refused (' + r.status + ')'; return; }
+  if (!r.ok) { bout.textContent = why(r.status); return; }
   const rows = await r.json();
   bout.textContent = rows.length ? rows.map(b => 'batch ' + b.batch_no + '  ' + b.kind + (b.kind === 'delta' ? ' (on ' + b.base_batch + ')' : '') + '  ' + b.status + '  ' + b.created_at.slice(0, 19)).join('\n') : 'No batches yet.';
 };
@@ -31,12 +34,12 @@ document.getElementById('confirm').onclick = async () => {
   if (!/^[0-9]+$/.test(n)) { bout.textContent = 'Type the batch number first.'; return; }
   const r = await call('/batches/' + n + '/confirm', {method: 'POST', body: body()}); clearSecrets();
   bout.textContent = r.ok ? 'Batch ' + n + ' confirmed. The next export will only carry what changes after it.' :
-    r.status === 409 ? 'That batch cannot be confirmed (it is not waiting for confirmation).' : r.status === 404 ? 'No such batch.' : 'Refused (' + r.status + ')';
+    r.status === 409 ? 'That batch cannot be confirmed (it is not waiting for confirmation).' : r.status === 404 ? 'No such batch.' : why(r.status);
 };
 document.getElementById('go').onclick = async () => {
   out.textContent = 'Starting...';
   const r = await call('/export', {method: 'POST', body: body()}); clearSecrets();
-  if (!r.ok) { out.textContent = 'Refused (' + r.status + ')'; return; }
+  if (!r.ok) { out.textContent = why(r.status); return; }
   const {job} = await r.json();
   for (;;) {
     await new Promise(res => setTimeout(res, 2000));

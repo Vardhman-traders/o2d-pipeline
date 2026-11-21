@@ -1,4 +1,7 @@
 const token = sessionStorage.getItem('vt_token');
+const why = (s) => s === 401 ? 'Not signed in on this page (401). Sign in to the main app in THIS tab, using the SAME address as this page (for example 127.0.0.1:8021, not localhost), then open this page again in the same tab.'
+  : s === 403 ? 'Refused (403): the export password or the code was wrong, or that code was already used (wait for a new one), or there were too many tries.'
+  : s === 409 ? 'Refused (409): an export is already running, or this action is not allowed right now.' : 'Refused (' + s + ')';
 const out = document.getElementById('out');
 const done = document.getElementById('done');
 if (!token) out.textContent = 'You are not signed in. Sign in to the main app as an admin in THIS browser tab, then open this page again in the same tab.';
@@ -11,7 +14,7 @@ const lines = (obj) => Object.entries(obj).map(([k, v]) => '  ' + k + ': ' + v).
 document.getElementById('preview').onclick = async () => {
   out.textContent = 'Checking...';
   const r = await call('/plan', {...gate(), delete_files: document.getElementById('files').checked}); clearSecrets();
-  if (!r.ok) { out.textContent = 'Refused (' + r.status + ')'; return; }
+  if (!r.ok) { out.textContent = why(r.status); return; }
   const j = await r.json();
   document.getElementById('plan').value = j.plan_id;
   let t = j.can_execute ? 'READY. Nothing has been deleted.\n' : 'BLOCKED. Nothing has been deleted, and nothing can be until this is fixed:\n';
@@ -29,7 +32,7 @@ document.getElementById('go').onclick = async () => {
   const r = await call('/execute', {...gate(), plan_id: document.getElementById('plan').value.trim(),
     phrase: document.getElementById('typed').value, backups_understood: document.getElementById('backups').checked}); clearSecrets();
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { done.textContent = 'Not deleted (' + r.status + '): ' + (j.error || j.detail || 'refused'); return; }
+  if (!r.ok) { done.textContent = 'Not deleted. ' + (r.status === 401 || r.status === 403 ? why(r.status) : (j.error || j.detail || 'refused') + ' (' + r.status + ')'); return; }
   done.textContent = 'DELETED ' + j.rows_total + ' rows in ' + j.seconds + ' s.\n\n' + lines(j.deleted) +
     '\n\nStored files: ' + j.stored_files.deleted + ' deleted, ' + j.stored_files.failed + ' failed' +
     (j.stored_files.failed ? ' (retry later: they are kept on a list)' : '') + '\n' + (j.space.note || 'Disk space was reclaimed.');
