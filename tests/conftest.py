@@ -87,3 +87,12 @@ def db_conn(migrated_db_url):
     yield conn
     conn.rollback()
     conn.close()
+
+
+@pytest.fixture(autouse=True)
+def _attendance_window_open(request, monkeypatch):
+    """Tests punch at any real time of day: the Setup check-in / check-out window is only enforced by tests that ask for it."""
+    if "attendance_window" in request.node.keywords:
+        return
+    from app import attendance
+    monkeypatch.setattr(attendance.Rules, "punch_window_error", lambda self, kind, now: None)

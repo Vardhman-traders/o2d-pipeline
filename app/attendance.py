@@ -57,6 +57,8 @@ class Rules:
         self.auto_out = mins("att_auto_checkout_time")
         self.auto_out_text = f"{self.auto_out // 60:02d}:{self.auto_out % 60:02d}"
         self.auto_run_at = mins("att_auto_run_time")
+        self.earliest_in = mins("att_earliest_checkin")
+        self.latest_out = mins("att_latest_checkout")
         self.off_day = int(val("att_weekly_off_day"))
         self.base_days = int(val("att_salary_base_days"))
         self.link_on = int(val("att_employee_link_on")) == 1
@@ -74,6 +76,16 @@ class Rules:
         except (ValueError, AttributeError):
             h, m = default.split(":")
             return int(h) * 60 + int(m)
+
+    def punch_window_error(self, kind: str, now: datetime) -> str | None:
+        """A sentence when a self check-in is before the earliest time / a self check-out is after the latest time set in Setup, else None."""
+        mins = now.hour * 60 + now.minute
+        fmt = lambda m: datetime(2000, 1, 1, m // 60, m % 60).strftime("%I:%M %p").lstrip("0")  # noqa: E731
+        if kind == "in" and mins < self.earliest_in:
+            return f"Check-in opens at {fmt(self.earliest_in)}. Please try again then."
+        if kind == "out" and mins > self.latest_out:
+            return f"Check-out closed at {fmt(self.latest_out)}. Please ask the admin to correct your attendance."
+        return None
 
     # --- the classification rules, exactly as the script had them
     def checkin_status(self, in_min: int) -> str:
@@ -401,6 +413,60 @@ def get_employees(rules=None) -> list[dict]:
         return [{"name": r["employee_name"], "role": r["role_title"] or ""} for r in cur.fetchall()]
 
 
+FACE_ID_MARGIN = 0.05   # the best match must beat the next different person by this much, or the page asks for the name
+
+
+def _signed_in_employee(user_key) -> dict | None:
+    """The attendance employee linked to the portal user who opened the page (None when nobody is signed in or they are not staff)."""
+    if not user_key:
+        return None
+    with db.cursor() as cur:
+        cur.execute("SELECT employee_name, role_title FROM dim_att_employee WHERE user_key = %s AND is_active", (user_key,))
+        r = cur.fetchone()
+    return {"name": r["employee_name"], "role": r["role_title"] or ""} if r else None
+
+
+def identify_face(data_url, user_key=None) -> dict:
+    """Who is in this selfie? Compared with every active employee's saved reference photos (the attendance page uses it so nobody has to
+    pick a name). {status: 'ok', name, role, score} for one clear match, else {status: 'unknown', reason, available}: the page then asks
+    for the name as before. Never blocks anyone - the punch itself is still checked and flagged by _punch_checks."""
+    photo = _decode_photo(data_url)
+
+    def unmatched(reason: str, available: bool = True) -> dict:
+        """Not recognised: when a staff member is signed in on this phone they are marked as themselves (the punch is flagged and the
+        admins told, see _punch_checks); otherwise nobody can be named and the page asks for a retake."""
+        who = _signed_in_employee(user_key)
+        if who and photo:
+            return {"status": "unmatched", "reason": reason, "available": available, **who}
+        return {"status": "unknown", "reason": reason, "available": available}
+
+    if not photo:
+        return {"status": "unknown", "reason": "no_photo", "available": True}
+    rules = Rules()
+    if not rules.face_on or not face_match.available():
+        return unmatched("unavailable", False)
+    state, vec = face_match.embed(photo)
+    if state == "no_face":
+        return unmatched("no_face")
+    if state != "ok":
+        return unmatched("unavailable", False)
+    best: dict[str, tuple[float, str]] = {}
+    with db.cursor() as cur:
+        cur.execute("SELECT e.employee_name, e.role_title, f.embedding FROM att_employee_face f JOIN dim_att_employee e "
+                    "ON e.employee_key = f.employee_key WHERE e.is_active")
+        for r in cur.fetchall():
+            score = face_match.similarity(vec, r["embedding"])
+            if r["employee_name"] not in best or score > best[r["employee_name"]][0]:
+                best[r["employee_name"]] = (score, r["role_title"] or "")
+    ranked = sorted(best.items(), key=lambda kv: kv[1][0], reverse=True)
+    if not ranked or ranked[0][1][0] < rules.face_threshold:
+        return unmatched("no_match")
+    if len(ranked) > 1 and ranked[0][1][0] - ranked[1][1][0] < FACE_ID_MARGIN:
+        return unmatched("ambiguous")
+    name, (score, role) = ranked[0]
+    return {"status": "ok", "name": name, "role": role, "score": round(score, 2)}
+
+
 def _today_row(cur, emp_key: int, day: date) -> dict | None:
     cur.execute(ROW_SQL + " WHERE a.employee_key = %s AND a.work_date = %s", (emp_key, day))
     return cur.fetchone()
@@ -439,6 +505,9 @@ def save_attendance(data: dict, ip: str = ""):
         if loc["status"] != "ok":
             return {k: v for k, v in loc.items() if k.startswith("dist") or k in ("radius", "status", "msg", "allowed")}
         now = _now()
+        too_early = rules.punch_window_error("in", now)
+        if too_early:
+            return {"status": "error", "msg": too_early}
         existing = _today_row(cur, emp["employee_key"], now.date())
         if existing:
             return {"status": "already_marked", "time": _to12h(_hhmm(existing["check_in_time"])), "rowIndex": existing["attendance_key"]}
@@ -458,7 +527,7 @@ def save_attendance(data: dict, ip: str = ""):
     if photo:
         with db.cursor() as cur:
             cur.execute("UPDATE fact_attendance SET photo_in_key = %s WHERE attendance_key = %s", (photo, key))
-    _punch_checks(emp, key, "in", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules)
+    _punch_checks(emp, key, "in", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules, bool(data.get("unmatched")))
     return {"status": "ok", "time": now.strftime("%I:%M %p"), "dist": loc["dist"],
             "site": loc["site"], "email": "Not logged in", "rowIndex": key, "photoSaved": bool(photo)}
 
@@ -481,6 +550,9 @@ def save_checkout(data: dict, ip: str = ""):
             return {"status": "no_checkin", "msg": "Aaj ka check-in nahi mila"}
         if r["check_out_time"] is not None:
             return {"status": "already_checkout", "time": _to12h(_hhmm(r["check_out_time"])), "rowIndex": r["attendance_key"]}
+        too_late = rules.punch_window_error("out", now)
+        if too_late:
+            return {"status": "error", "msg": too_late}
         photo_bytes = _decode_photo(data.get("photo"))
         if not photo_bytes:
             return {"status": "error", "msg": "Please take your selfie with the camera first."}
@@ -496,7 +568,7 @@ def save_checkout(data: dict, ip: str = ""):
     if photo:
         with db.cursor() as cur:
             cur.execute("UPDATE fact_attendance SET photo_out_key = %s WHERE attendance_key = %s", (photo, key))
-    _punch_checks(emp, key, "out", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules)
+    _punch_checks(emp, key, "out", photo_bytes, data.get("device"), ip, now.date(), now.strftime("%I:%M %p"), rules, bool(data.get("unmatched")))
     return {"status": "ok", "time": now.strftime("%I:%M %p"), "hoursWorked": hours_text, "checkInTime": check_in_text,
             "finalStatus": status, "rowIndex": key, "photoSaved": bool(photo)}
 
@@ -536,7 +608,8 @@ def _tell_review(name: str, kind: str, when_text: str, day: date, reason: str) -
         log.exception("could not send the attendance review notification")
 
 
-def _punch_checks(emp: dict, attendance_key: int, kind: str, photo: bytes | None, device, ip: str, day: date, when_text: str, rules: Rules) -> None:
+def _punch_checks(emp: dict, attendance_key: int, kind: str, photo: bytes | None, device, ip: str, day: date, when_text: str, rules: Rules,
+                  unmatched: bool = False) -> None:
     """Record which phone / address and which photo a punch came from, compare the face, and flag it when it looks like someone else's.
     Never raises and never changes the punch."""
     try:
@@ -577,6 +650,9 @@ def _punch_checks(emp: dict, attendance_key: int, kind: str, photo: bytes | None
                     face_status = "no_face"
                     flags.append("face")
                     reasons.append("no face could be found in the selfie")
+        if unmatched and face_status != "match" and "face" not in flags:   # the page could not tell who it was: always a warning for the admins
+            flags.append("face")
+            reasons.append(f"the face was not recognised; marked as {emp['employee_name']} without a face match")
         with db.cursor() as cur:
             cur.execute("INSERT INTO att_punch_check (attendance_key, kind, device_hash, client_ip, photo_sha256, face_status, face_score, flags) "
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (attendance_key, kind) DO UPDATE SET device_hash = EXCLUDED.device_hash, "
@@ -593,7 +669,7 @@ def _reason_text(flags: str, status: str, score) -> str:
     parts = []
     if "face" in flags:
         parts.append("Face does not match the reference photos" + (f" (score {float(score):.2f})" if score is not None else "") if status == "mismatch"
-                     else "No face found in the selfie")
+                     else "No face found in the selfie" if status == "no_face" else "Face not recognised (marked without a face match)")
     if "photo" in flags:
         parts.append("Same photo used before")
     if "device" in flags:
@@ -863,6 +939,18 @@ PUBLIC_IP = {      # the calls that also need the caller's address
     "saveCheckout": lambda a, ip: save_checkout(a[0], ip),
 }
 
+
+def _optional_user_key(request: Request):
+    """The portal user behind the Authorization header, when the page was opened from a signed-in portal session (else None)."""
+    head = request.headers.get("authorization") or ""
+    if not head.lower().startswith("bearer "):
+        return None
+    try:
+        payload = auth.jwt.decode(head[7:].strip(), auth._secret(), algorithms=[auth.ALGORITHM])
+        return int(payload["sub"])
+    except Exception:
+        return None
+
 PUBLIC = {
     "getEmployees": lambda a: get_employees(),
     "getEmployeeSalaryView": lambda a: get_employee_salary_view(a[0], a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else None, a[3] if len(a) > 3 else None),
@@ -914,6 +1002,8 @@ def public_rpc(body: RpcIn, request: Request):
     _throttle(request)
     if not Rules().link_on:
         raise HTTPException(403, "The employee check-in page is switched off. Ask the administrator.")
+    if body.action == "identifyFace":
+        return identify_face(body.args[0] if body.args else "", _optional_user_key(request))
     if body.action in PUBLIC_IP:
         return PUBLIC_IP[body.action](body.args, _client_ip(request))
     fn = PUBLIC.get(body.action)

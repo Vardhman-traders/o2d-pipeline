@@ -189,3 +189,30 @@ def test_the_face_models_do_not_change_what_the_math_says():
     assert face_match.similarity([1, 0, 0], [1, 0, 0]) == pytest.approx(1.0)
     assert face_match.similarity([1, 0, 0], [0, 1, 0]) == pytest.approx(0.0)
     assert face_match.similarity([0, 0, 0], [1, 0, 0]) == 0.0
+
+
+def test_the_face_alone_says_who_is_marking_and_an_unknown_face_falls_back_to_the_name_list(client, db_conn, seed, fake_faces):
+    boss = owner_user(client, db_conn)
+    _employee(client, db_conn, "Id Alice")
+    _employee(client, db_conn, "Id Bob")
+    assert own(client, boss, "addEmployeeFace", "Id Alice", photo("ALICE-ref"))["status"] == "ok"
+    assert own(client, boss, "addEmployeeFace", "Id Bob", photo("BOB-ref"))["status"] == "ok"
+
+    found = pub(client, "identifyFace", photo("ALICE-today"))
+    assert found["status"] == "ok" and found["name"] == "Id Alice" and found["score"] == pytest.approx(1.0)
+    assert pub(client, "identifyFace", photo("BOB-today"))["name"] == "Id Bob"
+
+    assert pub(client, "identifyFace", photo("NOFACE-wall")) == {"status": "unknown", "reason": "no_face", "available": True}
+    assert pub(client, "identifyFace", "")["reason"] == "no_photo"
+
+
+@pytest.mark.attendance_window
+def test_check_in_before_the_earliest_time_and_check_out_after_the_latest_are_refused():
+    from datetime import datetime
+    rules = attendance.Rules()           # defaults: 9:00 AM and 9:00 PM, both set in Setup > Module settings
+    at = lambda h, m: datetime(2026, 1, 5, h, m)  # noqa: E731
+    assert "opens at 9:00 AM" in rules.punch_window_error("in", at(8, 59))
+    assert rules.punch_window_error("in", at(9, 0)) is None
+    assert rules.punch_window_error("out", at(21, 0)) is None
+    assert "closed at 9:00 PM" in rules.punch_window_error("out", at(21, 1))
+    assert rules.punch_window_error("out", at(8, 0)) is None and rules.punch_window_error("in", at(23, 0)) is None
