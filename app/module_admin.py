@@ -314,6 +314,8 @@ SETTINGS = [
     {"key": "att_half_day_before", "group": "Attendance", "type": "time", "default": "17:00", "label": "Check-out before this time (but after the one above) makes it a Half Day"},
     {"key": "att_full_day_until", "group": "Attendance", "type": "time", "default": "20:00", "label": "Check-out up to this time is a normal day (later is also a normal day)"},
     {"key": "att_auto_checkout_time", "group": "Attendance", "type": "time", "default": "20:00", "label": "Time recorded for someone who forgot to check out"},
+    {"key": "att_earliest_checkin", "group": "Attendance", "type": "time", "default": "09:00", "label": "Earliest time a check-in is accepted (before this the page refuses it)"},
+    {"key": "att_latest_checkout", "group": "Attendance", "type": "time", "default": "21:00", "label": "Latest time a check-out is accepted (after this the page refuses it)"},
     {"key": "att_auto_run_time", "group": "Attendance", "type": "time", "default": "21:00", "label": "The auto check-out is done each day after this time"},
     {"key": "att_weekly_off_day", "group": "Attendance", "default": 1, "min": 0, "max": 6, "label": "Weekly off day (0 = Sunday ... 6 = Saturday; paid, not counted absent)"},
     {"key": "att_salary_base_days", "group": "Attendance", "default": 30, "min": 20, "max": 31, "label": "Days a month's salary is divided by"},

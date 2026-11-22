@@ -24,4 +24,5 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 markers = [
     "slow: slower tests (full-schema or end-to-end); run in CI on every PR, skipped with -m 'not slow' for a quick loop",
+    "attendance_window: keeps the Setup check-in / check-out time window switched on (it is off in other tests)",
 ]

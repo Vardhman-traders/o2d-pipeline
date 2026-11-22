@@ -164,25 +164,6 @@ select:disabled{opacity:.6;cursor:wait}
       <div class="sec-title" id="s0Title">👋 Mark Your Attendance</div>
       <div class="sec-hint" id="s0Hint">Works for both Godown and Shop — we'll detect your location automatically</div>
 
-      <div class="checkout-banner" id="checkoutBanner" style="display:none">
-        <div class="checkout-banner-icon">🏁</div>
-        <div>
-          <div class="checkout-banner-title">Time to Check Out!</div>
-          <div class="checkout-banner-sub" id="checkoutBannerSub">You checked in earlier today</div>
-        </div>
-      </div>
-
-      <div class="checkin-info" id="checkinInfoBox" style="display:none">
-        <div class="checkin-info-row">
-          <span class="checkin-info-key">✅ Checked in at</span>
-          <span class="checkin-info-val" id="checkinInfoTime">—</span>
-        </div>
-        <div class="checkin-info-row">
-          <span class="checkin-info-key">📍 Location</span>
-          <span class="checkin-info-val" id="checkinInfoSite">—</span>
-        </div>
-      </div>
-
       <div class="loc-sites">
         <div class="site-card" id="siteGodown">
           <div class="site-icon">🏭</div>
@@ -214,23 +195,8 @@ select:disabled{opacity:.6;cursor:wait}
 
       <div class="alert a-warn" id="alertBox"></div>
 
-      <label class="field-lbl">Select Your Name</label>
-      <div class="dropdown-wrap">
-        <select id="empSelect" onchange="onNameSelect()" disabled>
-          <option value="">⏳ Loading employees…</option>
-        </select>
-      </div>
-
-      <div class="name-card" id="nameCard">
-        <div class="name-avatar" id="nameAvatar"></div>
-        <div>
-          <div class="name-text" id="nameText"></div>
-          <div class="name-sub" id="nameSub">Code Blue Employee</div>
-        </div>
-      </div>
-
-      <button class="btn-main checkin-btn" id="nextBtn" onclick="goStep2()" disabled>Continue →</button>
-      <button type="button" id="salaryBtn" onclick="openSalary()" style="display:none;width:100%;margin-top:.7rem;padding:.8rem;border:1.5px solid #c7d2fe;border-radius:14px;background:#fff;color:#1a237e;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:.9rem;cursor:pointer">💰 My Salary (needs your PIN)</button>
+      <button class="btn-main checkin-btn" id="nextBtn" onclick="startMark()">📸 &nbsp;Mark Attendance</button>
+      <button type="button" id="salaryBtn" onclick="openSalary()" style="display:block;width:100%;margin-top:.7rem;padding:.8rem;border:1.5px solid #c7d2fe;border-radius:14px;background:#fff;color:#1a237e;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:.9rem;cursor:pointer">💰 My Salary (needs your PIN)</button>
 
 
     </div>
@@ -247,19 +213,23 @@ select:disabled{opacity:.6;cursor:wait}
 
     <!-- STEP 2: SELFIE -->
     <div class="sec" id="s1">
-      <div class="selfie-box checkin-mode" id="selfieBox">
-        <div class="big-icon" id="selfieIcon">🤳</div>
-        <h3 id="selfieTitle">Take Your Live Selfie</h3>
-        <p id="selfieHint">Tap the button below — your front camera will open.<br>Take a clear photo of your face.</p>
+      <div class="checkout-banner" id="checkoutBanner" style="display:none">
+        <div class="checkout-banner-icon">🏁</div>
+        <div>
+          <div class="checkout-banner-title">Time to Check Out!</div>
+          <div class="checkout-banner-sub" id="checkoutBannerSub">You checked in earlier today</div>
+        </div>
       </div>
 
-      <div class="camera-btn-wrap">
-        <label class="camera-btn-label" id="cameraLabel" for="cameraInput" onclick="return openLiveCamera(event)">
-          <div class="btn-icon">📸</div>
-          <div class="btn-title">Tap Here to Open Camera</div>
-          <div class="btn-sub">Front camera opens automatically</div>
-        </label>
-        <input type="file" id="cameraInput" accept="image/*" capture="user" onchange="onPhotoTaken(event)">
+      <div class="checkin-info" id="checkinInfoBox" style="display:none">
+        <div class="checkin-info-row">
+          <span class="checkin-info-key">✅ Checked in at</span>
+          <span class="checkin-info-val" id="checkinInfoTime">—</span>
+        </div>
+        <div class="checkin-info-row">
+          <span class="checkin-info-key">📍 Location</span>
+          <span class="checkin-info-val" id="checkinInfoSite">—</span>
+        </div>
       </div>
 
       <div class="preview-wrap" id="previewWrap">
@@ -269,6 +239,31 @@ select:disabled{opacity:.6;cursor:wait}
       <div class="retake-row" id="retakeRow">
         <button class="retake-link" onclick="retakePhoto()" title="Retake photo" aria-label="Retake photo"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
       </div>
+
+      <div class="selfie-box checkin-mode" id="selfieBox">
+        <div class="big-icon" id="selfieIcon">🔍</div>
+        <h3 id="selfieTitle">Checking your face…</h3>
+        <p id="selfieHint">Matching your photo with your saved photo.</p>
+      </div>
+
+      <div class="name-card" id="nameCard" style="margin-top:0">
+        <div class="name-avatar" id="nameAvatar"></div>
+        <div style="flex:1">
+          <div class="name-text" id="nameText"></div>
+          <div class="name-sub" id="nameSub">Code Blue Employee</div>
+        </div>
+      </div>
+
+      <!-- last resort: the face was not recognised and nobody is signed in -->
+      <div id="manualBox" style="display:none">
+        <label class="field-lbl">Select Your Name</label>
+        <div class="dropdown-wrap">
+          <select id="empSelect" onchange="onNameSelect()"><option value="">-- Tap to select your name --</option></select>
+        </div>
+      </div>
+
+      <!-- fallback for old browsers that cannot open the live camera -->
+      <input type="file" id="cameraInput" accept="image/*" capture="user" onchange="onPhotoTaken(event)" style="display:none">
 
       <div class="alert a-err" id="photoAlert"></div>
       <button class="btn-main checkin-btn" id="submitBtn" onclick="submitAction()" disabled>✅ &nbsp;Submit</button>
@@ -322,18 +317,18 @@ function loadEmployees(){
   VT.run
     .withSuccessHandler(function(list){
       EMPLOYEES=list||[];
-      var sel=document.getElementById('empSelect');
-      sel.innerHTML='<option value="">-- Tap to select your name --</option>';
+      var pick=document.getElementById('salPickSel');      // the names are only for the salary pop-up; attendance never asks for one
+      pick.innerHTML='<option value="">-- Select your name --</option>';
+      var emp=document.getElementById('empSelect'); emp.innerHTML='<option value="">-- Tap to select your name --</option>';
       for(var i=0;i<EMPLOYEES.length;i++){
         var opt=document.createElement('option');
         opt.value=EMPLOYEES[i].name;
         opt.textContent=EMPLOYEES[i].name+' — '+EMPLOYEES[i].role;
-        sel.appendChild(opt);
+        pick.appendChild(opt); emp.appendChild(opt.cloneNode(true));
       }
-      sel.disabled=false;
     })
     .withFailureHandler(function(){
-      document.getElementById('empSelect').innerHTML='<option value="">⚠️ Could not load — reload page</option>';
+      document.getElementById('salPickSel').innerHTML='<option value="">⚠️ Could not load — reload page</option>';
     })
     .getEmployees();
 }
@@ -358,6 +353,8 @@ function showSec(n){
 function detectLocation(){
   setLoc('detecting','⏳','Detecting your location…','Checking Godown & Shop…');
   locationOk=false; detectedSite='';
+  document.getElementById('alertBox').className='alert a-warn';
+  if(document.getElementById('photoAlert').classList.contains('a-warn')) document.getElementById('photoAlert').className='alert';
   document.getElementById('siteBadge').className='site-badge';
   document.getElementById('distGodown').textContent='Detecting…';
   document.getElementById('distShop').textContent='Detecting…';
@@ -438,43 +435,86 @@ function setLoc(cls,ico,title,sub){
   document.getElementById('locSub').textContent=sub;
   row.onclick=cls==='ok'?null:detectLocation;
 }
-function showAlert(msg){ var a=document.getElementById('alertBox'); a.textContent=msg; a.className='alert a-warn show'; }
+function showAlert(msg){
+  var a=document.getElementById('alertBox'); a.textContent=msg; a.className='alert a-warn show';
+  if(document.getElementById('s1').classList.contains('on')){ var p=document.getElementById('photoAlert'); p.textContent=msg; p.className='alert a-warn show'; }
+}
 
-function onNameSelect(){
-  var sel=document.getElementById('empSelect');
-  var name=sel.value;
-  var card=document.getElementById('nameCard');
+/* ── who is it: the face decides; the name list is only the fallback ── */
+var autoSent=false, unmatchedPunch=false, CHECKIN_LABEL='✅ &nbsp;Confirm Check In', CHECKOUT_LABEL='🏁 &nbsp;Confirm Check Out', statusReady=false;
 
-  if(name){
-    selectedName=name;
-    var words=name.split(' ');
-    var initials=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
-    document.getElementById('nameAvatar').textContent=initials;
-    document.getElementById('nameText').textContent=name;
-    var role='';
-    for(var i=0;i<EMPLOYEES.length;i++){ if(EMPLOYEES[i].name===name){role=EMPLOYEES[i].role;break;} }
-    document.getElementById('nameSub').textContent=role||'Code Blue Employee';
-    card.classList.add('show');
-    document.getElementById('salaryBtn').style.display='block';
+function startMark(){ openLiveCamera(); }
 
-    VT.run
-      .withSuccessHandler(function(status){
-        todayStatus=status;
-        applyModeUI(status);
-        checkNext();
-      })
-      .withFailureHandler(function(){ todayStatus=null; checkNext(); })
-      .getTodayStatus(name);
+// the selfie is in: show it, then find out who it is
+function afterPhoto(){
+  selectedName=''; todayStatus=null; statusReady=false; autoSent=false; unmatchedPunch=false;
+  document.getElementById('manualBox').style.display='none'; document.getElementById('empSelect').value='';
+  document.getElementById('photoAlert').className='alert';
+  document.getElementById('photoPreview').src=photoB64;
+  document.getElementById('previewWrap').style.display='block';
+  document.getElementById('stampText').textContent=new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
+  document.getElementById('retakeRow').style.display='flex';
+  document.getElementById('nameCard').classList.remove('show');
+  document.getElementById('checkoutBanner').style.display='none';
+  document.getElementById('checkinInfoBox').style.display='none';
+  isCheckoutMode=false; setSubmitLabel();
+  var box=document.getElementById('selfieBox'); box.style.display='block'; box.className='selfie-box checkin-mode';
+  document.getElementById('selfieIcon').textContent='🔍';
+  document.getElementById('selfieTitle').textContent='Checking your face…';
+  document.getElementById('selfieHint').textContent='Matching your photo with your saved photo.';
+  showSec(1); checkNext();
+  var mine=photoB64;
+  VT.run
+    .withSuccessHandler(function(r){
+      if(mine!==photoB64) return;                       // retaken meanwhile
+      if(r&&r.status==='ok') setIdentity(r.name,r.role,true);
+      else if(r&&r.status==='unmatched') setIdentity(r.name,r.role,false);
+      else cannotIdentify(r&&r.reason);
+    })
+    .withFailureHandler(function(){ if(mine===photoB64) cannotIdentify('error'); })
+    .identifyFace(photoB64);
+}
 
-    detectLocation();   // the places this person may mark from can differ from everyone else's
+function setIdentity(name,role,byFace){
+  selectedName=name; statusReady=false; autoSent=false; unmatchedPunch=!byFace;
+  document.getElementById('manualBox').style.display='none';
+  var words=name.split(' ');
+  document.getElementById('nameAvatar').textContent=(words[0][0]+(words[1]?words[1][0]:'')).toUpperCase();
+  document.getElementById('nameText').textContent=name;
+  document.getElementById('nameSub').textContent=role||'Code Blue Employee';
+  document.getElementById('nameCard').classList.add('show');
+  document.getElementById('selfieIcon').textContent=byFace?'✅':'⚠️';
+  document.getElementById('selfieTitle').textContent=byFace?'Face matched':'Face not matched';
+  document.getElementById('selfieHint').textContent=byFace?'Marking your attendance…':'Your attendance will be marked with a warning and the admin will be told.';
+  VT.run
+    .withSuccessHandler(function(status){
+      if(selectedName!==name) return;
+      todayStatus=status; statusReady=true;
+      applyModeUI(status); checkNext();
+    })
+    .withFailureHandler(function(){ if(selectedName===name){ todayStatus=null; statusReady=true; checkNext(); } })
+    .getTodayStatus(name);
+  detectLocation();   // the places this person may mark from can differ from everyone else's
+  checkNext();
+}
 
-  } else {
-    selectedName='';
-    card.classList.remove('show');
-    document.getElementById('salaryBtn').style.display='none';
-    resetToCheckinMode();
-    checkNext();
-  }
+// nobody could be named from the face (and nobody is signed in): no attendance can be marked
+function cannotIdentify(reason){
+  selectedName=''; statusReady=false;
+  document.getElementById('nameCard').classList.remove('show');
+  document.getElementById('selfieIcon').textContent='❌';
+  document.getElementById('selfieTitle').textContent='Could not recognise you';
+  document.getElementById('selfieHint').textContent=(reason==='no_face'?'No face found in the photo.':'Your face did not match any saved photo.')+' Select your name below - attendance will be marked with a warning and the admin will be told.';
+  document.getElementById('manualBox').style.display='block';
+  checkNext();
+}
+
+function onNameSelect(){ var n=document.getElementById('empSelect').value; if(n){ var r=''; for(var i=0;i<EMPLOYEES.length;i++){ if(EMPLOYEES[i].name===n){r=EMPLOYEES[i].role;break;} } setIdentity(n,r,false); } }
+
+function setSubmitLabel(){
+  var b=document.getElementById('submitBtn');
+  b.className='btn-main '+(isCheckoutMode?'checkout-btn':'checkin-btn');
+  b.innerHTML=isCheckoutMode?CHECKOUT_LABEL:CHECKIN_LABEL;
 }
 
 function applyModeUI(status){
@@ -485,11 +525,7 @@ function applyModeUI(status){
     document.getElementById('checkinInfoBox').style.display='block';
     document.getElementById('checkinInfoTime').textContent=status.checkInTime;
     document.getElementById('checkinInfoSite').textContent=detectedSite||'—';
-    document.getElementById('s0Title').textContent='🏁 Check Out';
-    document.getElementById('s0Hint').textContent='You have already checked in today. Tap Continue to check out.';
-    var btn=document.getElementById('nextBtn');
-    btn.className='btn-main checkout-btn';
-    btn.textContent='Continue to Check Out →';
+    setSubmitLabel();
   } else if(status&&status.checkedIn&&status.checkedOut){
     isCheckoutMode=false;
     showAlreadyCheckedOut(status);
@@ -502,36 +538,13 @@ function resetToCheckinMode(){
   isCheckoutMode=false;
   document.getElementById('checkoutBanner').style.display='none';
   document.getElementById('checkinInfoBox').style.display='none';
-  document.getElementById('s0Title').textContent='👋 Mark Your Attendance';
-  document.getElementById('s0Hint').textContent='Works for both Godown and Shop — we\'ll detect your location automatically';
-  var btn=document.getElementById('nextBtn');
-  btn.className='btn-main checkin-btn';
-  btn.textContent='Continue →';
+  setSubmitLabel();
 }
 
 function checkNext(){
-  var hasName=document.getElementById('empSelect').value!=='';
-  document.getElementById('nextBtn').disabled=!(locationOk&&hasName);
-}
-
-function goStep2(){
-  if(!locationOk||!selectedName) return;
-  if(isCheckoutMode){
-    document.getElementById('selfieBox').className='selfie-box checkout-mode';
-    document.getElementById('selfieIcon').textContent='🤳';
-    document.getElementById('selfieTitle').textContent='Check-Out Selfie';
-    document.getElementById('selfieHint').textContent='Take a selfie to confirm your check-out.\nMake sure your face is clearly visible.';
-    document.getElementById('submitBtn').className='btn-main checkout-btn';
-    document.getElementById('submitBtn').innerHTML='🏁 &nbsp;Confirm Check Out';
-  } else {
-    document.getElementById('selfieBox').className='selfie-box checkin-mode';
-    document.getElementById('selfieIcon').textContent='🤳';
-    document.getElementById('selfieTitle').textContent='Take Your Live Selfie';
-    document.getElementById('selfieHint').textContent='Tap the button below — your front camera will open.\nTake a clear photo of your face.';
-    document.getElementById('submitBtn').className='btn-main checkin-btn';
-    document.getElementById('submitBtn').innerHTML='✅ &nbsp;Submit Attendance';
-  }
-  showSec(1);
+  var ready=!!(selectedName&&statusReady&&locationOk&&photoB64);
+  document.getElementById('submitBtn').disabled=!ready||isSubmitting;
+  if(ready&&!isSubmitting&&!autoSent&&document.getElementById('s1').classList.contains('on')){ autoSent=true; submitAction(); }   // recognised: no extra tap needed
 }
 
 /* ── this phone's random id (kept in the browser; the server stores only a hash) and the live camera ── */
@@ -573,61 +586,24 @@ function captureLivePhoto(){
   canvas.getContext('2d').drawImage(v,0,0,w,h);
   photoB64=canvas.toDataURL('image/jpeg',JPEG_QUALITY);
   closeLiveCamera();
-  document.getElementById('photoAlert').className='alert';
-  document.getElementById('photoPreview').src=photoB64;
-  document.getElementById('previewWrap').style.display='block';
-  document.getElementById('stampText').textContent=new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
-  document.getElementById('retakeRow').style.display='flex';
-  var lbl=document.getElementById('cameraLabel');
-  lbl.classList.add('has-photo');
-  lbl.querySelector('.btn-icon').textContent='✅';
-  lbl.querySelector('.btn-title').textContent='Photo Taken!';
-  lbl.querySelector('.btn-sub').textContent='Tap "Retake" to change it';
-  document.getElementById('submitBtn').disabled=false;
+  afterPhoto();
 }
 
 function onPhotoTaken(e){
   var file=e.target.files[0];
   if(!file) return;
-  document.getElementById('photoAlert').className='alert';
-  var lbl=document.getElementById('cameraLabel');
-  lbl.querySelector('.btn-icon').textContent='⏳';
-  lbl.querySelector('.btn-title').textContent='Compressing photo…';
-  lbl.querySelector('.btn-sub').textContent='Just a moment…';
   if(file.size>25*1024*1024){
-    document.getElementById('photoAlert').textContent='❌ Photo too large. Lower camera quality and try again.';
-    document.getElementById('photoAlert').className='alert a-err show';
-    resetCameraLabel(); return;
+    showPhotoErr('❌ Photo too large. Lower camera quality and try again.'); return;
   }
   var reader=new FileReader();
   reader.onload=function(ev){
     compressImage(ev.target.result,MAX_DIM,JPEG_QUALITY,function(compressed){
-      photoB64=compressed;
-      document.getElementById('photoPreview').src=photoB64;
-      document.getElementById('previewWrap').style.display='block';
-      var now=new Date();
-      document.getElementById('stampText').textContent=now.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
-      document.getElementById('retakeRow').style.display='flex';
-      var lbl2=document.getElementById('cameraLabel');
-      lbl2.classList.add('has-photo');
-      lbl2.querySelector('.btn-icon').textContent='✅';
-      lbl2.querySelector('.btn-title').textContent='Photo Taken!';
-      lbl2.querySelector('.btn-sub').textContent='Tap "Retake" to change it';
-      document.getElementById('submitBtn').disabled=false;
+      photoB64=compressed; afterPhoto();
     },function(){
-      photoB64=ev.target.result;
-      document.getElementById('photoPreview').src=photoB64;
-      document.getElementById('previewWrap').style.display='block';
-      document.getElementById('retakeRow').style.display='flex';
-      document.getElementById('submitBtn').disabled=false;
-      resetCameraLabel();
+      photoB64=ev.target.result; afterPhoto();
     });
   };
-  reader.onerror=function(){
-    document.getElementById('photoAlert').textContent='❌ Could not read photo. Try again.';
-    document.getElementById('photoAlert').className='alert a-err show';
-    resetCameraLabel();
-  };
+  reader.onerror=function(){ showPhotoErr('❌ Could not read photo. Try again.'); };
   reader.readAsDataURL(file);
 }
 
@@ -649,26 +625,18 @@ function compressImage(dataUrl,maxDim,quality,onDone,onFail){
   }catch(err){onFail&&onFail();}
 }
 
-function resetCameraLabel(){
-  var lbl=document.getElementById('cameraLabel');
-  lbl.classList.remove('has-photo');
-  lbl.querySelector('.btn-icon').textContent='📸';
-  lbl.querySelector('.btn-title').textContent='Tap Here to Open Camera';
-  lbl.querySelector('.btn-sub').textContent='Front camera opens automatically';
-}
-
 function retakePhoto(){
-  photoB64=null;
+  photoB64=null; selectedName=''; statusReady=false;
   document.getElementById('previewWrap').style.display='none';
   document.getElementById('retakeRow').style.display='none';
-  document.getElementById('submitBtn').disabled=true;
   document.getElementById('photoAlert').className='alert';
-  resetCameraLabel();
   document.getElementById('cameraInput').value='';
+  checkNext();
+  openLiveCamera();
 }
 
 function submitAction(){
-  if(!selectedName||!locationOk||!photoB64||isSubmitting) return;
+  if(!selectedName||!statusReady||!locationOk||!photoB64||isSubmitting) return;
   isSubmitting=true;
   document.getElementById('photoAlert').className='alert';
   if(isCheckoutMode){ doCheckoutAttempt(selectedName,true); }
@@ -705,7 +673,7 @@ function doCheckinAttempt(name,allowRetry){
   var timer=setTimeout(function(){
     timedOut=true;
     if(allowRetry){ btn.innerHTML='<div class="spin"></div>&nbsp; Slow network — retrying…'; doCheckinAttempt(name,false); }
-    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
+    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML=CHECKIN_LABEL; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
   },SUBMIT_TIMEOUT_MS);
   VT.run
     .withSuccessHandler(function(r){
@@ -720,17 +688,17 @@ function doCheckinAttempt(name,allowRetry){
         showAlreadyCheckin(name,r.time);
         notifyWhatsApp(r.rowIndex, name);   // pehli try ka message pending ho toh bhej do
       }
-      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ '+r.msg); }
-      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
-      else{ btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
+      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML=CHECKIN_LABEL; showPhotoErr('❌ '+r.msg); }
+      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML=CHECKIN_LABEL; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
+      else{ btn.disabled=false; btn.innerHTML=CHECKIN_LABEL; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
     })
     .withFailureHandler(function(){
       if(timedOut) return;
       clearTimeout(timer); isSubmitting=false;
-      btn.disabled=false; btn.innerHTML='✅ &nbsp;Submit Attendance';
+      btn.disabled=false; btn.innerHTML=CHECKIN_LABEL;
       showPhotoErr('❌ Could not reach server. Check internet and try again.');
     })
-    .saveAttendance({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId()});
+    .saveAttendance({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId(),unmatched:unmatchedPunch});
 }
 
 function doCheckoutAttempt(name,allowRetry){
@@ -740,7 +708,7 @@ function doCheckoutAttempt(name,allowRetry){
   var timer=setTimeout(function(){
     timedOut=true;
     if(allowRetry){ btn.innerHTML='<div class="spin"></div>&nbsp; Slow network — retrying…'; doCheckoutAttempt(name,false); }
-    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
+    else{ isSubmitting=false; btn.disabled=false; btn.innerHTML=CHECKOUT_LABEL; showPhotoErr('❌ Network too slow. Check signal and try again.'); }
   },SUBMIT_TIMEOUT_MS);
   VT.run
     .withSuccessHandler(function(r){
@@ -754,17 +722,17 @@ function doCheckoutAttempt(name,allowRetry){
         showAlreadyCheckedOut2(name,r.time);
         notifyWhatsApp(r.rowIndex, name);
       }
-      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ '+r.msg); }
-      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
-      else{ btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out'; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
+      else if(r.status==='wrong_location'){ btn.disabled=false; btn.innerHTML=CHECKOUT_LABEL; showPhotoErr('❌ '+r.msg); }
+      else if(r.status==='out_of_range'){ btn.disabled=false; btn.innerHTML=CHECKOUT_LABEL; showPhotoErr('❌ Location check failed. Godown: '+r.distGodown+'m, Shop: '+r.distShop+'m away.'); }
+      else{ btn.disabled=false; btn.innerHTML=CHECKOUT_LABEL; showPhotoErr('❌ Error: '+(r.msg||'Please try again')); }
     })
     .withFailureHandler(function(){
       if(timedOut) return;
       clearTimeout(timer); isSubmitting=false;
-      btn.disabled=false; btn.innerHTML='🏁 &nbsp;Confirm Check Out';
+      btn.disabled=false; btn.innerHTML=CHECKOUT_LABEL;
       showPhotoErr('❌ Could not reach server. Check internet and try again.');
     })
-    .saveCheckout({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId()});
+    .saveCheckout({name:name,lat:uLat,lng:uLng,photo:photoB64,device:deviceId(),unmatched:unmatchedPunch});
 }
 
 function showPhotoErr(msg){ var a=document.getElementById('photoAlert'); a.textContent=msg; a.className='alert a-err show'; }
@@ -835,10 +803,11 @@ function showAlreadyCheckedOut2(name,time){
 var SAL_MONTH=null;
 function salEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function salRs(v){ return '₹'+Math.round(Number(v)||0).toLocaleString('en-IN'); }
+var salWho='';
 function openSalary(){
-  if(!selectedName) return;
   document.getElementById('salModal').style.display='flex';
-  document.getElementById('salName').textContent=selectedName;
+  salWho='';
+  document.getElementById('salPickSel').value=selectedName||'';
   document.getElementById('salPinBox').style.display='block';
   document.getElementById('salResult').style.display='none';
   document.getElementById('salPin').value='';
@@ -852,6 +821,8 @@ function closeSalary(){
 }
 function submitPin(){
   var pin=document.getElementById('salPin').value.trim(), msg=document.getElementById('salMsg'), btn=document.getElementById('salGo');
+  var who=document.getElementById('salPickSel').value;
+  if(!who){ msg.textContent='Select your name first.'; return; }
   if(pin.length<4){ msg.textContent='Enter your PIN (4 or more digits).'; return; }
   btn.disabled=true; msg.textContent='Checking…';
   VT.run
@@ -860,11 +831,12 @@ function submitPin(){
       document.getElementById('salPin').value='';     // the PIN is not kept on the page
       if(!r||r.status!=='ok'){ msg.textContent=(r&&r.msg)||'Could not check the PIN.'; return; }
       msg.textContent='';
+      salWho=who;
       document.getElementById('salPinBox').style.display='none';
       loadSalary(null);
     })
     .withFailureHandler(function(e){ btn.disabled=false; msg.textContent=e.message||'Could not reach the server.'; })
-    .verifyEmployeePIN(selectedName,pin);
+    .verifyEmployeePIN(who,pin);
 }
 function loadSalary(ym){
   var box=document.getElementById('salResult'); box.style.display='block'; box.innerHTML='<p style="text-align:center;color:#6b7280">Loading…</p>';
@@ -880,7 +852,7 @@ function loadSalary(ym){
       renderSalary(r);
     })
     .withFailureHandler(function(e){ box.innerHTML='<p style="color:#b91c1c;text-align:center">'+salEsc(e.message)+'</p>'; })
-    .getEmployeeSalaryView(selectedName,y,m);
+    .getEmployeeSalaryView(salWho,y,m);
 }
 function renderSalary(r){
   var s=r.stats, pc=r.percent||{}, months=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -905,8 +877,10 @@ function renderSalary(r){
 </script>
 <div id="salModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:50;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeSalary()">
   <div style="background:#fff;border-radius:18px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:1.2rem">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem"><b style="font-size:1rem">💰 My Salary — <span id="salName"></span></b><button type="button" onclick="closeSalary()" aria-label="Close" style="border:none;background:none;font-size:1.3rem;cursor:pointer">✕</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem"><b style="font-size:1rem">💰 My Salary</b><button type="button" onclick="closeSalary()" aria-label="Close" style="border:none;background:none;font-size:1.3rem;cursor:pointer">✕</button></div>
     <div id="salPinBox">
+      <label style="font-size:.78rem;font-weight:700;color:#374151">Your name</label>
+      <select id="salPickSel" style="width:100%;padding:.7rem;border:1.5px solid #c7d2fe;border-radius:12px;font-size:.95rem;margin:.35rem 0 .7rem"><option value="">-- Select your name --</option></select>
       <label style="font-size:.78rem;font-weight:700;color:#374151">Your salary PIN</label>
       <input id="salPin" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="PIN" onkeydown="if(event.key==='Enter')submitPin()" style="width:100%;padding:.8rem;border:1.5px solid #c7d2fe;border-radius:12px;font-size:1.1rem;letter-spacing:.3em;margin:.35rem 0 .6rem">
       <button type="button" id="salGo" class="btn-main checkin-btn" onclick="submitPin()" style="margin-top:0">Show my salary</button>

@@ -126,7 +126,7 @@
   function attOwner(action, args) { return ask('POST', '/attendance/owner/rpc', { action: action, args: args }); }
   var isOwnerPage = function () { return window.VT_MODULE === 'attendance_owner'; };
   fns.getEmployees = function () { return isOwnerPage() ? attOwner('getEmployees', []) : attPublic('getEmployees', []); };
-  ['getTodayStatus', 'checkLocation', 'saveAttendance', 'saveCheckout', 'notifyAttendance', 'getDashboardUrl'].forEach(function (n) {
+  ['getTodayStatus', 'identifyFace', 'checkLocation', 'saveAttendance', 'saveCheckout', 'notifyAttendance', 'getDashboardUrl'].forEach(function (n) {
     fns[n] = function () { return attPublic(n, Array.prototype.slice.call(arguments)); };
   });
   fns.verifyEmployeePIN = function (name, pin) {
